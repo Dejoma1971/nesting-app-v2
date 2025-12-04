@@ -16,7 +16,7 @@ export interface ImportedPart {
   pedido: string;
   op: string;
   material: string;
-  espessura: number;
+  espessura: string;
   autor: string;
   dataCadastro: string; // ISO String
   cliente?: string;     // Opcional, mas útil

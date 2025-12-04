@@ -3,6 +3,22 @@ import React, { useState } from "react";
 import DxfParser from "dxf-parser";
 import type { ImportedPart } from "./types";
 
+// --- CONSTANTES ---
+const THICKNESS_OPTIONS = [
+  "28",
+  "26",
+  "24",
+  "22",
+  "20",
+  "18",
+  "16",
+  "14",
+  '1/8"',
+  '3/16"',
+  '1/4"',
+  '5/16"',
+];
+
 // --- ESTRUTURAS AUXILIARES ---
 interface Point {
   x: number;
@@ -14,6 +30,11 @@ interface EntityBox {
   maxX: number;
   maxY: number;
   area: number;
+}
+
+// --- PROPS DO COMPONENTE ---
+interface EngineeringScreenProps {
+  onBack: () => void;
 }
 
 // --- 1. FUNÇÕES AUXILIARES (MATEMÁTICA E CLUSTERING) ---
@@ -79,24 +100,44 @@ const entitiesTouch = (ent1: any, ent2: any) => {
   return false;
 };
 
-const calculateBoundingBox = (entities: any[]): EntityBox => {
+const calculateBoundingBox = (entities: any[], blocks: any = {}): EntityBox => {
   let minX = Infinity,
     minY = Infinity,
     maxX = -Infinity,
     maxY = -Infinity;
+
   const update = (x: number, y: number) => {
     if (x < minX) minX = x;
     if (x > maxX) maxX = x;
     if (y < minY) minY = y;
     if (y > maxY) maxY = y;
   };
+
   entities.forEach((ent) => {
-    if (ent.vertices) ent.vertices.forEach((v: any) => update(v.x, v.y));
+    if (ent.type === "INSERT") {
+      const block = blocks[ent.name];
+      if (block && block.entities) {
+        const innerBox = calculateBoundingBox(block.entities, blocks);
+        const bPos = ent.position || { x: 0, y: 0 };
+        const bScale = ent.scale?.x || 1;
+        update(
+          bPos.x + innerBox.minX * bScale,
+          bPos.y + innerBox.minY * bScale
+        );
+        update(
+          bPos.x + innerBox.maxX * bScale,
+          bPos.y + innerBox.maxY * bScale
+        );
+      } else {
+        update(ent.position.x, ent.position.y);
+      }
+    } else if (ent.vertices) ent.vertices.forEach((v: any) => update(v.x, v.y));
     else if (ent.center && ent.radius) {
       update(ent.center.x - ent.radius, ent.center.y - ent.radius);
       update(ent.center.x + ent.radius, ent.center.y + ent.radius);
     }
   });
+
   if (minX === Infinity) return { minX: 0, minY: 0, maxX: 0, maxY: 0, area: 0 };
   return { minX, minY, maxX, maxY, area: (maxX - minX) * (maxY - minY) };
 };
@@ -182,10 +223,10 @@ const applyRotationToPart = (
   part: ImportedPart,
   angle: number
 ): ImportedPart => {
-  const newPart = JSON.parse(JSON.stringify(part));
+  const flatEntities = flattenGeometry(part.entities, part.blocks);
   const transform = { x: 0, y: 0, rotation: angle, scale: 1 };
 
-  newPart.entities = newPart.entities.map((ent: any) => {
+  const rotatedEntities = flatEntities.map((ent: any) => {
     const applyTrans = (x: number, y: number) =>
       rotatePoint(x, y, transform.rotation);
 
@@ -212,14 +253,16 @@ const applyRotationToPart = (
     return ent;
   });
 
-  const box = calculateBoundingBox(newPart.entities);
+  const box = calculateBoundingBox(rotatedEntities);
   const minX = box.minX;
   const minY = box.minY;
 
+  const newPart = JSON.parse(JSON.stringify(part));
   newPart.width = box.maxX - box.minX;
   newPart.height = box.maxY - box.minY;
+  newPart.blocks = {};
 
-  newPart.entities.forEach((ent: any) => {
+  newPart.entities = rotatedEntities.map((ent: any) => {
     const move = (x: number, y: number) => ({ x: x - minX, y: y - minY });
     if (ent.vertices)
       ent.vertices = ent.vertices.map((v: any) => {
@@ -230,6 +273,7 @@ const applyRotationToPart = (
       const c = move(ent.center.x, ent.center.y);
       ent.center = { x: c.x, y: c.y };
     }
+    return ent;
   });
 
   return newPart;
@@ -323,21 +367,42 @@ const processFileToParts = (
 
 // --- 2. COMPONENTE PRINCIPAL ---
 
-export const EngineeringScreen = () => {
+export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
+  onBack,
+}) => {
   const [parts, setParts] = useState<ImportedPart[]>([]);
   const [loading, setLoading] = useState(false);
   const [processingMsg, setProcessingMsg] = useState("");
 
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
   const [viewingPartId, setViewingPartId] = useState<string | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState(true);
 
   const [batchDefaults, setBatchDefaults] = useState({
     pedido: "",
     op: "",
     material: "Inox 304",
-    espessura: 1.0,
+    espessura: "20",
     autor: "",
   });
+
+  const theme = {
+    bg: isDarkMode ? "#1e1e1e" : "#f5f5f5",
+    panelBg: isDarkMode ? "#1e1e1e" : "#ffffff",
+    headerBg: isDarkMode ? "#252526" : "#e0e0e0",
+    batchBg: isDarkMode ? "#2d2d2d" : "#eeeeee",
+    text: isDarkMode ? "#e0e0e0" : "#333333",
+    border: isDarkMode ? "#444" : "#ccc",
+    cardBg: isDarkMode ? "#2d2d2d" : "#ffffff",
+    inputBg: isDarkMode ? "#1e1e1e" : "#ffffff",
+    hoverRow: isDarkMode ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)",
+    selectedRow: isDarkMode
+      ? "rgba(0, 123, 255, 0.15)"
+      : "rgba(0, 123, 255, 0.1)",
+    label: isDarkMode ? "#aaa" : "#666",
+    modalBg: isDarkMode ? "#252526" : "#fff",
+    modalOverlay: isDarkMode ? "rgba(0,0,0,0.85)" : "rgba(0,0,0,0.5)",
+  };
 
   const handleDefaultChange = (field: string, value: any) => {
     setBatchDefaults((prev) => ({ ...prev, [field]: value }));
@@ -368,7 +433,6 @@ export const EngineeringScreen = () => {
       e.preventDefault();
       e.stopPropagation();
     }
-
     if (window.confirm("Deseja realmente remover esta peça do inventário?")) {
       setParts((prev) => prev.filter((p) => p.id !== id));
       if (selectedPartId === id) setSelectedPartId(null);
@@ -376,15 +440,67 @@ export const EngineeringScreen = () => {
     }
   };
 
-  const handleRotatePart = (direction: "cw" | "ccw") => {
-    if (!viewingPartId) return;
-    const angle = direction === "cw" ? -90 : 90;
+  const handleConvertToBlock = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setParts((prev) =>
+      prev.map((p) => {
+        if (p.id !== id) return p;
+        if (p.entities.length === 1 && p.entities[0].type === "INSERT")
+          return p;
+
+        const blockName = `BLOCK_${p.id.substring(0, 8).toUpperCase()}`;
+        const newBlocks = { ...p.blocks };
+        newBlocks[blockName] = { entities: p.entities };
+
+        const insertEntity = {
+          type: "INSERT",
+          name: blockName,
+          position: { x: 0, y: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          rotation: 0,
+        };
+
+        return { ...p, entities: [insertEntity], blocks: newBlocks };
+      })
+    );
+  };
+
+  const handleConvertAllToBlocks = () => {
+    if (
+      !window.confirm(
+        `Isso irá converter TODAS as peças com múltiplas entidades em Blocos únicos. Deseja continuar?`
+      )
+    )
+      return;
 
     setParts((prev) =>
       prev.map((p) => {
-        if (p.id === viewingPartId) {
-          return applyRotationToPart(p, angle);
-        }
+        if (p.entities.length === 1 && p.entities[0].type === "INSERT")
+          return p;
+
+        const blockName = `BLOCK_${p.id.substring(0, 8).toUpperCase()}`;
+        const newBlocks = { ...p.blocks };
+        newBlocks[blockName] = { entities: p.entities };
+
+        const insertEntity = {
+          type: "INSERT",
+          name: blockName,
+          position: { x: 0, y: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          rotation: 0,
+        };
+
+        return { ...p, entities: [insertEntity], blocks: newBlocks };
+      })
+    );
+  };
+
+  const handleRotatePart = (direction: "cw" | "ccw") => {
+    if (!viewingPartId) return;
+    const angle = direction === "cw" ? -90 : 90;
+    setParts((prev) =>
+      prev.map((p) => {
+        if (p.id === viewingPartId) return applyRotationToPart(p, angle);
         return p;
       })
     );
@@ -410,7 +526,6 @@ export const EngineeringScreen = () => {
             const content = e.target?.result as string;
             setProcessingMsg(`Processando ${file.name}...`);
             const parsed = parser.parseSync(content);
-
             if (parsed) {
               const flatEnts = flattenGeometry(
                 (parsed as any).entities,
@@ -438,8 +553,30 @@ export const EngineeringScreen = () => {
     setProcessingMsg("");
   };
 
-  const renderEntity = (entity: any, index: number): React.ReactNode => {
+  const renderEntity = (
+    entity: any,
+    index: number,
+    blocks?: any
+  ): React.ReactNode => {
     switch (entity.type) {
+      case "INSERT": {
+        if (!blocks || !blocks[entity.name]) return null;
+        const block = blocks[entity.name];
+        const bPos = entity.position || { x: 0, y: 0 };
+        const bScale = entity.scale?.x || 1;
+        const bRot = entity.rotation || 0;
+        return (
+          <g
+            key={index}
+            transform={`translate(${bPos.x}, ${bPos.y}) rotate(${bRot}) scale(${bScale})`}
+          >
+            {block.entities &&
+              block.entities.map((child: any, i: number) =>
+                renderEntity(child, i, blocks)
+              )}
+          </g>
+        );
+      }
       case "LINE":
         return (
           <line
@@ -511,23 +648,22 @@ export const EngineeringScreen = () => {
     }
   };
 
-  // --- ESTILOS ---
+  // --- ESTILOS DINÂMICOS (TEMAS) ---
   const containerStyle: React.CSSProperties = {
     display: "flex",
     flexDirection: "column",
     height: "100vh",
-    background: "#1e1e1e",
-    color: "#e0e0e0",
+    background: theme.bg,
+    color: theme.text,
     fontFamily: "Arial",
   };
-
   const batchContainerStyle: React.CSSProperties = {
     display: "flex",
     gap: "15px",
     alignItems: "flex-end",
     padding: "15px",
-    background: "#2d2d2d",
-    borderBottom: "1px solid #444",
+    background: theme.batchBg,
+    borderBottom: `1px solid ${theme.border}`,
     flexWrap: "wrap",
   };
   const inputGroupStyle: React.CSSProperties = {
@@ -537,13 +673,13 @@ export const EngineeringScreen = () => {
   };
   const labelStyle: React.CSSProperties = {
     fontSize: "11px",
-    color: "#aaa",
+    color: theme.label,
     fontWeight: "bold",
   };
   const inputStyle: React.CSSProperties = {
-    background: "#1e1e1e",
-    border: "1px solid #555",
-    color: "#fff",
+    background: theme.inputBg,
+    border: `1px solid ${theme.border}`,
+    color: theme.text,
     padding: "5px",
     borderRadius: "4px",
     fontSize: "13px",
@@ -558,7 +694,6 @@ export const EngineeringScreen = () => {
     marginLeft: "5px",
     textDecoration: "underline",
   };
-
   const splitContainer: React.CSSProperties = {
     display: "flex",
     flex: 1,
@@ -566,47 +701,48 @@ export const EngineeringScreen = () => {
   };
   const leftPanel: React.CSSProperties = {
     flex: 1,
-    borderRight: "1px solid #444",
+    borderRight: `1px solid ${theme.border}`,
     display: "flex",
     flexDirection: "column",
     overflowY: "auto",
-    background: "#1e1e1e",
+    background: theme.panelBg,
   };
   const rightPanel: React.CSSProperties = {
     flex: 3,
     display: "flex",
     flexDirection: "column",
     overflowY: "auto",
-    background: "#1e1e1e",
+    background: theme.panelBg,
   };
 
   const cardStyle: React.CSSProperties = {
     width: "120px",
     height: "120px",
-    border: "1px solid #444",
+    border: `1px solid ${theme.border}`,
     margin: "10px",
     borderRadius: "4px",
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
-    background: "#2d2d2d",
+    background: theme.cardBg,
     flexDirection: "column",
     cursor: "pointer",
     transition: "0.2s",
     position: "relative",
+    color: theme.text,
   };
 
   const tableHeaderStyle: React.CSSProperties = {
     textAlign: "left",
     padding: "8px",
-    borderBottom: "1px solid #555",
-    color: "#888",
+    borderBottom: `1px solid ${theme.border}`,
+    color: theme.label,
     fontSize: "12px",
     whiteSpace: "nowrap",
   };
   const tableCellStyle: React.CSSProperties = {
     padding: "5px 8px",
-    borderBottom: "1px solid #333",
+    borderBottom: `1px solid ${theme.border}`,
     fontSize: "13px",
   };
   const cellInputStyle: React.CSSProperties = {
@@ -615,7 +751,7 @@ export const EngineeringScreen = () => {
     border: "none",
     color: "inherit",
     fontSize: "inherit",
-    borderBottom: "1px solid #444",
+    borderBottom: `1px solid ${theme.border}`,
   };
 
   const deleteBtnStyle: React.CSSProperties = {
@@ -624,19 +760,88 @@ export const EngineeringScreen = () => {
     cursor: "pointer",
     fontSize: "14px",
   };
+  const blockBtnStyle: React.CSSProperties = {
+    background: "transparent",
+    border: "none",
+    cursor: "pointer",
+    fontSize: "14px",
+  };
 
-  // --- PEÇA EM VISUALIZAÇÃO NO MODAL ---
   const viewingPart = viewingPartId
     ? parts.find((p) => p.id === viewingPartId)
     : null;
 
   return (
     <div style={containerStyle}>
+      <div
+        style={{
+          padding: "6px 18px",
+          borderBottom: `1px solid ${theme.border}`,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          background: theme.headerBg,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
+          <button
+            onClick={onBack}
+            title="Voltar ao Menu Principal"
+            style={{
+              background: "transparent",
+              border: "none",
+              color: theme.text,
+              cursor: "pointer",
+              fontSize: "24px",
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+              <polyline points="9 22 9 12 15 12 15 22"></polyline>
+            </svg>
+          </button>
+          <h2 style={{ margin: 0, fontSize: "18px", color: "#007bff" }}>
+            Engenharia & Projetos
+          </h2>
+          {loading && (
+            <span style={{ fontSize: "12px", color: "#ffd700" }}>
+              ⏳ {processingMsg}
+            </span>
+          )}
+        </div>
+        <div>
+          <button
+            onClick={() => setIsDarkMode(!isDarkMode)}
+            style={{
+              background: "transparent",
+              border: `1px solid ${theme.border}`,
+              color: theme.text,
+              padding: "5px 10px",
+              borderRadius: "4px",
+              cursor: "pointer",
+              marginRight: "10px",
+            }}
+          >
+            {isDarkMode ? "☀️ Claro" : "🌙 Escuro"}
+          </button>
+        </div>
+      </div>
+
       <div style={batchContainerStyle}>
-        {/* ... Inputs de Batch ... */}
         <div
           style={{
-            color: "#fff",
+            color: theme.text,
             fontWeight: "bold",
             marginRight: "20px",
             fontSize: "14px",
@@ -699,7 +904,7 @@ export const EngineeringScreen = () => {
         </div>
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
-            ESPESSURA (mm){" "}
+            ESPESSURA{" "}
             <button
               style={applyButtonStyle}
               onClick={() => applyToAll("espessura")}
@@ -707,15 +912,17 @@ export const EngineeringScreen = () => {
               Aplicar Todos
             </button>
           </label>
-          <input
-            type="number"
-            step="0.1"
+          <select
             style={{ ...inputStyle, width: "80px" }}
             value={batchDefaults.espessura}
-            onChange={(e) =>
-              handleDefaultChange("espessura", Number(e.target.value))
-            }
-          />
+            onChange={(e) => handleDefaultChange("espessura", e.target.value)}
+          >
+            {THICKNESS_OPTIONS.map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
         </div>
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
@@ -734,6 +941,25 @@ export const EngineeringScreen = () => {
             placeholder="Ex: Gabriel"
           />
         </div>
+
+        <button
+          onClick={handleConvertAllToBlocks}
+          title="Converte todas as peças complexas em blocos únicos"
+          style={{
+            background: "#ffc107",
+            color: "#333",
+            border: "none",
+            padding: "10px 15px",
+            borderRadius: "4px",
+            cursor: "pointer",
+            fontSize: "13px",
+            fontWeight: "bold",
+            marginLeft: "15px",
+          }}
+        >
+          📦 Insert/Block
+        </button>
+
         <label
           style={{
             background: "#28a745",
@@ -746,7 +972,7 @@ export const EngineeringScreen = () => {
             marginLeft: "auto",
           }}
         >
-          + Importar e Processar
+          Importar Peças
           <input
             type="file"
             accept=".dxf"
@@ -758,15 +984,14 @@ export const EngineeringScreen = () => {
       </div>
 
       <div style={splitContainer}>
-        {/* ESQUERDA: MINIATURAS */}
         <div style={leftPanel}>
           <div
             style={{
               padding: "10px",
-              borderBottom: "1px solid #333",
+              borderBottom: `1px solid ${theme.border}`,
               fontWeight: "bold",
               fontSize: "12px",
-              background: "#252526",
+              background: theme.headerBg,
             }}
           >
             VISUALIZAÇÃO ({parts.length})
@@ -780,37 +1005,18 @@ export const EngineeringScreen = () => {
             }}
           >
             {parts.map((part, idx) => {
-              let minX = Infinity,
-                minY = Infinity,
-                maxX = -Infinity,
-                maxY = -Infinity;
-              part.entities.forEach((ent: any) => {
-                if (ent.vertices)
-                  ent.vertices.forEach((v: any) => {
-                    if (v.x < minX) minX = v.x;
-                    if (v.x > maxX) maxX = v.x;
-                    if (v.y < minY) minY = v.y;
-                    if (v.y > maxY) maxY = v.y;
-                  });
-                else if (ent.center) {
-                  const r = ent.radius || 0;
-                  if (ent.center.x - r < minX) minX = ent.center.x - r;
-                  if (ent.center.x + r > maxX) maxX = ent.center.x + r;
-                  if (ent.center.y - r < minY) minY = ent.center.y - r;
-                  if (ent.center.y + r > maxY) maxY = ent.center.y + r;
-                }
-              });
-              const w = maxX - minX || 100;
-              const h = maxY - minY || 100;
+              const box = calculateBoundingBox(part.entities, part.blocks);
+              const w = box.maxX - box.minX || 100;
+              const h = box.maxY - box.minY || 100;
               const p = Math.max(w, h) * 0.1;
-              const viewBox = `${minX - p} ${minY - p} ${w + p * 2} ${
+              const viewBox = `${box.minX - p} ${box.minY - p} ${w + p * 2} ${
                 h + p * 2
               }`;
 
               const isSelected = part.id === selectedPartId;
               const dynamicCardStyle: React.CSSProperties = {
                 ...cardStyle,
-                borderColor: isSelected ? "#007bff" : "#444",
+                borderColor: isSelected ? "#007bff" : theme.border,
                 boxShadow: isSelected
                   ? "0 0 0 2px rgba(0,123,255,0.5)"
                   : "none",
@@ -831,14 +1037,12 @@ export const EngineeringScreen = () => {
                       top: 2,
                       left: 2,
                       fontSize: "9px",
-                      color: isSelected ? "#007bff" : "#777",
+                      color: isSelected ? "#007bff" : theme.label,
                       fontWeight: "bold",
                     }}
                   >
                     #{idx + 1}
                   </div>
-
-                  {/* AQUI ESTÁ A CORREÇÃO DE LAYOUT: CONTAINER DE BOTÕES EM COLUNA */}
                   <div
                     style={{
                       position: "absolute",
@@ -847,7 +1051,7 @@ export const EngineeringScreen = () => {
                       display: "flex",
                       flexDirection: "column",
                       gap: 5,
-                      zIndex: 10, // Garante que fique sobre o card
+                      zIndex: 10,
                     }}
                   >
                     <button
@@ -856,8 +1060,8 @@ export const EngineeringScreen = () => {
                         setViewingPartId(part.id);
                       }}
                       style={{
-                        background: "rgba(0,0,0,0.6)",
-                        border: "1px solid #555",
+                        background: "rgba(0,0,0,0.1)",
+                        border: `1px solid ${theme.border}`,
                         color: "#007bff",
                         cursor: "pointer",
                         fontSize: "12px",
@@ -869,16 +1073,15 @@ export const EngineeringScreen = () => {
                         alignItems: "center",
                         justifyContent: "center",
                       }}
-                      title="Visualizar e Rotacionar"
+                      title="Visualizar"
                     >
                       👁️
                     </button>
-
                     <button
                       onClick={(e) => handleDeletePart(part.id, e)}
                       style={{
-                        background: "rgba(0,0,0,0.6)",
-                        border: "1px solid #555",
+                        background: "rgba(0,0,0,0.1)",
+                        border: `1px solid ${theme.border}`,
                         color: "#ff4d4d",
                         cursor: "pointer",
                         fontSize: "12px",
@@ -896,13 +1099,13 @@ export const EngineeringScreen = () => {
                       ✕
                     </button>
                   </div>
-
                   <div
                     style={{
                       flex: 1,
                       width: "100%",
                       padding: "5px",
                       boxSizing: "border-box",
+                      overflow: "hidden",
                     }}
                   >
                     <svg
@@ -912,14 +1115,14 @@ export const EngineeringScreen = () => {
                       preserveAspectRatio="xMidYMid meet"
                     >
                       {part.entities.map((ent: any, i: number) =>
-                        renderEntity(ent, i)
+                        renderEntity(ent, i, part.blocks)
                       )}
                     </svg>
                   </div>
                   <div
                     style={{
                       width: "100%",
-                      background: isSelected ? "#007bff" : "rgba(0,0,0,0.3)",
+                      background: isSelected ? "#007bff" : "rgba(0,0,0,0.1)",
                       color: isSelected ? "#fff" : "inherit",
                       padding: "2px 5px",
                       fontSize: "9px",
@@ -937,16 +1140,14 @@ export const EngineeringScreen = () => {
           </div>
         </div>
 
-        {/* DIREITA: TABELA EDITÁVEL */}
         <div style={rightPanel}>
-          {/* ... Conteúdo inalterado da tabela ... */}
           <div
             style={{
               padding: "10px",
-              borderBottom: "1px solid #333",
+              borderBottom: `1px solid ${theme.border}`,
               fontWeight: "bold",
               fontSize: "12px",
-              background: "#252526",
+              background: theme.headerBg,
               display: "flex",
               justifyContent: "space-between",
             }}
@@ -959,7 +1160,7 @@ export const EngineeringScreen = () => {
 
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr style={{ background: "rgba(255,255,255,0.05)" }}>
+              <tr style={{ background: theme.hoverRow }}>
                 <th style={tableHeaderStyle}>#</th>
                 <th style={{ ...tableHeaderStyle, width: "200px" }}>Nome</th>
                 <th style={{ ...tableHeaderStyle, width: "80px" }}>Pedido</th>
@@ -968,6 +1169,7 @@ export const EngineeringScreen = () => {
                 <th style={{ ...tableHeaderStyle, width: "60px" }}>Esp.</th>
                 <th style={tableHeaderStyle}>Autor</th>
                 <th style={tableHeaderStyle}>Dimensões</th>
+                <th style={tableHeaderStyle}>Qtd.</th>
                 <th style={tableHeaderStyle}>Ações</th>
               </tr>
             </thead>
@@ -975,10 +1177,18 @@ export const EngineeringScreen = () => {
               {parts.map((part, i) => {
                 const isSelected = part.id === selectedPartId;
                 const rowBackground = isSelected
-                  ? "rgba(0, 123, 255, 0.15)"
+                  ? theme.selectedRow
                   : i % 2 === 0
                   ? "transparent"
-                  : "rgba(255,255,255,0.02)";
+                  : theme.hoverRow;
+                const entCount = part.entities.length;
+                const entColor =
+                  entCount === 1
+                    ? "#28a745"
+                    : entCount > 10
+                    ? "#ff4d4d"
+                    : theme.label;
+
                 return (
                   <tr
                     key={part.id}
@@ -1025,9 +1235,10 @@ export const EngineeringScreen = () => {
                       <select
                         style={{
                           ...cellInputStyle,
+                          width: "100%",
                           border: "none",
                           background: "transparent",
-                          color: "#aaa",
+                          color: "inherit",
                         }}
                         value={part.material}
                         onChange={(e) =>
@@ -1042,19 +1253,19 @@ export const EngineeringScreen = () => {
                       </select>
                     </td>
                     <td style={tableCellStyle}>
-                      <input
-                        type="number"
-                        step="0.1"
+                      <select
                         style={cellInputStyle}
                         value={part.espessura}
                         onChange={(e) =>
-                          handleRowChange(
-                            part.id,
-                            "espessura",
-                            Number(e.target.value)
-                          )
+                          handleRowChange(part.id, "espessura", e.target.value)
                         }
-                      />
+                      >
+                        {THICKNESS_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
                     </td>
                     <td style={tableCellStyle}>
                       <input
@@ -1074,14 +1285,35 @@ export const EngineeringScreen = () => {
                     >
                       {part.width.toFixed(0)} x {part.height.toFixed(0)}
                     </td>
+                    <td
+                      style={{
+                        ...tableCellStyle,
+                        color: entColor,
+                        fontWeight: "bold",
+                        textAlign: "center",
+                      }}
+                    >
+                      {entCount}
+                    </td>
                     <td style={tableCellStyle}>
-                      <button
-                        style={deleteBtnStyle}
-                        onClick={(e) => handleDeletePart(part.id, e)}
-                        title="Excluir peça"
-                      >
-                        🗑️
-                      </button>
+                      <div style={{ display: "flex", gap: "10px" }}>
+                        {entCount > 1 && (
+                          <button
+                            style={blockBtnStyle}
+                            onClick={(e) => handleConvertToBlock(part.id, e)}
+                            title="Converter para Bloco Único"
+                          >
+                            📦
+                          </button>
+                        )}
+                        <button
+                          style={deleteBtnStyle}
+                          onClick={(e) => handleDeletePart(part.id, e)}
+                          title="Excluir peça"
+                        >
+                          🗑️
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -1091,7 +1323,6 @@ export const EngineeringScreen = () => {
         </div>
       </div>
 
-      {/* --- MODAL DE VISUALIZAÇÃO E ROTAÇÃO --- */}
       {viewingPart && (
         <div
           style={{
@@ -1100,7 +1331,7 @@ export const EngineeringScreen = () => {
             left: 0,
             width: "100%",
             height: "100%",
-            background: "rgba(0,0,0,0.85)",
+            background: theme.modalOverlay,
             zIndex: 9999,
             display: "flex",
             justifyContent: "center",
@@ -1109,7 +1340,7 @@ export const EngineeringScreen = () => {
         >
           <div
             style={{
-              background: "#252526",
+              background: theme.modalBg,
               width: "80%",
               height: "80%",
               borderRadius: "8px",
@@ -1117,28 +1348,28 @@ export const EngineeringScreen = () => {
               flexDirection: "column",
               overflow: "hidden",
               boxShadow: "0 0 20px rgba(0,0,0,0.5)",
+              border: `1px solid ${theme.border}`,
             }}
           >
-            {/* Cabeçalho do Modal - FIXO */}
             <div
               style={{
                 padding: "15px",
-                borderBottom: "1px solid #444",
+                borderBottom: `1px solid ${theme.border}`,
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
                 flexShrink: 0,
               }}
             >
-              <h3 style={{ margin: 0, color: "#e0e0e0" }}>
-                Visualização e Ajuste de Orientação
+              <h3 style={{ margin: 0, color: theme.text }}>
+                Visualização e Ajuste
               </h3>
               <button
                 onClick={() => setViewingPartId(null)}
                 style={{
                   background: "transparent",
                   border: "none",
-                  color: "#fff",
+                  color: theme.text,
                   fontSize: "20px",
                   cursor: "pointer",
                 }}
@@ -1146,13 +1377,11 @@ export const EngineeringScreen = () => {
                 ✕
               </button>
             </div>
-
-            {/* Corpo do Modal (SVG) - FLEXÍVEL E CONTIDO */}
             <div
               style={{
                 flex: 1,
                 position: "relative",
-                background: "#1e1e1e",
+                background: theme.inputBg,
                 display: "flex",
                 justifyContent: "center",
                 alignItems: "center",
@@ -1162,30 +1391,14 @@ export const EngineeringScreen = () => {
               }}
             >
               {(() => {
-                let minX = Infinity,
-                  minY = Infinity,
-                  maxX = -Infinity,
-                  maxY = -Infinity;
-                viewingPart.entities.forEach((ent: any) => {
-                  if (ent.vertices)
-                    ent.vertices.forEach((v: any) => {
-                      if (v.x < minX) minX = v.x;
-                      if (v.x > maxX) maxX = v.x;
-                      if (v.y < minY) minY = v.y;
-                      if (v.y > maxY) maxY = v.y;
-                    });
-                  else if (ent.center) {
-                    const r = ent.radius || 0;
-                    if (ent.center.x - r < minX) minX = ent.center.x - r;
-                    if (ent.center.x + r > maxX) maxX = ent.center.x + r;
-                    if (ent.center.y - r < minY) minY = ent.center.y - r;
-                    if (ent.center.y + r > maxY) maxY = ent.center.y + r;
-                  }
-                });
-                const w = maxX - minX || 100;
-                const h = maxY - minY || 100;
+                const box = calculateBoundingBox(
+                  viewingPart.entities,
+                  viewingPart.blocks
+                );
+                const w = box.maxX - box.minX || 100;
+                const h = box.maxY - box.minY || 100;
                 const p = Math.max(w, h) * 0.2;
-                const viewBox = `${minX - p} ${minY - p} ${w + p * 2} ${
+                const viewBox = `${box.minX - p} ${box.minY - p} ${w + p * 2} ${
                   h + p * 2
                 }`;
                 return (
@@ -1201,22 +1414,20 @@ export const EngineeringScreen = () => {
                     preserveAspectRatio="xMidYMid meet"
                   >
                     {viewingPart.entities.map((ent: any, i: number) =>
-                      renderEntity(ent, i)
+                      renderEntity(ent, i, viewingPart.blocks)
                     )}
                   </svg>
                 );
               })()}
             </div>
-
-            {/* Rodapé do Modal - FIXO */}
             <div
               style={{
                 padding: "20px",
-                borderTop: "1px solid #444",
+                borderTop: `1px solid ${theme.border}`,
                 display: "flex",
                 justifyContent: "center",
                 gap: "20px",
-                background: "#252526",
+                background: theme.modalBg,
                 flexShrink: 0,
               }}
             >
@@ -1224,14 +1435,11 @@ export const EngineeringScreen = () => {
                 onClick={() => handleRotatePart("ccw")}
                 style={{
                   padding: "10px 20px",
-                  background: "#444",
-                  color: "#fff",
-                  border: "1px solid #555",
+                  background: theme.inputBg,
+                  color: theme.text,
+                  border: `1px solid ${theme.border}`,
                   borderRadius: "4px",
                   cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
                 }}
               >
                 ↺ Girar Anti-Horário
@@ -1240,14 +1448,11 @@ export const EngineeringScreen = () => {
                 onClick={() => handleRotatePart("cw")}
                 style={{
                   padding: "10px 20px",
-                  background: "#444",
-                  color: "#fff",
-                  border: "1px solid #555",
+                  background: theme.inputBg,
+                  color: theme.text,
+                  border: `1px solid ${theme.border}`,
                   borderRadius: "4px",
                   cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
                 }}
               >
                 ↻ Girar Horário
