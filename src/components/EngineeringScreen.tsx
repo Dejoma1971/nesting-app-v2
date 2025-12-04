@@ -32,12 +32,12 @@ interface EntityBox {
   area: number;
 }
 
-// --- PROPS DO COMPONENTE ---
+// --- PROPS ---
 interface EngineeringScreenProps {
   onBack: () => void;
 }
 
-// --- 1. FUNÇÕES AUXILIARES (MATEMÁTICA E CLUSTERING) ---
+// --- 1. FUNÇÕES AUXILIARES (MATEMÁTICA E GEOMETRIA) ---
 
 class UnionFind {
   parent: number[];
@@ -100,7 +100,7 @@ const entitiesTouch = (ent1: any, ent2: any) => {
   return false;
 };
 
-// --- CORREÇÃO: CÁLCULO DE BOUNDING BOX PRECISO PARA ARCOS ---
+// --- BOUNDING BOX COM CORREÇÃO DE ARCOS (MANTIDO) ---
 const calculateBoundingBox = (entities: any[], blocks: any = {}): EntityBox => {
   let minX = Infinity,
     minY = Infinity,
@@ -135,26 +135,20 @@ const calculateBoundingBox = (entities: any[], blocks: any = {}): EntityBox => {
     } else if (ent.vertices) {
       ent.vertices.forEach((v: any) => update(v.x, v.y));
     } else if (ent.type === "CIRCLE") {
-      // Círculo: Pega os 4 extremos
       update(ent.center.x - ent.radius, ent.center.y - ent.radius);
       update(ent.center.x + ent.radius, ent.center.y + ent.radius);
     } else if (ent.type === "ARC") {
-      // Arco: Lógica Precisa
       const cx = ent.center.x;
       const cy = ent.center.y;
       const r = ent.radius;
       const startAngle = ent.startAngle;
       let endAngle = ent.endAngle;
 
-      // Garante que o ângulo final é maior que o inicial (sentido anti-horário)
       if (endAngle < startAngle) endAngle += 2 * Math.PI;
 
-      // 1. Adiciona Ponto Inicial e Final
       update(cx + r * Math.cos(startAngle), cy + r * Math.sin(startAngle));
       update(cx + r * Math.cos(endAngle), cy + r * Math.sin(endAngle));
 
-      // 2. Verifica pontos cardeais (0, 90, 180, 270) que estão DENTRO do arco
-      // Cardeais são múltiplos de PI/2
       const startK = Math.ceil(startAngle / (Math.PI / 2));
       const endK = Math.floor(endAngle / (Math.PI / 2));
 
@@ -303,6 +297,10 @@ const applyRotationToPart = (
     return ent;
   });
 
+  // Recalcula apenas a Área Bruta (Já que removemos a líquida da visualização)
+  newPart.grossArea = newPart.width * newPart.height;
+  newPart.netArea = newPart.grossArea; // Mantemos igual para compatibilidade
+
   return newPart;
 };
 
@@ -372,6 +370,9 @@ const processFileToParts = (
       return clone;
     });
 
+    // Área Bruta (Retângulo Envolvente)
+    const grossArea = finalW * finalH;
+
     finalParts.push({
       id: crypto.randomUUID(),
       name: `${fileName} - Item ${finalParts.length + 1}`,
@@ -379,8 +380,8 @@ const processFileToParts = (
       blocks: {},
       width: finalW,
       height: finalH,
-      grossArea: finalW * finalH,
-      netArea: finalW * finalH,
+      grossArea,
+      netArea: grossArea, // Simplificação: Net = Gross
       pedido: defaults.pedido,
       op: defaults.op,
       material: defaults.material,
@@ -522,7 +523,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
     );
   };
 
-  // VALIDAÇÃO DE ENVIO (SIMULADA)
   const handleStorageDB = () => {
     if (parts.length === 0) {
       alert("A lista está vazia. Importe peças primeiro.");
@@ -694,7 +694,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
     }
   };
 
-  // --- ESTILOS DINÂMICOS (TEMAS) ---
   const containerStyle: React.CSSProperties = {
     display: "flex",
     flexDirection: "column",
@@ -1228,6 +1227,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
                 <th style={{ ...tableHeaderStyle, width: "60px" }}>Esp.</th>
                 <th style={tableHeaderStyle}>Autor</th>
                 <th style={tableHeaderStyle}>Dimensões</th>
+                <th style={tableHeaderStyle}>Área (m²)</th>
                 <th style={tableHeaderStyle}>Qtd.</th>
                 <th style={tableHeaderStyle}>Ações</th>
               </tr>
@@ -1343,6 +1343,15 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
                       }}
                     >
                       {part.width.toFixed(0)} x {part.height.toFixed(0)}
+                    </td>
+                    <td
+                      style={{
+                        ...tableCellStyle,
+                        fontSize: "11px",
+                        opacity: 0.7,
+                      }}
+                    >
+                      {(part.grossArea / 1000000).toFixed(4)} m²
                     </td>
                     <td
                       style={{
@@ -1501,7 +1510,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
                   cursor: "pointer",
                 }}
               >
-                ↺ Anti-Horário
+                ↺ Girar Anti-Horário
               </button>
               <button
                 onClick={() => handleRotatePart("cw")}
