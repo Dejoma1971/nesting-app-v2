@@ -100,6 +100,7 @@ const entitiesTouch = (ent1: any, ent2: any) => {
   return false;
 };
 
+// --- CORREÇÃO: CÁLCULO DE BOUNDING BOX PRECISO PARA ARCOS ---
 const calculateBoundingBox = (entities: any[], blocks: any = {}): EntityBox => {
   let minX = Infinity,
     minY = Infinity,
@@ -131,10 +132,36 @@ const calculateBoundingBox = (entities: any[], blocks: any = {}): EntityBox => {
       } else {
         update(ent.position.x, ent.position.y);
       }
-    } else if (ent.vertices) ent.vertices.forEach((v: any) => update(v.x, v.y));
-    else if (ent.center && ent.radius) {
+    } else if (ent.vertices) {
+      ent.vertices.forEach((v: any) => update(v.x, v.y));
+    } else if (ent.type === "CIRCLE") {
+      // Círculo: Pega os 4 extremos
       update(ent.center.x - ent.radius, ent.center.y - ent.radius);
       update(ent.center.x + ent.radius, ent.center.y + ent.radius);
+    } else if (ent.type === "ARC") {
+      // Arco: Lógica Precisa
+      const cx = ent.center.x;
+      const cy = ent.center.y;
+      const r = ent.radius;
+      const startAngle = ent.startAngle;
+      let endAngle = ent.endAngle;
+
+      // Garante que o ângulo final é maior que o inicial (sentido anti-horário)
+      if (endAngle < startAngle) endAngle += 2 * Math.PI;
+
+      // 1. Adiciona Ponto Inicial e Final
+      update(cx + r * Math.cos(startAngle), cy + r * Math.sin(startAngle));
+      update(cx + r * Math.cos(endAngle), cy + r * Math.sin(endAngle));
+
+      // 2. Verifica pontos cardeais (0, 90, 180, 270) que estão DENTRO do arco
+      // Cardeais são múltiplos de PI/2
+      const startK = Math.ceil(startAngle / (Math.PI / 2));
+      const endK = Math.floor(endAngle / (Math.PI / 2));
+
+      for (let k = startK; k <= endK; k++) {
+        const angle = k * (Math.PI / 2);
+        update(cx + r * Math.cos(angle), cy + r * Math.sin(angle));
+      }
     }
   });
 
@@ -495,6 +522,25 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
     );
   };
 
+  // VALIDAÇÃO DE ENVIO (SIMULADA)
+  const handleStorageDB = () => {
+    if (parts.length === 0) {
+      alert("A lista está vazia. Importe peças primeiro.");
+      return;
+    }
+    const nonBlocks = parts.filter((p) => p.entities.length > 1);
+    if (nonBlocks.length > 0) {
+      alert(
+        `ATENÇÃO: Existem ${nonBlocks.length} peças que ainda não são Blocos.\n\nPor favor, clique em "📦 Insert/Block" para converter todas as peças antes de enviar.`
+      );
+      return;
+    }
+    console.log("Enviando para o banco:", parts);
+    alert(
+      `Sucesso! ${parts.length} peças validadas e prontas para o Banco de Dados.`
+    );
+  };
+
   const handleRotatePart = (direction: "cw" | "ccw") => {
     if (!viewingPartId) return;
     const angle = direction === "cw" ? -90 : 90;
@@ -714,7 +760,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
     overflowY: "auto",
     background: theme.panelBg,
   };
-
   const cardStyle: React.CSSProperties = {
     width: "120px",
     height: "120px",
@@ -731,7 +776,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
     position: "relative",
     color: theme.text,
   };
-
   const tableHeaderStyle: React.CSSProperties = {
     textAlign: "left",
     padding: "8px",
@@ -753,7 +797,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
     fontSize: "inherit",
     borderBottom: `1px solid ${theme.border}`,
   };
-
   const deleteBtnStyle: React.CSSProperties = {
     background: "transparent",
     border: "none",
@@ -775,7 +818,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
     <div style={containerStyle}>
       <div
         style={{
-          padding: "6px 18px",
+          padding: "5px 20px",
           borderBottom: `1px solid ${theme.border}`,
           display: "flex",
           justifyContent: "space-between",
@@ -820,7 +863,24 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
             </span>
           )}
         </div>
-        <div>
+        <div style={{ display: "flex", gap: "15px", alignItems: "center" }}>
+          <button
+            onClick={handleStorageDB}
+            style={{
+              background: "#28a745",
+              color: "white",
+              border: "none",
+              padding: "8px 15px",
+              borderRadius: "4px",
+              cursor: "pointer",
+              fontWeight: "bold",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+            }}
+          >
+            💾 Storage DB
+          </button>
           <button
             onClick={() => setIsDarkMode(!isDarkMode)}
             style={{
@@ -830,10 +890,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
               padding: "5px 10px",
               borderRadius: "4px",
               cursor: "pointer",
-              marginRight: "10px",
             }}
           >
-            {isDarkMode ? "☀️ Claro" : "🌙 Escuro"}
+            {isDarkMode ? "☀️" : "🌙"}
           </button>
         </div>
       </div>
@@ -962,7 +1021,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
 
         <label
           style={{
-            background: "#28a745",
+            background: "#007bff",
             color: "white",
             padding: "10px 20px",
             borderRadius: "4px",
@@ -1442,7 +1501,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
                   cursor: "pointer",
                 }}
               >
-                ↺ Girar Anti-Horário
+                ↺ Anti-Horário
               </button>
               <button
                 onClick={() => handleRotatePart("cw")}
