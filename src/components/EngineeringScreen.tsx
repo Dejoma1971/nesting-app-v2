@@ -16,7 +16,7 @@ interface EntityBox {
   area: number;
 }
 
-// --- 1. FUNÇÕES AUXILIARES (MATEMÁTICA E CLUSTERING) - INTACTAS ---
+// --- 1. FUNÇÕES AUXILIARES (MATEMÁTICA E CLUSTERING) ---
 
 class UnionFind {
   parent: number[];
@@ -178,6 +178,63 @@ const flattenGeometry = (
   return flatEntities;
 };
 
+const applyRotationToPart = (
+  part: ImportedPart,
+  angle: number
+): ImportedPart => {
+  const newPart = JSON.parse(JSON.stringify(part));
+  const transform = { x: 0, y: 0, rotation: angle, scale: 1 };
+
+  newPart.entities = newPart.entities.map((ent: any) => {
+    const applyTrans = (x: number, y: number) =>
+      rotatePoint(x, y, transform.rotation);
+
+    if (ent.type === "LINE") {
+      const p1 = applyTrans(ent.vertices[0].x, ent.vertices[0].y);
+      const p2 = applyTrans(ent.vertices[1].x, ent.vertices[1].y);
+      ent.vertices = [
+        { x: p1.x, y: p1.y },
+        { x: p2.x, y: p2.y },
+      ];
+    } else if (ent.type === "LWPOLYLINE" || ent.type === "POLYLINE") {
+      ent.vertices = ent.vertices.map((v: any) => {
+        const p = applyTrans(v.x, v.y);
+        return { ...v, x: p.x, y: p.y };
+      });
+    } else if (ent.type === "CIRCLE" || ent.type === "ARC") {
+      const c = applyTrans(ent.center.x, ent.center.y);
+      ent.center = { x: c.x, y: c.y };
+      if (ent.type === "ARC") {
+        ent.startAngle += (angle * Math.PI) / 180;
+        ent.endAngle += (angle * Math.PI) / 180;
+      }
+    }
+    return ent;
+  });
+
+  const box = calculateBoundingBox(newPart.entities);
+  const minX = box.minX;
+  const minY = box.minY;
+
+  newPart.width = box.maxX - box.minX;
+  newPart.height = box.maxY - box.minY;
+
+  newPart.entities.forEach((ent: any) => {
+    const move = (x: number, y: number) => ({ x: x - minX, y: y - minY });
+    if (ent.vertices)
+      ent.vertices = ent.vertices.map((v: any) => {
+        const p = move(v.x, v.y);
+        return { ...v, x: p.x, y: p.y };
+      });
+    else if (ent.center) {
+      const c = move(ent.center.x, ent.center.y);
+      ent.center = { x: c.x, y: c.y };
+    }
+  });
+
+  return newPart;
+};
+
 const processFileToParts = (
   flatEntities: any[],
   fileName: string,
@@ -271,8 +328,8 @@ export const EngineeringScreen = () => {
   const [loading, setLoading] = useState(false);
   const [processingMsg, setProcessingMsg] = useState("");
 
-  // NOVO: Estado para seleção
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
+  const [viewingPartId, setViewingPartId] = useState<string | null>(null);
 
   const [batchDefaults, setBatchDefaults] = useState({
     pedido: "",
@@ -303,6 +360,33 @@ export const EngineeringScreen = () => {
   const handleRowChange = (id: string, field: string, value: any) => {
     setParts((prev) =>
       prev.map((p) => (p.id === id ? { ...p, [field]: value } : p))
+    );
+  };
+
+  const handleDeletePart = (id: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    if (window.confirm("Deseja realmente remover esta peça do inventário?")) {
+      setParts((prev) => prev.filter((p) => p.id !== id));
+      if (selectedPartId === id) setSelectedPartId(null);
+      if (viewingPartId === id) setViewingPartId(null);
+    }
+  };
+
+  const handleRotatePart = (direction: "cw" | "ccw") => {
+    if (!viewingPartId) return;
+    const angle = direction === "cw" ? -90 : 90;
+
+    setParts((prev) =>
+      prev.map((p) => {
+        if (p.id === viewingPartId) {
+          return applyRotationToPart(p, angle);
+        }
+        return p;
+      })
     );
   };
 
@@ -496,7 +580,6 @@ export const EngineeringScreen = () => {
     background: "#1e1e1e",
   };
 
-  // Card base (sem seleção)
   const cardStyle: React.CSSProperties = {
     width: "120px",
     height: "120px",
@@ -535,9 +618,22 @@ export const EngineeringScreen = () => {
     borderBottom: "1px solid #444",
   };
 
+  const deleteBtnStyle: React.CSSProperties = {
+    background: "transparent",
+    border: "none",
+    cursor: "pointer",
+    fontSize: "14px",
+  };
+
+  // --- PEÇA EM VISUALIZAÇÃO NO MODAL ---
+  const viewingPart = viewingPartId
+    ? parts.find((p) => p.id === viewingPartId)
+    : null;
+
   return (
     <div style={containerStyle}>
       <div style={batchContainerStyle}>
+        {/* ... Inputs de Batch ... */}
         <div
           style={{
             color: "#fff",
@@ -548,7 +644,6 @@ export const EngineeringScreen = () => {
         >
           PADRÃO DO LOTE:
         </div>
-
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
             PEDIDO{" "}
@@ -566,7 +661,6 @@ export const EngineeringScreen = () => {
             placeholder="Ex: 35041"
           />
         </div>
-
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
             OP{" "}
@@ -581,7 +675,6 @@ export const EngineeringScreen = () => {
             placeholder="Ex: 5020"
           />
         </div>
-
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
             MATERIAL{" "}
@@ -604,7 +697,6 @@ export const EngineeringScreen = () => {
             <option value="Alumínio">Alumínio</option>
           </select>
         </div>
-
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
             ESPESSURA (mm){" "}
@@ -625,7 +717,6 @@ export const EngineeringScreen = () => {
             }
           />
         </div>
-
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
             AUTOR{" "}
@@ -643,7 +734,6 @@ export const EngineeringScreen = () => {
             placeholder="Ex: Gabriel"
           />
         </div>
-
         <label
           style={{
             background: "#28a745",
@@ -690,7 +780,6 @@ export const EngineeringScreen = () => {
             }}
           >
             {parts.map((part, idx) => {
-              // Calcula ViewBox
               let minX = Infinity,
                 minY = Infinity,
                 maxX = -Infinity,
@@ -718,7 +807,6 @@ export const EngineeringScreen = () => {
                 h + p * 2
               }`;
 
-              // ESTILO CONDICIONAL DE SELEÇÃO (CARD)
               const isSelected = part.id === selectedPartId;
               const dynamicCardStyle: React.CSSProperties = {
                 ...cardStyle,
@@ -735,7 +823,7 @@ export const EngineeringScreen = () => {
                   key={part.id}
                   style={dynamicCardStyle}
                   title={part.name}
-                  onClick={() => setSelectedPartId(part.id)} // CLIQUE CARD
+                  onClick={() => setSelectedPartId(part.id)}
                 >
                   <div
                     style={{
@@ -749,6 +837,66 @@ export const EngineeringScreen = () => {
                   >
                     #{idx + 1}
                   </div>
+
+                  {/* AQUI ESTÁ A CORREÇÃO DE LAYOUT: CONTAINER DE BOTÕES EM COLUNA */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 5,
+                      right: 5,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 5,
+                      zIndex: 10, // Garante que fique sobre o card
+                    }}
+                  >
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setViewingPartId(part.id);
+                      }}
+                      style={{
+                        background: "rgba(0,0,0,0.6)",
+                        border: "1px solid #555",
+                        color: "#007bff",
+                        cursor: "pointer",
+                        fontSize: "12px",
+                        padding: "4px",
+                        borderRadius: "3px",
+                        width: "24px",
+                        height: "24px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                      title="Visualizar e Rotacionar"
+                    >
+                      👁️
+                    </button>
+
+                    <button
+                      onClick={(e) => handleDeletePart(part.id, e)}
+                      style={{
+                        background: "rgba(0,0,0,0.6)",
+                        border: "1px solid #555",
+                        color: "#ff4d4d",
+                        cursor: "pointer",
+                        fontSize: "12px",
+                        fontWeight: "bold",
+                        padding: "4px",
+                        borderRadius: "3px",
+                        width: "24px",
+                        height: "24px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                      title="Excluir"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
                   <div
                     style={{
                       flex: 1,
@@ -791,6 +939,7 @@ export const EngineeringScreen = () => {
 
         {/* DIREITA: TABELA EDITÁVEL */}
         <div style={rightPanel}>
+          {/* ... Conteúdo inalterado da tabela ... */}
           <div
             style={{
               padding: "10px",
@@ -819,23 +968,22 @@ export const EngineeringScreen = () => {
                 <th style={{ ...tableHeaderStyle, width: "60px" }}>Esp.</th>
                 <th style={tableHeaderStyle}>Autor</th>
                 <th style={tableHeaderStyle}>Dimensões</th>
+                <th style={tableHeaderStyle}>Ações</th>
               </tr>
             </thead>
             <tbody>
               {parts.map((part, i) => {
-                // ESTILO CONDICIONAL DE SELEÇÃO (LINHA)
                 const isSelected = part.id === selectedPartId;
                 const rowBackground = isSelected
                   ? "rgba(0, 123, 255, 0.15)"
                   : i % 2 === 0
                   ? "transparent"
                   : "rgba(255,255,255,0.02)";
-
                 return (
                   <tr
                     key={part.id}
                     style={{ background: rowBackground, cursor: "pointer" }}
-                    onClick={() => setSelectedPartId(part.id)} // CLIQUE LINHA
+                    onClick={() => setSelectedPartId(part.id)}
                   >
                     <td
                       style={{
@@ -846,7 +994,6 @@ export const EngineeringScreen = () => {
                     >
                       {i + 1}
                     </td>
-
                     <td style={tableCellStyle}>
                       <input
                         style={cellInputStyle}
@@ -927,6 +1074,15 @@ export const EngineeringScreen = () => {
                     >
                       {part.width.toFixed(0)} x {part.height.toFixed(0)}
                     </td>
+                    <td style={tableCellStyle}>
+                      <button
+                        style={deleteBtnStyle}
+                        onClick={(e) => handleDeletePart(part.id, e)}
+                        title="Excluir peça"
+                      >
+                        🗑️
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -934,6 +1090,186 @@ export const EngineeringScreen = () => {
           </table>
         </div>
       </div>
+
+      {/* --- MODAL DE VISUALIZAÇÃO E ROTAÇÃO --- */}
+      {viewingPart && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            background: "rgba(0,0,0,0.85)",
+            zIndex: 9999,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <div
+            style={{
+              background: "#252526",
+              width: "80%",
+              height: "80%",
+              borderRadius: "8px",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              boxShadow: "0 0 20px rgba(0,0,0,0.5)",
+            }}
+          >
+            {/* Cabeçalho do Modal - FIXO */}
+            <div
+              style={{
+                padding: "15px",
+                borderBottom: "1px solid #444",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexShrink: 0,
+              }}
+            >
+              <h3 style={{ margin: 0, color: "#e0e0e0" }}>
+                Visualização e Ajuste de Orientação
+              </h3>
+              <button
+                onClick={() => setViewingPartId(null)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#fff",
+                  fontSize: "20px",
+                  cursor: "pointer",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Corpo do Modal (SVG) - FLEXÍVEL E CONTIDO */}
+            <div
+              style={{
+                flex: 1,
+                position: "relative",
+                background: "#1e1e1e",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                padding: "20px",
+                minHeight: 0,
+                overflow: "hidden",
+              }}
+            >
+              {(() => {
+                let minX = Infinity,
+                  minY = Infinity,
+                  maxX = -Infinity,
+                  maxY = -Infinity;
+                viewingPart.entities.forEach((ent: any) => {
+                  if (ent.vertices)
+                    ent.vertices.forEach((v: any) => {
+                      if (v.x < minX) minX = v.x;
+                      if (v.x > maxX) maxX = v.x;
+                      if (v.y < minY) minY = v.y;
+                      if (v.y > maxY) maxY = v.y;
+                    });
+                  else if (ent.center) {
+                    const r = ent.radius || 0;
+                    if (ent.center.x - r < minX) minX = ent.center.x - r;
+                    if (ent.center.x + r > maxX) maxX = ent.center.x + r;
+                    if (ent.center.y - r < minY) minY = ent.center.y - r;
+                    if (ent.center.y + r > maxY) maxY = ent.center.y + r;
+                  }
+                });
+                const w = maxX - minX || 100;
+                const h = maxY - minY || 100;
+                const p = Math.max(w, h) * 0.2;
+                const viewBox = `${minX - p} ${minY - p} ${w + p * 2} ${
+                  h + p * 2
+                }`;
+                return (
+                  <svg
+                    viewBox={viewBox}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      maxWidth: "100%",
+                      maxHeight: "100%",
+                    }}
+                    transform="scale(1, -1)"
+                    preserveAspectRatio="xMidYMid meet"
+                  >
+                    {viewingPart.entities.map((ent: any, i: number) =>
+                      renderEntity(ent, i)
+                    )}
+                  </svg>
+                );
+              })()}
+            </div>
+
+            {/* Rodapé do Modal - FIXO */}
+            <div
+              style={{
+                padding: "20px",
+                borderTop: "1px solid #444",
+                display: "flex",
+                justifyContent: "center",
+                gap: "20px",
+                background: "#252526",
+                flexShrink: 0,
+              }}
+            >
+              <button
+                onClick={() => handleRotatePart("ccw")}
+                style={{
+                  padding: "10px 20px",
+                  background: "#444",
+                  color: "#fff",
+                  border: "1px solid #555",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+              >
+                ↺ Girar Anti-Horário
+              </button>
+              <button
+                onClick={() => handleRotatePart("cw")}
+                style={{
+                  padding: "10px 20px",
+                  background: "#444",
+                  color: "#fff",
+                  border: "1px solid #555",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+              >
+                ↻ Girar Horário
+              </button>
+              <button
+                onClick={() => setViewingPartId(null)}
+                style={{
+                  padding: "10px 20px",
+                  background: "#007bff",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  marginLeft: "20px",
+                }}
+              >
+                Concluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
