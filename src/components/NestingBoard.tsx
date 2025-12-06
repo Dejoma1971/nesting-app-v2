@@ -14,8 +14,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
   const [gap, setGap] = useState(10);
   const [margin, setMargin] = useState(10);
   
-  // CORREÇÃO PROBLEMA 2: Inicialização Lazy do estado
-  // Calcula as quantidades iniciais APENAS UMA VEZ na montagem, evitando setState no useEffect
+  // CONFIGURAÇÕES DE NESTING
+  const [strategy, setStrategy] = useState<'rect' | 'true-shape'>('rect');
+  
+  // NOVA CONFIGURAÇÃO: DIREÇÃO DE PREENCHIMENTO
+  const [direction, setDirection] = useState<'auto' | 'vertical' | 'horizontal'>('auto');
+
+  const [iterations] = useState(50); 
+  const [rotationStep, setRotationStep] = useState(90);
+
   const [quantities, setQuantities] = useState<{ [key: string]: number }>(() => {
       const initialQ: { [key: string]: number } = {};
       parts.forEach(p => { initialQ[p.id] = 1; });
@@ -32,39 +39,95 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
   const [totalBins, setTotalBins] = useState(1);
   const [currentBinIndex, setCurrentBinIndex] = useState(0);
 
-  // Estados de Zoom/Pan
+  // Estados de Interação
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
-  const [isDragging, setIsDragging] = useState(false);
+  const [dragMode, setDragMode] = useState<'none' | 'pan' | 'part'>('none');
+  const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
   const workerRef = useRef<Worker | null>(null);
   const svgContainerRef = useRef<HTMLDivElement>(null);
 
-  // Effect para atualizar quantidades se NOVAS peças chegarem depois (Merge)
   useEffect(() => {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setQuantities((prev) => {
+          const currentIds = new Set(Object.keys(prev));
+          const newParts = parts.filter(p => !currentIds.has(p.id));
+          if (newParts.length === 0) return prev;
           const newQ = { ...prev };
-          let changed = false;
-          parts.forEach(p => { 
-              if (newQ[p.id] === undefined) { 
-                  newQ[p.id] = 1; 
-                  changed = true; 
-              } 
-          });
-          return changed ? newQ : prev;
+          newParts.forEach(p => { newQ[p.id] = 1; });
+          return newQ;
       });
   }, [parts]); 
 
-  // --- LÓGICA DE ZOOM E PAN ---
-  const resetZoom = () => setTransform({ x: 0, y: 0, k: 1 });
+  // --- LÓGICA DE MOUSE ---
+  const handleMouseDownContainer = (e: React.MouseEvent) => {
+      if ((e.button === 0 || e.button === 1) && dragMode === 'none') {
+          setDragMode('pan');
+          setDragStart({ x: e.clientX, y: e.clientY });
+      }
+  };
 
+  const handleMouseDownPart = (e: React.MouseEvent, partId: string) => {
+      e.stopPropagation();
+      // BLOQUEIO: Se for Retangular, não permite mover peças manualmente
+      if (strategy === 'rect') return;
+
+      if (e.button === 0) {
+          setDragMode('part');
+          setSelectedPartId(partId);
+          setDragStart({ x: e.clientX, y: e.clientY });
+          setDragOffset({ x: 0, y: 0 });
+      }
+  };
+
+  const handleDoubleClickPart = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setSelectedPartId(null);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+      if (dragMode === 'none') return;
+      const dx = e.clientX - dragStart.x;
+      const dy = e.clientY - dragStart.y;
+      
+      if (dragMode === 'pan') {
+          setDragStart({ x: e.clientX, y: e.clientY });
+          setTransform(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
+      } 
+      else if (dragMode === 'part' && selectedPartId) {
+          setDragOffset({ x: dx, y: dy });
+      }
+  };
+
+  const handleMouseUp = () => {
+      if (dragMode === 'part' && selectedPartId) {
+          const mmDx = dragOffset.x / transform.k;
+          const mmDy = -dragOffset.y / transform.k; 
+          setNestingResult(prev => prev.map(p => {
+              if (p.partId === selectedPartId) {
+                  return { ...p, x: p.x + mmDx, y: p.y + mmDy };
+              }
+              return p;
+          }));
+          setDragOffset({ x: 0, y: 0 });
+      }
+      setDragMode('none');
+  };
+
+  const handleMouseLeave = () => {
+      if (dragMode === 'part') handleMouseUp();
+      else setDragMode('none');
+  };
+
+  // --- ZOOM ---
+  const resetZoom = () => setTransform({ x: 0, y: 0, k: 1 });
   const handleWheel = (e: React.WheelEvent) => {
       e.preventDefault();
       const scaleFactor = 1.1;
       const direction = e.deltaY > 0 ? 1 / scaleFactor : scaleFactor;
       const newScale = Math.max(0.1, Math.min(transform.k * direction, 20));
-
       if (svgContainerRef.current) {
         const rect = svgContainerRef.current.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
@@ -75,33 +138,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
       }
   };
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-      if (e.button === 0 || e.button === 1) {
-          setIsDragging(true);
-          setDragStart({ x: e.clientX - transform.x, y: e.clientY - transform.y });
-      }
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-      if (isDragging) {
-          setTransform(prev => ({ ...prev, x: e.clientX - dragStart.x, y: e.clientY - dragStart.y }));
-      }
-  };
-
-  const handleMouseUp = () => setIsDragging(false);
-  const handleMouseLeave = () => setIsDragging(false);
-
-  // --- MANIPULADORES DE ESTADO ---
   const handleWidthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const val = Number(e.target.value);
       setBinSize(prev => ({ ...prev, width: val }));
   };
-
   const handleHeightChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const val = Number(e.target.value);
       setBinSize(prev => ({ ...prev, height: val }));
   };
-
   const swapDimensions = () => {
       setBinSize(prev => ({ width: prev.height, height: prev.width }));
   };
@@ -113,6 +157,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
       setCurrentBinIndex(0); 
       setTotalBins(1);
       resetZoom();
+      setSelectedPartId(null); 
 
       if (workerRef.current) workerRef.current.terminate();
       workerRef.current = new NestingWorker();
@@ -123,19 +168,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
           setFailedCount(result.failed.length);
           setTotalBins(result.totalBins || 1);
           setIsComputing(false);
-          
           if (result.placed.length === 0) alert("Nenhuma peça coube!");
           else if (result.failed.length > 0) console.warn("Algumas peças não couberam.");
       };
 
       workerRef.current.postMessage({
           parts: JSON.parse(JSON.stringify(parts)),
-          quantities,
-          gap,
-          margin,
-          binWidth: binSize.width,
-          binHeight: binSize.height,
-          iterations: 50
+          quantities, gap, margin, binWidth: binSize.width, binHeight: binSize.height,
+          strategy, iterations, rotationStep,
+          direction // <--- ENVIANDO A NOVA OPÇÃO
       });
   };
 
@@ -158,23 +199,16 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
   const formatArea = (mm2: number) => mm2 > 100000 ? (mm2/1000000).toFixed(3)+" m²" : mm2.toFixed(0)+" mm²";
   const getPartById = (id: string) => parts.find(p => p.id === id);
 
-  // --- VIEWBOX & HELPERS ---
   const binViewBox = useMemo(() => {
       const paddingX = binSize.width * 0.05;
       const paddingY = binSize.height * 0.05;
       return `${-paddingX} ${-paddingY} ${binSize.width + paddingX * 2} ${binSize.height + paddingY * 2}`;
   }, [binSize]);
-
   const cncTransform = `translate(0, ${binSize.height}) scale(1, -1)`;
 
   const getRawBoundingBox = (entities: any[], blocksData: any) => {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    
-    const update = (x: number, y: number) => {
-        if (x < minX) minX = x; if (x > maxX) maxX = x;
-        if (y < minY) minY = y; if (y > maxY) maxY = y;
-    };
-
+    const update = (x: number, y: number) => { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; };
     const traverse = (ents: any[], ox = 0, oy = 0) => {
         if(!ents) return;
         ents.forEach(ent => {
@@ -182,33 +216,16 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
                 const b = blocksData[ent.name];
                 if (b && b.entities) traverse(b.entities, (ent.position?.x||0)+ox, (ent.position?.y||0)+oy);
                 else { update((ent.position?.x||0)+ox, (ent.position?.y||0)+oy); }
-            } 
-            else if (ent.vertices) {
-                ent.vertices.forEach((v:any)=>{ update(v.x+ox, v.y+oy); });
-            } 
-            else if (ent.center && ent.radius && ent.type === 'CIRCLE') {
-                update(ent.center.x+ox - ent.radius, ent.center.y+oy - ent.radius);
-                update(ent.center.x+ox + ent.radius, ent.center.y+oy + ent.radius);
-            }
+            } else if (ent.vertices) { ent.vertices.forEach((v:any)=>{ update(v.x+ox, v.y+oy); }); } 
+            else if (ent.center && ent.radius && ent.type === 'CIRCLE') { update(ent.center.x+ox - ent.radius, ent.center.y+oy - ent.radius); update(ent.center.x+ox + ent.radius, ent.center.y+oy + ent.radius); }
             else if (ent.type === 'ARC') {
-                const cx = ent.center.x + ox;
-                const cy = ent.center.y + oy;
-                const r = ent.radius;
-                const startAngle = ent.startAngle;
-                let endAngle = ent.endAngle;
-
+                const cx = ent.center.x + ox; const cy = ent.center.y + oy; const r = ent.radius;
+                const startAngle = ent.startAngle; let endAngle = ent.endAngle;
                 if (endAngle < startAngle) endAngle += 2 * Math.PI;
-
                 update(cx + r * Math.cos(startAngle), cy + r * Math.sin(startAngle));
                 update(cx + r * Math.cos(endAngle), cy + r * Math.sin(endAngle));
-
-                const startK = Math.ceil(startAngle / (Math.PI / 2));
-                const endK = Math.floor(endAngle / (Math.PI / 2));
-
-                for (let k = startK; k <= endK; k++) {
-                    const angle = k * (Math.PI / 2);
-                    update(cx + r * Math.cos(angle), cy + r * Math.sin(angle));
-                }
+                const startK = Math.ceil(startAngle / (Math.PI / 2)); const endK = Math.floor(endAngle / (Math.PI / 2));
+                for (let k = startK; k <= endK; k++) { const angle = k * (Math.PI / 2); update(cx + r * Math.cos(angle), cy + r * Math.sin(angle)); }
             }
         });
     };
@@ -234,15 +251,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
       case 'LWPOLYLINE': case 'POLYLINE': { if (!entity.vertices) return null; const d = entity.vertices.map((v:any, i:number)=>`${i===0?'M':'L'} ${v.x*scale} ${v.y*scale}`).join(' '); return <path key={index} d={entity.shape?d+" Z":d} fill="none" stroke={color} strokeWidth={2*scale} vectorEffect="non-scaling-stroke" />; }
       case 'CIRCLE': return <circle key={index} cx={entity.center.x*scale} cy={entity.center.y*scale} r={entity.radius*scale} fill="none" stroke={color} strokeWidth={2*scale} vectorEffect="non-scaling-stroke" />;
       case 'ARC': {
-          const startAngle = entity.startAngle;
-          const endAngle = entity.endAngle;
-          const r = entity.radius * scale;
-          const x1 = (entity.center.x * scale) + r * Math.cos(startAngle);
-          const y1 = (entity.center.y * scale) + r * Math.sin(startAngle);
-          const x2 = (entity.center.x * scale) + r * Math.cos(endAngle);
-          const y2 = (entity.center.y * scale) + r * Math.sin(endAngle);
-          let da = endAngle - startAngle;
-          if (da < 0) da += 2 * Math.PI;
+          const startAngle = entity.startAngle; const endAngle = entity.endAngle; const r = entity.radius * scale;
+          const x1 = (entity.center.x * scale) + r * Math.cos(startAngle); const y1 = (entity.center.y * scale) + r * Math.sin(startAngle);
+          const x2 = (entity.center.x * scale) + r * Math.cos(endAngle); const y2 = (entity.center.y * scale) + r * Math.sin(endAngle);
+          let da = endAngle - startAngle; if (da < 0) da += 2 * Math.PI;
           const largeArc = da > Math.PI ? 1 : 0;
           const d = `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`;
           return <path key={index} d={d} fill="none" stroke={color} strokeWidth={2*scale} vectorEffect="non-scaling-stroke" />;
@@ -258,116 +270,136 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
-      {/* --- TOPO --- */}
       <div style={{ padding: '10px 20px', borderBottom: '1px solid #444', display: 'flex', gap: '20px', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.03)', flexWrap: 'wrap' }}>
-        <div style={{ fontWeight: 'bold', fontSize: '14px' }}>📐 Chapa:</div>
         
+        <div style={{display:'flex', alignItems:'center', borderRight:'1px solid #555', paddingRight:'15px'}}>
+            <span style={{fontSize:'12px', marginRight:'5px', fontWeight:'bold'}}>Motor:</span>
+            <select value={strategy} onChange={(e) => setStrategy(e.target.value as 'rect' | 'true-shape')} style={{padding:'5px', borderRadius:'4px', border:'1px solid #555', background: 'rgba(0,0,0,0.1)', color:'inherit', fontWeight:'bold'}}>
+                <option value="rect">🔳 Retangular (Fixo)</option>
+                <option value="true-shape">🧩 True Shape (Manual)</option>
+            </select>
+        </div>
+
+        {/* --- NOVO SELETOR DE PREENCHIMENTO --- */}
+        <div style={{display:'flex', alignItems:'center', borderRight:'1px solid #555', paddingRight:'15px'}}>
+            <span style={{fontSize:'12px', marginRight:'5px', fontWeight:'bold'}}>Preencher:</span>
+            <div style={{display:'flex', gap:'2px', background: 'rgba(0,0,0,0.1)', borderRadius:'4px', padding:'2px'}}>
+                <button 
+                    title="Automático (Melhor Eficiência)"
+                    onClick={() => setDirection('auto')}
+                    style={{
+                        padding: '4px 8px', border: 'none', borderRadius:'3px', cursor:'pointer',
+                        background: direction === 'auto' ? '#007bff' : 'transparent',
+                        color: direction === 'auto' ? '#fff' : 'inherit',
+                        fontSize: '12px'
+                    }}
+                >Auto</button>
+                <button 
+                    title="Vertical (Por Coluna)"
+                    onClick={() => setDirection('vertical')}
+                    style={{
+                        padding: '4px 8px', border: 'none', borderRadius:'3px', cursor:'pointer',
+                        background: direction === 'vertical' ? '#007bff' : 'transparent',
+                        color: direction === 'vertical' ? '#fff' : 'inherit',
+                        fontSize: '16px'
+                    }}
+                >⬇️</button>
+                <button 
+                    title="Horizontal (Por Linha)"
+                    onClick={() => setDirection('horizontal')}
+                    style={{
+                        padding: '4px 8px', border: 'none', borderRadius:'3px', cursor:'pointer',
+                        background: direction === 'horizontal' ? '#007bff' : 'transparent',
+                        color: direction === 'horizontal' ? '#fff' : 'inherit',
+                        fontSize: '16px'
+                    }}
+                >➡️</button>
+            </div>
+        </div>
+
+        <div style={{ fontWeight: 'bold', fontSize: '14px' }}>📐</div>
         <div style={{display:'flex', alignItems:'center', background:'rgba(0,0,0,0.05)', padding:'5px', borderRadius:'4px', gap:'10px'}}>
-            <div style={{display:'flex', alignItems:'center'}}>
-                <label style={{marginRight:5, fontSize:13}}>L (X):</label>
-                <input type="number" value={binSize.width} onChange={handleWidthChange} style={{padding:5, width:60, border:'1px solid #555', background:'rgba(0,0,0,0.1)', color:'inherit'}} />
-            </div>
-            <div style={{display:'flex', alignItems:'center'}}>
-                <label style={{marginRight:5, fontSize:13}}>A (Y):</label>
-                <input type="number" value={binSize.height} onChange={handleHeightChange} style={{padding:5, width:60, border:'1px solid #555', background:'rgba(0,0,0,0.1)', color:'inherit'}} />
-            </div>
+            <div style={{display:'flex', alignItems:'center'}}><label style={{marginRight:5, fontSize:13}}>L:</label><input type="number" value={binSize.width} onChange={handleWidthChange} style={{padding:5, width:60, border:'1px solid #555', background:'rgba(0,0,0,0.1)', color:'inherit'}} /></div>
+            <div style={{display:'flex', alignItems:'center'}}><label style={{marginRight:5, fontSize:13}}>A:</label><input type="number" value={binSize.height} onChange={handleHeightChange} style={{padding:5, width:60, border:'1px solid #555', background:'rgba(0,0,0,0.1)', color:'inherit'}} /></div>
             <button onClick={swapDimensions} title="Inverter X / Y" style={{cursor:'pointer', border:'none', background:'transparent', fontSize:'16px', padding:'0 5px'}}>🔄</button>
         </div>
 
-        <div style={{display:'flex', alignItems:'center', borderLeft:'1px solid #555', paddingLeft:'15px'}}><label style={{marginRight:5, fontSize:13}}>Gap:</label><input type="number" value={gap} onChange={e=>setGap(Number(e.target.value))} style={{padding:5, width:50, border:'1px solid #555', background:'rgba(0,0,0,0.1)', color:'inherit'}} /></div>
-        <div style={{display:'flex', alignItems:'center'}}><label style={{marginRight:5, fontSize:13}}>Margem:</label><input type="number" value={margin} onChange={e=>setMargin(Number(e.target.value))} style={{padding:5, width:50, border:'1px solid #555', background:'rgba(0,0,0,0.1)', color:'inherit'}} /></div>
-        
-        {/* NAVEGAÇÃO DE CHAPAS */}
-        {totalBins > 1 && (
-            <div style={{ display:'flex', alignItems:'center', borderLeft:'1px solid #555', paddingLeft:'15px', gap: '8px' }}>
-                <span style={{ fontSize: '13px', opacity: 0.7 }}>Chapa:</span>
-                <button onClick={() => setCurrentBinIndex(Math.max(0, currentBinIndex - 1))} disabled={currentBinIndex === 0} style={{ cursor: 'pointer', border: '1px solid #777', background: 'transparent', borderRadius: '4px', padding: '2px 8px', opacity: currentBinIndex === 0 ? 0.3 : 1 }}>◀</button>
-                <span style={{ fontWeight: 'bold', fontSize: '13px' }}>{currentBinIndex + 1} / {totalBins}</span>
-                <button onClick={() => setCurrentBinIndex(Math.min(totalBins - 1, currentBinIndex + 1))} disabled={currentBinIndex === totalBins - 1} style={{ cursor: 'pointer', border: '1px solid #777', background: 'transparent', borderRadius: '4px', padding: '2px 8px', opacity: currentBinIndex === totalBins - 1 ? 0.3 : 1 }}>▶</button>
+        {strategy === 'true-shape' && (
+            <div style={{display:'flex', gap:'10px', borderLeft:'1px solid #555', paddingLeft:'15px', animation: 'fadeIn 0.3s'}}>
+                 <div style={{display:'flex', alignItems:'center'}} title="Precisão de rotação manual">
+                    <label style={{marginRight:5, fontSize:12, color: 'inherit'}}>Giro:</label>
+                    <select value={rotationStep} onChange={e => setRotationStep(Number(e.target.value))} style={{padding:5, border:'1px solid #555', background:'rgba(0,0,0,0.1)', color:'inherit', cursor: 'pointer'}}>
+                        <option value="90">90°</option>
+                        <option value="45">45°</option>
+                        <option value="10">10°</option>
+                    </select>
+                </div>
             </div>
         )}
 
+        <div style={{display:'flex', alignItems:'center', borderLeft:'1px solid #555', paddingLeft:'15px'}}><label style={{marginRight:5, fontSize:13}}>Gap:</label><input type="number" value={gap} onChange={e=>setGap(Number(e.target.value))} style={{padding:5, width:40, border:'1px solid #555', background:'rgba(0,0,0,0.1)', color:'inherit'}} /></div>
+        <div style={{display:'flex', alignItems:'center'}}><label style={{marginRight:5, fontSize:13}}>Margem:</label><input type="number" value={margin} onChange={e=>setMargin(Number(e.target.value))} style={{padding:5, width:40, border:'1px solid #555', background:'rgba(0,0,0,0.1)', color:'inherit'}} /></div>
+        
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '10px' }}>
-            <button 
-                style={{ background: isComputing ? '#666' : '#28a745', color: 'white', border: 'none', padding: '8px 20px', cursor: isComputing ? 'wait' : 'pointer', borderRadius: '4px', fontWeight: 'bold' }} 
-                onClick={handleCalculate} disabled={isComputing}
-            >
-                {isComputing ? '⏳...' : '▶ Calcular'}
-            </button>
-            <button 
-                onClick={handleDownload}
-                disabled={nestingResult.length === 0}
-                style={{ background: '#007bff', color: 'white', border: 'none', padding: '8px 20px', cursor: nestingResult.length === 0 ? 'not-allowed' : 'pointer', borderRadius: '4px', opacity: nestingResult.length === 0 ? 0.5 : 1 }}
-            >
-                💾 DXF
-            </button>
+            <button style={{ background: isComputing ? '#666' : '#28a745', color: 'white', border: 'none', padding: '8px 20px', cursor: isComputing ? 'wait' : 'pointer', borderRadius: '4px', fontWeight: 'bold', transition: '0.3s' }} onClick={handleCalculate} disabled={isComputing}>{isComputing ? '⏳...' : '▶ Calcular'}</button>
+            <button onClick={handleDownload} disabled={nestingResult.length === 0} style={{ background: '#007bff', color: 'white', border: 'none', padding: '8px 20px', cursor: nestingResult.length === 0 ? 'not-allowed' : 'pointer', borderRadius: '4px', opacity: nestingResult.length === 0 ? 0.5 : 1 }}>💾 DXF</button>
         </div>
         <label style={{marginLeft: '10px', fontSize: '12px', display: 'flex', alignItems: 'center', cursor: 'pointer', userSelect:'none'}}><input type="checkbox" checked={showDebug} onChange={e => setShowDebug(e.target.checked)} style={{marginRight: '5px'}}/>Ver Box</label>
       </div>
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* --- ÁREA DA CHAPA COM ZOOM --- */}
         <div 
             ref={svgContainerRef}
-            style={{ 
-                flex: 2, 
-                position: 'relative', 
-                background: 'transparent',
-                display: 'flex', 
-                flexDirection: 'column',
-                cursor: isDragging ? 'grabbing' : 'grab',
-                overflow: 'hidden' 
-            }}
-            onWheel={handleWheel}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseLeave}
+            style={{ flex: 2, position: 'relative', background: 'transparent', display: 'flex', flexDirection: 'column', cursor: dragMode === 'part' ? 'move' : (dragMode === 'pan' ? 'grabbing' : 'grab'), overflow: 'hidden' }}
+            onWheel={handleWheel} onMouseDown={handleMouseDownContainer} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseLeave}
         >
-            
-            {/* CONTROLES FLUTUANTES DE ZOOM */}
             <div style={{ position: 'absolute', right: 20, top: 20, display: 'flex', flexDirection: 'column', gap: '5px', zIndex: 10 }}>
-                <button onClick={() => setTransform(t => ({...t, k: t.k * 1.2}))} style={{width:30, height:30, cursor:'pointer', background:'rgba(255,255,255,0.9)', border:'1px solid #777', color: '#000', borderRadius:'4px', fontWeight:'bold'}} title="Zoom In">+</button>
-                <button onClick={() => setTransform(t => ({...t, k: t.k / 1.2}))} style={{width:30, height:30, cursor:'pointer', background:'rgba(255,255,255,0.9)', border:'1px solid #777', color: '#000', borderRadius:'4px', fontWeight:'bold'}} title="Zoom Out">-</button>
-                <button onClick={resetZoom} style={{width:30, height:30, cursor:'pointer', background:'rgba(255,255,255,0.9)', border:'1px solid #777', color: '#000', borderRadius:'4px', fontSize:'12px'}} title="Resetar Vista">Fit</button>
+                <button onClick={() => setTransform(t => ({...t, k: t.k * 1.2}))} style={{width:30, height:30, cursor:'pointer', background:'rgba(255,255,255,0.9)', border:'1px solid #777', color: '#000', borderRadius:'4px', fontWeight:'bold'}}>+</button>
+                <button onClick={() => setTransform(t => ({...t, k: t.k / 1.2}))} style={{width:30, height:30, cursor:'pointer', background:'rgba(255,255,255,0.9)', border:'1px solid #777', color: '#000', borderRadius:'4px', fontWeight:'bold'}}>-</button>
+                <button onClick={resetZoom} style={{width:30, height:30, cursor:'pointer', background:'rgba(255,255,255,0.9)', border:'1px solid #777', color: '#000', borderRadius:'4px', fontSize:'12px'}}>Fit</button>
             </div>
+            {totalBins > 1 && (
+                <div style={{ position:'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 10, display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.9)', padding: '5px 15px', borderRadius: '20px', boxShadow: '0 2px 5px rgba(0,0,0,0.2)' }}>
+                    <button onClick={() => setCurrentBinIndex(Math.max(0, currentBinIndex - 1))} disabled={currentBinIndex === 0} style={{ cursor: 'pointer', border: '1px solid #777', background: 'transparent', borderRadius: '4px', padding: '2px 8px', opacity: currentBinIndex === 0 ? 0.3 : 1 }}>◀</button>
+                    <span style={{ fontWeight: 'bold', fontSize: '13px', color:'#333' }}>Chapa {currentBinIndex + 1} de {totalBins}</span>
+                    <button onClick={() => setCurrentBinIndex(Math.min(totalBins - 1, currentBinIndex + 1))} disabled={currentBinIndex === totalBins - 1} style={{ cursor: 'pointer', border: '1px solid #777', background: 'transparent', borderRadius: '4px', padding: '2px 8px', opacity: currentBinIndex === totalBins - 1 ? 0.3 : 1 }}>▶</button>
+                </div>
+            )}
 
             <div style={{flex:1, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px', overflow: 'hidden' }}>
-                <svg 
-                    viewBox={binViewBox} 
-                    preserveAspectRatio="xMidYMid meet" 
-                    style={{ width: '100%', height: '100%', maxHeight: '100%', maxWidth: '100%' }}
-                >
+                <svg viewBox={binViewBox} preserveAspectRatio="xMidYMid meet" style={{ width: '100%', height: '100%', maxHeight: '100%', maxWidth: '100%' }}>
                     <g transform={`translate(${transform.x}, ${transform.y}) scale(${transform.k})`}>
                         <g transform={cncTransform}>
                             <rect x="0" y="0" width={binSize.width} height={binSize.height} fill={showDebug ? "rgba(255,152,0,0.05)" : "none"} stroke="#ff9800" strokeWidth="4" vectorEffect="non-scaling-stroke" />
                             {showDebug && <rect x={margin} y={margin} width={binSize.width - margin*2} height={binSize.height - margin*2} fill="none" stroke="#999" strokeDasharray="5" strokeWidth="1" vectorEffect="non-scaling-stroke" />}
 
-                            {nestingResult
-                                .filter(p => p.binId === currentBinIndex) 
-                                .map((placed, i) => {
+                            {nestingResult.filter(p => p.binId === currentBinIndex).map((placed, i) => {
                                 const part = getPartById(placed.partId);
                                 if (!part) return null;
                                 const rawBox = getRawBoundingBox(part.entities, part.blocks); 
-                                
                                 const centerX = rawBox.minX + rawBox.width / 2;
                                 const centerY = rawBox.minY + rawBox.height / 2;
-                                
-                                const occupiedW = placed.rotation === 90 ? part.height : part.width;
-                                const occupiedH = placed.rotation === 90 ? part.width : part.height;
-
+                                const occupiedW = (placed.rotation % 180 !== 0) ? part.height : part.width;
+                                const occupiedH = (placed.rotation % 180 !== 0) ? part.width : part.height;
+                                const isSelected = placed.partId === selectedPartId;
+                                const isDraggingThis = dragMode === 'part' && isSelected;
+                                const visX = placed.x + (isDraggingThis ? dragOffset.x / transform.k : 0);
+                                const visY = placed.y + (isDraggingThis ? (-dragOffset.y / transform.k) : 0);
                                 const centerMove = `translate(${-centerX}, ${-centerY})`;
                                 const rotation = `rotate(${placed.rotation})`;
-                                const finalMove = `translate(${placed.x + occupiedW/2}, ${placed.y + occupiedH/2})`;
+                                const finalMove = `translate(${visX + occupiedW/2}, ${visY + occupiedH/2})`;
 
                                 return (
-                                    <g key={i}>
-                                        {showDebug && (
-                                            <rect x={placed.x} y={placed.y} width={occupiedW} height={occupiedH} fill="none" stroke="red" strokeWidth="1" vectorEffect="non-scaling-stroke" opacity="0.8"/>
+                                    <g key={i} onMouseDown={(e) => handleMouseDownPart(e, placed.partId)} onDoubleClick={handleDoubleClickPart} style={{cursor: strategy === 'rect' ? 'default' : 'move', opacity: isSelected ? 0.8 : 1}}>
+                                        <rect x={visX} y={visY} width={occupiedW} height={occupiedH} fill="transparent" stroke={isSelected ? "#00ff00" : (showDebug ? "red" : "none")} strokeWidth={isSelected ? 4 : 1} vectorEffect="non-scaling-stroke" pointerEvents="all"/>
+                                        {!isDraggingThis && (
+                                            <g transform={`${finalMove} ${rotation} ${centerMove}`} style={{pointerEvents: 'none'}}>
+                                                {part.entities.map((ent, j) => renderEntity(ent, j, part.blocks, 1, isSelected ? "#00ff00" : "#007bff"))}
+                                            </g>
                                         )}
-                                        <g transform={`${finalMove} ${rotation} ${centerMove}`}>
-                                            {part.entities.map((ent, j) => renderEntity(ent, j, part.blocks, 1, "#007bff"))}
-                                        </g>
+                                        {isDraggingThis && (
+                                            <rect x={visX} y={visY} width={occupiedW} height={occupiedH} fill="rgba(0,255,0,0.2)" stroke="#00ff00" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none"/>
+                                        )}
                                     </g>
                                 );
                             })}
@@ -377,14 +409,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
             </div>
             
             <div style={{ padding: '10px 20px', display: 'flex', gap: '20px', borderTop: '1px solid #555', background: 'transparent' }}>
-                <span style={{opacity: 0.6, fontSize: '12px'}}>{nestingResult.length > 0 ? `Total de Peças: ${nestingResult.length}` : `Área: ${binSize.width}x${binSize.height}mm`}</span>
-                {failedCount > 0 && <span style={{ color: '#dc3545', fontWeight: 'bold', fontSize: '12px', background: 'rgba(255,0,0,0.1)', padding: '2px 8px', borderRadius: '4px' }}>⚠️ {failedCount} PEÇAS NÃO COUBERAM</span>}
+                <span style={{opacity: 0.6, fontSize: '12px'}}>{nestingResult.length > 0 ? `Total: ${nestingResult.length} Peças` : `Área: ${binSize.width}x${binSize.height}mm`}</span>
+                {failedCount > 0 && <span style={{ color: '#dc3545', fontWeight: 'bold', fontSize: '12px', background: 'rgba(255,0,0,0.1)', padding: '2px 8px', borderRadius: '4px' }}>⚠️ {failedCount} NÃO COUBERAM</span>}
             </div>
         </div>
         
-        {/* --- PAINEL LATERAL --- */}
+        {/* Painel lateral */}
         <div style={{ width: '450px', borderLeft: '1px solid #444', display: 'flex', flexDirection: 'column', backgroundColor: 'inherit' }}>
-            <div style={{ display: 'flex', borderBottom: '1px solid #444', background: 'rgba(0,0,0,0.05)' }}>
+             <div style={{ display: 'flex', borderBottom: '1px solid #444', background: 'rgba(0,0,0,0.05)' }}>
                 <button style={tabStyle(activeTab === 'grid')} onClick={() => setActiveTab('grid')}>🔳 Banco de Peças</button>
                 <button style={tabStyle(activeTab === 'list')} onClick={() => setActiveTab('list')}>📄 Lista Técnica</button>
             </div>
@@ -428,7 +460,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
                                     <td style={{padding: '8px 10px', fontSize: '13px'}}>{part.width.toFixed(0)}x{part.height.toFixed(0)}</td>
                                     <td style={{padding: '8px 10px', fontSize: '13px'}}>
                                         <div style={{fontSize:11, opacity:0.8}}>B: {formatArea(part.grossArea)}</div>
-                                        <div style={{fontSize:11, color:'#28a745'}}>L: {formatArea(part.netArea)}</div>
                                     </td>
                                     <td style={{padding: '8px 10px', fontSize: '13px'}}>
                                         <input type="number" min="1" value={quantities[part.id] || 1} onChange={e => updateQty(part.id, Number(e.target.value))} style={{width: 40, padding: '5px', borderRadius: '4px', border: '1px solid #555', background: 'rgba(0,0,0,0.2)', color: 'inherit', textAlign: 'center'}} />
