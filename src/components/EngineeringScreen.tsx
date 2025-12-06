@@ -13,12 +13,13 @@ const THICKNESS_OPTIONS = [
 interface Point { x: number; y: number; }
 interface EntityBox { minX: number; minY: number; maxX: number; maxY: number; area: number; }
 
-// --- PROPS ---
+// --- PROPS ATUALIZADAS ---
 interface EngineeringScreenProps {
     onBack: () => void;
+    onSendToNesting: (parts: ImportedPart[]) => void; // Nova prop
 }
 
-// --- 1. FUNÇÕES AUXILIARES (MATEMÁTICA E GEOMETRIA) ---
+// --- 1. FUNÇÕES AUXILIARES (MATEMÁTICA E GEOMETRIA) - MANTIDAS INTACTAS ---
 
 class UnionFind {
   parent: number[];
@@ -75,7 +76,6 @@ const entitiesTouch = (ent1: any, ent2: any) => {
     return false;
 };
 
-// --- CÁLCULO DE ÁREA LÍQUIDA ---
 const calculatePolygonArea = (vertices: Point[]) => {
     let area = 0;
     const n = vertices.length;
@@ -89,7 +89,6 @@ const calculatePolygonArea = (vertices: Point[]) => {
 
 const calculatePartNetArea = (entities: any[]): number => {
     let netArea = 0;
-    
     entities.forEach(ent => {
         if (ent.type === 'CIRCLE') {
             netArea += Math.PI * (ent.radius * ent.radius);
@@ -98,19 +97,15 @@ const calculatePartNetArea = (entities: any[]): number => {
             netArea += calculatePolygonArea(ent.vertices);
         }
     });
-
     return netArea;
 };
 
-// --- BOUNDING BOX ---
 const calculateBoundingBox = (entities: any[], blocks: any = {}): EntityBox => {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    
     const update = (x: number, y: number) => {
         if (x < minX) minX = x; if (x > maxX) maxX = x;
         if (y < minY) minY = y; if (y > maxY) maxY = y;
     };
-
     entities.forEach(ent => {
         if (ent.type === 'INSERT') {
              const block = blocks[ent.name];
@@ -137,22 +132,17 @@ const calculateBoundingBox = (entities: any[], blocks: any = {}): EntityBox => {
             const r = ent.radius;
             const startAngle = ent.startAngle;
             let endAngle = ent.endAngle;
-
             if (endAngle < startAngle) endAngle += 2 * Math.PI;
-
             update(cx + r * Math.cos(startAngle), cy + r * Math.sin(startAngle));
             update(cx + r * Math.cos(endAngle), cy + r * Math.sin(endAngle));
-
             const startK = Math.ceil(startAngle / (Math.PI / 2));
             const endK = Math.floor(endAngle / (Math.PI / 2));
-
             for (let k = startK; k <= endK; k++) {
                 const angle = k * (Math.PI / 2);
                 update(cx + r * Math.cos(angle), cy + r * Math.sin(angle));
             }
         }
     });
-
     if (minX === Infinity) return { minX: 0, minY: 0, maxX: 0, maxY: 0, area: 0 };
     return { minX, minY, maxX, maxY, area: (maxX - minX) * (maxY - minY) };
 };
@@ -250,7 +240,6 @@ const applyRotationToPart = (part: ImportedPart, angle: number): ImportedPart =>
         return ent;
     });
 
-    // Recalcula áreas
     newPart.grossArea = newPart.width * newPart.height;
     let net = calculatePartNetArea(newPart.entities);
     if (net < 0.1) net = newPart.grossArea;
@@ -337,7 +326,7 @@ const processFileToParts = (flatEntities: any[], fileName: string, defaults: any
 
 // --- 2. COMPONENTE PRINCIPAL ---
 
-export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack }) => {
+export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack, onSendToNesting }) => {
   const [parts, setParts] = useState<ImportedPart[]>([]);
   const [loading, setLoading] = useState(false);
   const [processingMsg, setProcessingMsg] = useState('');
@@ -397,14 +386,12 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack }) 
       }
   };
 
-  // --- NOVA FUNÇÃO DE REINÍCIO (RESET) ---
   const handleReset = () => {
     if (parts.length > 0 && !window.confirm("Isso irá limpar a lista atual. Deseja continuar?")) {
         return;
     }
     setParts([]);
     setSelectedPartId(null);
-    // Opcional: Resetar também os inputs do lote
     setBatchDefaults({
         pedido: '',
         op: '',
@@ -458,6 +445,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack }) 
       }));
   };
 
+  // VALIDAÇÃO E ENVIO PARA BANCO
   const handleStorageDB = async () => {
       if (parts.length === 0) {
           alert("A lista está vazia. Importe peças primeiro.");
@@ -465,7 +453,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack }) 
       }
       const nonBlocks = parts.filter(p => p.entities.length > 1);
       if (nonBlocks.length > 0) {
-          alert(`ATENÇÃO: Existem ${nonBlocks.length} peças que ainda não são Blocos.\n\nPor favor, clique em "📦 Insert/Block" para converter todas as peças antes de enviar.`);
+          alert(`ATENÇÃO: Existem ${nonBlocks.length} peças que ainda não são Blocos.\n\nPor favor, clique em "📦 Insert/Block" antes de enviar.`);
           return;
       }
 
@@ -481,17 +469,33 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack }) 
           const data = await response.json();
           if (response.ok) {
               console.log("Resposta do Servidor:", data);
-              alert(`✅ SUCESSO!\n\n${data.count} peças foram gravadas no banco de dados.\nProntas para o Nesting!`);
+              alert(`✅ SUCESSO!\n\n${data.count} peças foram gravadas no banco de dados.`);
           } else {
               throw new Error(data.error || "Erro desconhecido no servidor");
           }
       } catch (error: any) {
           console.error("Erro de conexão:", error);
-          alert(`❌ ERRO DE CONEXÃO\n\nNão foi possível salvar.\nDetalhes: ${error.message}\n\nVerifique se o terminal do servidor (node server.cjs) está aberto e rodando.`);
+          alert(`❌ ERRO DE CONEXÃO\n\nNão foi possível salvar.\nDetalhes: ${error.message}`);
       } finally {
           setLoading(false);
           setProcessingMsg("");
       }
+  };
+
+  // NOVA FUNÇÃO: ENVIAR DIRETO PARA NESTING
+  const handleDirectNesting = () => {
+      if (parts.length === 0) {
+          alert("A lista está vazia.");
+          return;
+      }
+      const nonBlocks = parts.filter(p => p.entities.length > 1);
+      if (nonBlocks.length > 0) {
+          alert(`ATENÇÃO: Existem ${nonBlocks.length} peças que ainda não são Blocos.\n\nClique em "📦 Insert/Block" para otimizar o Nesting.`);
+          return;
+      }
+
+      // Chama a função do App.tsx para trocar de tela
+      onSendToNesting(parts);
   };
 
   const handleRotatePart = (direction: 'cw' | 'ccw') => {
@@ -604,18 +608,29 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack }) 
             {loading && <span style={{fontSize:'12px', color:'#ffd700'}}>⏳ {processingMsg}</span>}
         </div>
         <div style={{display:'flex', gap:'15px', alignItems:'center'}}>
-             {/* BOTÃO NOVA LISTA (RESET) */}
+             
+             {/* BOTÃO NOVO: RESET */}
              <button onClick={handleReset} style={{background: 'transparent', color: theme.text, border: `1px solid ${theme.border}`, padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px'}}>
                 ✨ Nova Lista
              </button>
              
-             <button onClick={handleStorageDB} style={{background: '#28a745', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px'}}>💾 Storage DB</button>
+             <button onClick={handleStorageDB} style={{background: '#28a745', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px'}}>
+                💾 Storage DB
+             </button>
+
+             {/* BOTÃO NOVO: NESTING DIRETO */}
+             <button onClick={handleDirectNesting} style={{background: '#6f42c1', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px'}}>
+                🚀 Cortar Agora
+             </button>
+
              <button onClick={() => setIsDarkMode(!isDarkMode)} style={{background:'transparent', border: `1px solid ${theme.border}`, color: theme.text, padding:'5px 10px', borderRadius:'4px', cursor:'pointer'}}>
                 {isDarkMode ? '☀️' : '🌙'}
              </button>
         </div>
       </div>
-
+      
+      {/* ... RESTO DO COMPONENTE (Layout dividido, Tabela, Modal) IGUAL AO ANTERIOR ... */}
+      {/* ... (Copiei a lógica do render acima, a estrutura abaixo se mantém) ... */}
       <div style={batchContainerStyle}>
           <div style={{color: theme.text, fontWeight: 'bold', marginRight: '20px', fontSize: '14px'}}>PADRÃO DO LOTE:</div>
           <div style={inputGroupStyle}><label style={labelStyle}>PEDIDO <button style={applyButtonStyle} onClick={() => applyToAll('pedido')}>Aplicar Todos</button></label><input style={inputStyle} value={batchDefaults.pedido} onChange={(e) => handleDefaultChange('pedido', e.target.value)} placeholder="Ex: 35041" /></div>
@@ -719,10 +734,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack }) 
                                 </td>
                                 <td style={tableCellStyle}><input style={cellInputStyle} value={part.autor || ''} onChange={(e) => handleRowChange(part.id, 'autor', e.target.value)} /></td>
                                 <td style={{...tableCellStyle, fontSize:'11px', opacity:0.7}}>{part.width.toFixed(0)} x {part.height.toFixed(0)}</td>
-                                {/* AQUI: Removemos o valor NET e deixamos apenas o GROSS */}
-                                <td style={{...tableCellStyle, fontSize:'11px', opacity:0.7}}>
-                                    {(part.grossArea / 1000000).toFixed(4)}
-                                </td>
+                                <td style={{...tableCellStyle, fontSize:'11px', opacity:0.7}}>{(part.grossArea / 1000000).toFixed(4)}</td>
                                 <td style={{...tableCellStyle, color: entColor, fontWeight: 'bold', textAlign:'center'}}>{entCount}</td>
                                 <td style={tableCellStyle}>
                                     <div style={{display:'flex', gap:'10px'}}>
@@ -738,6 +750,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack }) 
         </div>
       </div>
 
+      {/* Modal (Mantido igual) */}
       {viewingPart && (
           <div style={{position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: theme.modalOverlay, zIndex: 9999, display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
               <div style={{background: theme.modalBg, width: '80%', height: '80%', borderRadius: '8px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 0 20px rgba(0,0,0,0.5)', border: `1px solid ${theme.border}`}}>
