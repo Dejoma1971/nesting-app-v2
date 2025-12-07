@@ -53,14 +53,13 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       
       <div style={{ display: 'flex', gap: '40px', flexWrap: 'wrap', justifyContent: 'center' }}>
         
-        {/* BOTÃO ESQUERDA: ENGENHARIA */}
+        {/* BOTÃO ÚNICO: ENGENHARIA & PROJETOS */}
         <div 
           style={cardStyle} 
           onClick={() => onNavigate('engineering')}
           onMouseEnter={hoverStyle}
           onMouseLeave={leaveStyle}
         >
-          {/* Ícone de Régua e Lápis */}
           <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#007bff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M2 22h20" />
             <path d="M12 2l-2.5 2.5a5 5 0 0 0 0 7.07l.5.5-8 8H22v-3l-8-8 .5-.5a5 5 0 0 0 7.07 0L22 6 12 2z" />
@@ -69,29 +68,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
           <div>
             <h2 style={{ fontSize: '20px', margin: '0 0 10px 0' }}>Engenharia & Projetos</h2>
             <p style={{ fontSize: '14px', color: '#aaa', margin: 0 }}>
-              Cadastro técnico, importação de desenhos e definição de materiais.
-            </p>
-          </div>
-        </div>
-
-        {/* BOTÃO DIREITA: NESTING */}
-        <div 
-          style={cardStyle} 
-          onClick={() => onNavigate('nesting')}
-          onMouseEnter={hoverStyle}
-          onMouseLeave={leaveStyle}
-        >
-          {/* Ícone de Chapa/Corte */}
-          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#28a745" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-            <line x1="8" y1="3" x2="8" y2="21" strokeDasharray="4" />
-            <line x1="3" y1="14" x2="21" y2="14" strokeDasharray="4" />
-            <circle cx="15" cy="8" r="2" />
-          </svg>
-          <div>
-            <h2 style={{ fontSize: '20px', margin: '0 0 10px 0' }}>Planejamento de Corte (PCP)</h2>
-            <p style={{ fontSize: '14px', color: '#aaa', margin: 0 }}>
-              Otimização de chapas, geração de DXF e gestão de corte.
+              Central de Importação, Tratamento e Cadastro de Peças.
             </p>
           </div>
         </div>
@@ -99,7 +76,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       </div>
       
       <div style={{ marginTop: '80px', color: '#555', fontSize: '12px' }}>
-        v1.0.0 - Ambiente de Desenvolvimento
+        v1.1.0 - Fluxo Centralizado
       </div>
     </div>
   );

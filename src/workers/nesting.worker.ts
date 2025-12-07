@@ -1,54 +1,53 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { runRectangularNesting } from '../utils/nestingCore';
 
-// Escuta mensagens vindas da Interface Principal
-self.onmessage = (e: MessageEvent) => {
-    const { parts, quantities, gap, margin, binWidth, binHeight, iterations } = e.data;
+interface WorkerMessage {
+    parts: any[];
+    quantities: { [key: string]: number };
+    gap: number;
+    margin: number;
+    binWidth: number;
+    binHeight: number;
+    iterations: number;
+    strategy: 'rect' | 'true-shape';
+    rotationStep: number;
+    direction: 'auto' | 'vertical' | 'horizontal'; // <--- NOVO PARÂMETRO
+}
 
-    console.log('Worker: Iniciando cálculo...');
+self.onmessage = async (e: MessageEvent) => {
+    const params = e.data as WorkerMessage;
+    const { iterations, parts, direction } = params;
 
-    // SIMULAÇÃO DE ALGORITMO GENÉTICO (Monte Carlo Simplificado)
-    // Vamos rodar o nesting várias vezes tentando ordens diferentes
-    // e retornar o melhor resultado encontrado.
+    console.log(`Worker: Calculando... Direção: ${direction}`);
 
     let bestResult: any = null;
-    let bestEfficiency = -1;
+    let bestScore = -1;
 
-    // Se iterations for 1, roda só uma vez (modo rápido).
-    // Se for maior, embaralha as peças para tentar achar encaixes melhores.
     const loops = iterations || 1;
-
+    
     for (let i = 0; i < loops; i++) {
-        
-        // Clona e embaralha a ordem das peças (exceto no primeiro loop)
         const currentParts = [...parts];
-        if (i > 0) {
-            currentParts.sort(() => Math.random() - 0.5);
-        }
+        if (i > 0) currentParts.sort(() => Math.random() - 0.5);
 
         const result = runRectangularNesting(
             currentParts, 
-            quantities, 
-            gap, 
-            margin, 
-            binWidth, 
-            binHeight, 
-            true // Ativa Rotação
+            params.quantities, 
+            params.gap, 
+            params.margin, 
+            params.binWidth, 
+            params.binHeight, 
+            true, // Rotação 90 graus
+            direction // <--- REPASSANDO A DIREÇÃO
         );
 
-        // O melhor resultado é aquele que coloca mais peças (menos falhas)
-        // e tem maior eficiência de ocupação.
-        const score = (result.placed.length * 1000) + result.efficiency;
-        const bestScore = bestResult ? (bestResult.placed.length * 1000) + bestResult.efficiency : -1;
-
+        const score = (result.placed.length * 1000000) + result.efficiency;
+        
         if (score > bestScore) {
             bestResult = result;
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            bestEfficiency = score;
+            bestScore = score;
         }
     }
 
-    // Devolve o melhor resultado para a tela
     self.postMessage(bestResult);
 };
 
