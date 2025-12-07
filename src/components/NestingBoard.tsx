@@ -269,15 +269,29 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
   // Ref para o requestAnimationFrame
   const rafRef = useRef<number | null>(null);
 
-  // Dados voláteis do arraste
+ // Dados voláteis do arraste
   const dragRef = useRef({
-    startX: 0, 
-    startY: 0,     
-    initialX: 0, 
-    initialY: 0, 
-    partX: 0, 
-    partY: 0        
+    startX: 0,   // Pixels da tela
+    startY: 0,   // Pixels da tela
+    startSvgX: 0, // Coordenada X real no mundo SVG
+    startSvgY: 0, // Coordenada Y real no mundo SVG
+    initialX: 0, // Posição inicial da câmera (Pan)
+    initialY: 0, // Posição inicial da câmera (Pan)
+    partX: 0,    // Posição original da peça
+    partY: 0     // Posição original da peça
   });
+  // Função auxiliar para converter Mouse(Tela) -> Ponto(SVG)
+  const getSVGPoint = useCallback((clientX: number, clientY: number) => {
+    const svgElement = svgContainerRef.current?.querySelector('svg');
+    if (!svgElement) return { x: 0, y: 0 };
+
+    const point = svgElement.createSVGPoint();
+    point.x = clientX;
+    point.y = clientY;
+    
+    // Transforma o pixel da tela para a coordenada do ViewBox
+    return point.matrixTransform(svgElement.getScreenCTM()?.inverse());
+  }, []);
 
   // Função auxiliar para atualizar Transform (Ref + State + DOM)
   const updateTransform = useCallback((newT: { x: number, y: number, k: number }) => {
@@ -390,6 +404,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
       dragRef.current = {
         startX: e.clientX,
         startY: e.clientY,
+        // CORREÇÃO: Inicializamos com 0 pois o PAN não usa coordenadas SVG, 
+        // mas o TypeScript exige que as propriedades existam.
+        startSvgX: 0,
+        startSvgY: 0,
         initialX: transformRef.current.x,
         initialY: transformRef.current.y,
         partX: 0, 
@@ -409,33 +427,38 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
         setDragMode('part');
         activePartElementRef.current = e.currentTarget as SVGGElement;
         
-        // Aplica estilo inicial para hardware acceleration
+        // 1. Calcula onde o mouse está NO MUNDO SVG
+        const svgPos = getSVGPoint(e.clientX, e.clientY);
+
+        // 2. Prepara aceleração de hardware
         if (activePartElementRef.current) {
           activePartElementRef.current.style.transform = 'translate3d(0, 0, 0)';
           activePartElementRef.current.style.willChange = 'transform';
+          // Define cursor grabbing imediatamente para feedback visual
+          activePartElementRef.current.style.cursor = 'grabbing';
         }
         
+        // 3. Salva estado inicial
         dragRef.current = {
           startX: e.clientX,
           startY: e.clientY,
-          initialX: 0, 
+          startSvgX: svgPos.x, // Salva o ponto âncora SVG
+          startSvgY: svgPos.y, // Salva o ponto âncora SVG
+          initialX: 0,
           initialY: 0,
           partX: currentX, 
           partY: currentY
         };
       }
     }
-  }, [strategy]);
+  }, [strategy, getSVGPoint]);
 
   const handleDoubleClickPart = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedPartId(null);
   }, []);
 
-  // MOUSE MOVE OTIMIZADO COM RAF
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    // Se o modo for 'none', sai imediatamente.
-    // Isso garante que para o restante da função e callbacks, dragMode é 'pan' ou 'part'.
+ const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (dragMode === 'none') return;
     
     if (rafRef.current) {
@@ -443,34 +466,43 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
     }
     
     rafRef.current = requestAnimationFrame(() => {
-      // Correção: Removemos a checagem if (dragMode === 'none') aqui dentro,
-      // pois o TypeScript sabe que dragMode foi estreitado (narrowed) para 'pan' | 'part'
-      // devido ao return antecipado acima.
-
-      const dx = e.clientX - dragRef.current.startX;
-      const dy = e.clientY - dragRef.current.startY;
-
+      // --- LÓGICA DE PAN (Mover a câmera) ---
+      // Para o PAN, continuamos usando pixels vs zoom, pois movemos o Viewport
       if (dragMode === 'pan' && panGroupRef.current) {
-        const newX = dragRef.current.initialX + dx;
-        const newY = dragRef.current.initialY + dy;
+        const dx = e.clientX - dragRef.current.startX;
+        const dy = e.clientY - dragRef.current.startY;
+        
+        // Mantemos a lógica simples para o Pan, pois funciona bem para a câmera
         const currentK = transformRef.current.k;
+        const newX = dragRef.current.initialX + dx; // Movimento direto
+        const newY = dragRef.current.initialY + dy;
 
         transformRef.current.x = newX;
         transformRef.current.y = newY;
-        
         panGroupRef.current.setAttribute('transform', `translate(${newX}, ${newY}) scale(${currentK})`);
       } 
+      
+      // --- LÓGICA DE ARRASTAR PEÇA (CORRIGIDA) ---
       else if (dragMode === 'part' && activePartElementRef.current) {
-        // ⚡ MOVIMENTO OTIMIZADO: CSS transforms com hardware acceleration
-        const zoom = transformRef.current.k; 
-        const mmDx = dx / zoom;
-        const mmDy = -dy / zoom; // Inverte Y do DOM vs CNC
+        // 1. Onde o mouse está AGORA no mundo SVG?
+        const currentSvgPos = getSVGPoint(e.clientX, e.clientY);
+        
+        // 2. Qual a distância percorrida em Unidades SVG?
+        // (Não precisamos dividir por zoom, a matriz já fez isso)
+        const deltaX = currentSvgPos.x - dragRef.current.startSvgX;
+        const deltaY = currentSvgPos.y - dragRef.current.startSvgY;
 
-        // Aplica translação via CSS (MUITO mais rápido que setAttribute)
-        activePartElementRef.current.style.transform = `translate3d(${mmDx}px, ${mmDy}px, 0)`;
+        // 3. Ajuste para o sistema de coordenadas CNC (Y invertido)
+        // Se o SVG visual desce (Y aumenta), no CNC (scale 1, -1) isso significa descer (Y diminui)
+        // Como o grupo pai tem scale(1, -1), precisamos inverter o deltaY visual para mover corretamente
+        const visualToCncY = -deltaY; 
+
+        // 4. Aplica via CSS Transform (Performance pura)
+        // Usamos translate3d para forçar GPU
+        activePartElementRef.current.style.transform = `translate3d(${deltaX}px, ${visualToCncY}px, 0)`;
       }
     });
-  }, [dragMode]);
+  }, [dragMode, getSVGPoint]);
 
   const handleMouseUp = useCallback(() => {
     if (dragMode === 'none') return;
@@ -480,31 +512,33 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
     }
 
     if (dragMode === 'pan') {
-      // Sincroniza
       setTransform({ ...transformRef.current });
     } 
     else if (dragMode === 'part' && selectedPartId && activePartElementRef.current) {
-      // COMMIT: Lê o quanto moveu visualmente e salva no estado real
+      // Recupera a transformação visual que aplicamos via CSS
       const style = window.getComputedStyle(activePartElementRef.current);
       const matrix = new DOMMatrixReadOnly(style.transform);
       
-      const mmDx = matrix.m41;
-      const mmDy = matrix.m42;
+      // No translate3d(x, y, 0), m41 é X e m42 é Y
+      const finalDeltaX = matrix.m41;
+      const finalDeltaY = matrix.m42;
 
+      // Atualiza o React State com a nova posição
       setNestingResult(prev => prev.map(p => {
         if (p.partId === selectedPartId) {
           return { 
             ...p, 
-            x: dragRef.current.partX + mmDx, 
-            y: dragRef.current.partY + mmDy 
+            x: dragRef.current.partX + finalDeltaX, 
+            y: dragRef.current.partY + finalDeltaY 
           };
         }
         return p;
       }));
 
-      // Limpa o estilo CSS para o React assumir a renderização na nova posição oficial
+      // Limpeza
       activePartElementRef.current.style.transform = '';
       activePartElementRef.current.style.willChange = '';
+      activePartElementRef.current.style.cursor = '';
     }
     
     setDragMode('none');
