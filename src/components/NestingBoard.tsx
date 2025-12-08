@@ -1,15 +1,16 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, {
   useState,
-  useMemo,
   useEffect,
   useRef,
   useCallback,
+  useMemo,
 } from "react";
 import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
 import { generateDxfContent } from "../utils/dxfWriter";
 import { ContextControl } from "./ContextControl";
+import { InteractiveCanvas } from "./InteractiveCanvas"; // <--- NOVO COMPONENTE
 
 import NestingWorker from "../workers/nesting.worker?worker";
 
@@ -21,19 +22,8 @@ interface NestingBoardProps {
   parts: ImportedPart[];
 }
 
-// Interface para cache de bounding boxes
-interface BoundingBoxCache {
-  [partId: string]: {
-    minX: number;
-    minY: number;
-    width: number;
-    height: number;
-    centerX: number;
-    centerY: number;
-  };
-}
-
-// Função de renderização de entidade
+// --- FUNÇÕES AUXILIARES PARA THUMBNAILS (BARRA LATERAL) ---
+// Mantidas aqui para garantir que a lista de peças continue renderizando as prévias
 const renderEntityFunction = (
   entity: any,
   index: number,
@@ -132,93 +122,6 @@ const renderEntityFunction = (
   }
 };
 
-// Componente memoizado para peças individuais
-interface PartElementProps {
-  placed: PlacedPart;
-  isSelected: boolean;
-  onMouseDown: (
-    e: React.MouseEvent,
-    partId: string,
-    x: number,
-    y: number
-  ) => void;
-  onDoubleClick: (e: React.MouseEvent, partId: string) => void;
-  onContextMenu: (e: React.MouseEvent, partId: string) => void;
-  partData: ImportedPart | undefined;
-  showDebug: boolean;
-  strategy: "rect" | "true-shape";
-  transformData: any;
-}
-
-const PartElement = React.memo<PartElementProps>(
-  ({
-    placed,
-    isSelected,
-    onMouseDown,
-    onDoubleClick,
-    onContextMenu,
-    partData,
-    showDebug,
-    strategy,
-    transformData,
-  }) => {
-    if (!partData) return null;
-
-    const occupiedW =
-      placed.rotation % 180 !== 0 ? partData.height : partData.width;
-    const occupiedH =
-      placed.rotation % 180 !== 0 ? partData.width : partData.height;
-
-    const finalTransform = transformData
-      ? `translate(${placed.x + transformData.occupiedW / 2}, ${
-          placed.y + transformData.occupiedH / 2
-        }) rotate(${
-          placed.rotation
-        }) translate(${-transformData.centerX}, ${-transformData.centerY})`
-      : "";
-
-    return (
-      <g
-        onMouseDown={(e) => onMouseDown(e, placed.partId, placed.x, placed.y)}
-        onDoubleClick={(e) => onDoubleClick(e, placed.partId)}
-        onContextMenu={(e) => onContextMenu(e, placed.partId)}
-        style={{
-          cursor: strategy === "rect" ? "default" : "move",
-          opacity: isSelected ? 0.6 : 1,
-        }}
-      >
-        <g>
-          <rect
-            x={placed.x}
-            y={placed.y}
-            width={occupiedW}
-            height={occupiedH}
-            fill="transparent"
-            stroke={isSelected ? "#00ff00" : showDebug ? "red" : "none"}
-            strokeWidth={isSelected ? 4 : 1}
-            vectorEffect="non-scaling-stroke"
-            pointerEvents="all"
-          />
-          <g transform={finalTransform} style={{ pointerEvents: "none" }}>
-            {partData.entities.map((ent, j) =>
-              renderEntityFunction(
-                ent,
-                j,
-                partData.blocks,
-                1,
-                isSelected ? "#00ff00" : "#007bff"
-              )
-            )}
-          </g>
-        </g>
-      </g>
-    );
-  }
-);
-
-PartElement.displayName = "PartElement";
-
-// Função auxiliar para calcular bounding box
 const calculateBoundingBox = (entities: any[], blocksData: any) => {
   let minX = Infinity,
     minY = Infinity,
@@ -276,6 +179,7 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
   if (minX === Infinity) return { minX: 0, minY: 0, width: 0, height: 0 };
   return { minX, minY, width: maxX - minX, height: maxY - minY };
 };
+// --- FIM DOS HELPERS DE THUMBNAIL ---
 
 export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
   const [binSize, setBinSize] = useState<Size>({ width: 1200, height: 3000 });
@@ -284,9 +188,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
 
   // CONFIGURAÇÕES
   const [strategy, setStrategy] = useState<"rect" | "true-shape">("rect");
-  const [direction, setDirection] = useState<
-    "auto" | "vertical" | "horizontal"
-  >("auto");
+  const [direction, setDirection] = useState<"auto" | "vertical" | "horizontal">("auto");
   const [iterations] = useState(50);
   const [rotationStep, setRotationStep] = useState(90);
 
@@ -310,13 +212,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
   const [totalBins, setTotalBins] = useState(1);
   const [currentBinIndex, setCurrentBinIndex] = useState(0);
 
-  // Estados de Interação Visual
-  const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
-  const transformRef = useRef({ x: 0, y: 0, k: 1 });
-
   // Controle de Seleção
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
-  const [dragMode, setDragMode] = useState<"none" | "pan" | "part">("none");
 
   // NOVO ESTADO: MENU DE CONTEXTO
   const [contextMenu, setContextMenu] = useState<{
@@ -325,51 +222,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
     y: number;
   } | null>(null);
 
-  // REFS DOM
+  // REFS
   const workerRef = useRef<Worker | null>(null);
-  const svgContainerRef = useRef<HTMLDivElement>(null);
-  const panGroupRef = useRef<SVGGElement>(null);
-  const activePartElementRef = useRef<SVGGElement | null>(null);
-  const panIntervalRef = useRef<number | null>(null);
-  const [boundingBoxCache, setBoundingBoxCache] = useState<BoundingBoxCache>(
-    {}
-  );
-  const rafRef = useRef<number | null>(null);
-
-  const dragRef = useRef({
-    startX: 0,
-    startY: 0,
-    startSvgX: 0,
-    startSvgY: 0,
-    initialX: 0,
-    initialY: 0,
-    partX: 0,
-    partY: 0,
-  });
-
-  // --- Helpers SVG ---
-  const getSVGPoint = useCallback((clientX: number, clientY: number) => {
-    const svgElement = svgContainerRef.current?.querySelector("svg");
-    if (!svgElement) return { x: 0, y: 0 };
-    const point = svgElement.createSVGPoint();
-    point.x = clientX;
-    point.y = clientY;
-    return point.matrixTransform(svgElement.getScreenCTM()?.inverse());
-  }, []);
-
-  const updateTransform = useCallback(
-    (newT: { x: number; y: number; k: number }) => {
-      transformRef.current = newT;
-      setTransform(newT);
-      if (panGroupRef.current) {
-        panGroupRef.current.setAttribute(
-          "transform",
-          `translate(${newT.x}, ${newT.y}) scale(${newT.k})`
-        );
-      }
-    },
-    []
-  );
 
   // --- FUNÇÕES DO MENU DE CONTEXTO ---
   const handleContextMove = useCallback(
@@ -405,13 +259,29 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
     [selectedPartId]
   );
 
+  // --- HANDLER DE MOVIMENTO VINDO DO CANVAS (INTERATIVIDADE) ---
+  const handlePartMove = useCallback((partId: string, dx: number, dy: number) => {
+      setNestingResult((prev) =>
+        prev.map((p) => {
+          if (p.partId === partId) {
+            return {
+              ...p,
+              x: p.x + dx,
+              y: p.y + dy,
+            };
+          }
+          return p;
+        })
+      );
+  }, []);
+
   // --- GATILHO DO MENU (CLIQUE DIREITO NA PEÇA) ---
   const handlePartContextMenu = useCallback(
     (e: React.MouseEvent, partId: string) => {
       e.preventDefault();
       e.stopPropagation();
 
-      // Regra: Só abre se a peça já estiver selecionada (Verde)
+      // Regra: Só abre se a peça já estiver selecionada
       if (partId === selectedPartId) {
         setContextMenu({ visible: true, x: e.clientX, y: e.clientY });
       } else {
@@ -420,46 +290,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
     },
     [selectedPartId]
   );
-
-  // --- PAN CONTÍNUO ---
-  const stopContinuousPan = useCallback(() => {
-    if (panIntervalRef.current !== null) {
-      window.clearInterval(panIntervalRef.current);
-      panIntervalRef.current = null;
-    }
-  }, []);
-
-  // --- PRÉ-CÁLCULO ---
-  const partTransforms = useMemo(() => {
-    const transforms: Record<string, any> = {};
-    nestingResult.forEach((placed) => {
-      const part = parts.find((p) => p.id === placed.partId);
-      if (!part) return;
-      const cachedBox = boundingBoxCache[placed.partId];
-      let box;
-      if (cachedBox) {
-        box = cachedBox;
-      } else {
-        box = calculateBoundingBox(part.entities, part.blocks);
-        const newBox = {
-          ...box,
-          centerX: box.minX + box.width / 2,
-          centerY: box.minY + box.height / 2,
-        };
-        requestAnimationFrame(() => {
-          setBoundingBoxCache((prev) => ({ ...prev, [placed.partId]: newBox }));
-        });
-        box = newBox;
-      }
-      transforms[placed.partId] = {
-        centerX: box.centerX,
-        centerY: box.centerY,
-        occupiedW: placed.rotation % 180 !== 0 ? part.height : part.width,
-        occupiedH: placed.rotation % 180 !== 0 ? part.width : part.height,
-      };
-    });
-    return transforms;
-  }, [nestingResult, parts, boundingBoxCache]);
 
   // --- EFFECTS ---
   useEffect(() => {
@@ -478,201 +308,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
     });
   }, [parts]);
 
-  useEffect(() => {
-    return () => {
-      stopContinuousPan();
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [stopContinuousPan]);
-
-  // --- MOUSE HANDLERS ---
-  const handleMouseDownContainer = useCallback(
-    (e: React.MouseEvent) => {
-      // Se clicar fora, fecha o menu de contexto
-      if (contextMenu) setContextMenu(null);
-
-      if (dragMode === "none") {
-        setDragMode("pan");
-        dragRef.current = {
-          startX: e.clientX,
-          startY: e.clientY,
-          startSvgX: 0,
-          startSvgY: 0,
-          initialX: transformRef.current.x,
-          initialY: transformRef.current.y,
-          partX: 0,
-          partY: 0,
-        };
-      }
-    },
-    [dragMode, contextMenu]
-  );
-
-  const handleMouseDownPart = useCallback(
-    (
-      e: React.MouseEvent,
-      partId: string,
-      currentX: number,
-      currentY: number
-    ) => {
-      if (partId !== selectedPartId) return;
-      e.stopPropagation();
-
-      if (e.button === 0) {
-        if (strategy !== "rect") {
-          e.preventDefault();
-          setDragMode("part");
-          activePartElementRef.current = e.currentTarget as SVGGElement;
-          const svgPos = getSVGPoint(e.clientX, e.clientY);
-          if (activePartElementRef.current) {
-            activePartElementRef.current.style.transform =
-              "translate3d(0, 0, 0)";
-            activePartElementRef.current.style.willChange = "transform";
-            activePartElementRef.current.style.cursor = "grabbing";
-          }
-          dragRef.current = {
-            startX: e.clientX,
-            startY: e.clientY,
-            startSvgX: svgPos.x,
-            startSvgY: svgPos.y,
-            initialX: 0,
-            initialY: 0,
-            partX: currentX,
-            partY: currentY,
-          };
-        }
-      }
-    },
-    [strategy, selectedPartId, getSVGPoint]
-  );
-
-  const handleDoubleClickPart = useCallback(
-    (e: React.MouseEvent, partId: string) => {
-      e.stopPropagation();
-      setSelectedPartId(partId); // Clica 2x seleciona (comportamento padrão)
-      // Se quiser deselecionar no duplo clique, use: setSelectedPartId(null);
-    },
-    []
-  );
-
-  const handleDoubleClickContainer = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setSelectedPartId(null); // Duplo clique no vazio limpa seleção
-  }, []);
-
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (dragMode === "none") return;
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-
-      rafRef.current = requestAnimationFrame(() => {
-        if (dragMode === "pan" && panGroupRef.current) {
-          const dx = e.clientX - dragRef.current.startX;
-          const dy = e.clientY - dragRef.current.startY;
-          const currentK = transformRef.current.k;
-          const newX = dragRef.current.initialX + dx;
-          const newY = dragRef.current.initialY + dy;
-          transformRef.current.x = newX;
-          transformRef.current.y = newY;
-          panGroupRef.current.setAttribute(
-            "transform",
-            `translate(${newX}, ${newY}) scale(${currentK})`
-          );
-        } else if (dragMode === "part" && activePartElementRef.current) {
-          const currentSvgPos = getSVGPoint(e.clientX, e.clientY);
-          const deltaX = currentSvgPos.x - dragRef.current.startSvgX;
-          const deltaY = currentSvgPos.y - dragRef.current.startSvgY;
-          const visualToCncY = -deltaY;
-          activePartElementRef.current.style.transform = `translate3d(${deltaX}px, ${visualToCncY}px, 0)`;
-        }
-      });
-    },
-    [dragMode, getSVGPoint]
-  );
-
-  const handleMouseUp = useCallback(() => {
-    if (dragMode === "none") return;
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-
-    if (dragMode === "pan") {
-      setTransform({ ...transformRef.current });
-    } else if (
-      dragMode === "part" &&
-      selectedPartId &&
-      activePartElementRef.current
-    ) {
-      const style = window.getComputedStyle(activePartElementRef.current);
-      const matrix = new DOMMatrixReadOnly(style.transform);
-      const finalDeltaX = matrix.m41;
-      const finalDeltaY = matrix.m42;
-
-      setNestingResult((prev) =>
-        prev.map((p) => {
-          if (p.partId === selectedPartId) {
-            return {
-              ...p,
-              x: dragRef.current.partX + finalDeltaX,
-              y: dragRef.current.partY + finalDeltaY,
-            };
-          }
-          return p;
-        })
-      );
-      activePartElementRef.current.style.transform = "";
-      activePartElementRef.current.style.willChange = "";
-      activePartElementRef.current.style.cursor = "";
-    }
-    setDragMode("none");
-    activePartElementRef.current = null;
-  }, [dragMode, selectedPartId]);
-
-  const handleMouseLeave = useCallback(() => {
-    if (dragMode !== "none") handleMouseUp();
-    stopContinuousPan();
-  }, [dragMode, handleMouseUp, stopContinuousPan]);
-
-  const resetZoom = useCallback(
-    () => updateTransform({ x: 0, y: 0, k: 1 }),
-    [updateTransform]
-  );
-
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const svgElement = svgContainerRef.current?.querySelector("svg");
-      if (!svgElement) return;
-      let mouseX = 0;
-      let mouseY = 0;
-      try {
-        const point = svgElement.createSVGPoint();
-        point.x = e.clientX;
-        point.y = e.clientY;
-        const svgPoint = point.matrixTransform(
-          svgElement.getScreenCTM()?.inverse()
-        );
-        mouseX = svgPoint.x;
-        mouseY = svgPoint.y;
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      } catch (error) {
-        const rect = svgContainerRef.current!.getBoundingClientRect();
-        mouseX = e.clientX - rect.left;
-        mouseY = e.clientY - rect.top;
-      }
-      const zoomIntensity = 0.15;
-      const wheelDirection = e.deltaY < 0 ? 1 : -1;
-      const scaleFactor = Math.exp(wheelDirection * zoomIntensity);
-      const currentT = transformRef.current;
-      let newScale = currentT.k * scaleFactor;
-      newScale = Math.max(0.1, Math.min(newScale, 50));
-      const scaleRatio = newScale / currentT.k;
-      const newX = mouseX - (mouseX - currentT.x) * scaleRatio;
-      const newY = mouseY - (mouseY - currentT.y) * scaleRatio;
-      updateTransform({ x: newX, y: newY, k: newScale });
-    },
-    [updateTransform]
-  );
-
+  // --- HANDLERS DA BARRA DE TOPO ---
   const handleWidthChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const val = Number(e.target.value);
@@ -697,10 +333,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
     setNestingResult([]);
     setCurrentBinIndex(0);
     setTotalBins(1);
-    resetZoom();
     setSelectedPartId(null);
-    setBoundingBoxCache({});
+    
+    // Termina worker anterior se houver
     if (workerRef.current) workerRef.current.terminate();
+    
     workerRef.current = new NestingWorker();
     workerRef.current.onmessage = (e) => {
       const result = e.data;
@@ -712,6 +349,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
       else if (result.failed.length > 0)
         console.warn("Algumas peças não couberam.");
     };
+    
     workerRef.current.postMessage({
       parts: JSON.parse(JSON.stringify(parts)),
       quantities,
@@ -734,7 +372,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
     iterations,
     rotationStep,
     direction,
-    resetZoom,
   ]);
 
   const handleDownload = useCallback(() => {
@@ -757,43 +394,29 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
   const updateQty = useCallback((id: string, val: number) => {
     setQuantities((prev) => ({ ...prev, [id]: val }));
   }, []);
+
   const formatArea = useCallback((mm2: number) => {
     return mm2 > 100000
       ? (mm2 / 1000000).toFixed(3) + " m²"
       : mm2.toFixed(0) + " mm²";
   }, []);
-  const getPartById = useCallback(
-    (id: string) => {
-      return parts.find((p) => p.id === id);
-    },
-    [parts]
-  );
 
-  const binViewBox = useMemo(() => {
-    const paddingX = binSize.width * 0.05;
-    const paddingY = binSize.height * 0.05;
-    return `${-paddingX} ${-paddingY} ${binSize.width + paddingX * 2} ${
-      binSize.height + paddingY * 2
-    }`;
-  }, [binSize]);
-  const cncTransform = `translate(0, ${binSize.height}) scale(1, -1)`;
+  // --- PREPARAÇÃO DE DADOS PARA O CANVAS ---
+  const currentPlacedParts = useMemo(() => {
+      return nestingResult.filter(p => p.binId === currentBinIndex);
+  }, [nestingResult, currentBinIndex]);
 
+  // --- HELPERS PARA THUMBNAIL VIEW (BARRA LATERAL) ---
   const getThumbnailViewBox = useCallback(
     (part: ImportedPart) => {
-      const cachedBox = boundingBoxCache[part.id];
-      if (cachedBox) {
-        const p = Math.max(cachedBox.width, cachedBox.height) * 0.1;
-        return `${cachedBox.minX - p} ${cachedBox.minY - p} ${
-          cachedBox.width + p * 2
-        } ${cachedBox.height + p * 2}`;
-      }
+      // Calculo rápido sem cache complexo para thumbnails
       const box = calculateBoundingBox(part.entities, part.blocks);
       const p = Math.max(box.width, box.height) * 0.1;
       return `${box.minX - p} ${box.minY - p} ${box.width + p * 2} ${
         box.height + p * 2
       }`;
     },
-    [boundingBoxCache]
+    []
   );
 
   const tabStyle = useCallback(
@@ -810,9 +433,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
     }),
     []
   );
-  const currentBinParts = useMemo(() => {
-    return nestingResult.filter((p) => p.binId === currentBinIndex);
-  }, [nestingResult, currentBinIndex]);
 
   return (
     <div
@@ -1128,100 +748,22 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
         </label>
       </div>
 
+      {/* ÁREA PRINCIPAL + SIDEBAR */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        
+        {/* CONTAINER DO CANVAS INTERATIVO */}
         <div
-          ref={svgContainerRef}
           style={{
             flex: 2,
             position: "relative",
             background: "transparent",
             display: "flex",
             flexDirection: "column",
-            cursor:
-              dragMode === "part"
-                ? "grabbing"
-                : dragMode === "pan"
-                ? "grabbing"
-                : "grab",
             overflow: "hidden",
           }}
-          onWheel={handleWheel}
-          onMouseDown={handleMouseDownContainer}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseLeave}
-          onDoubleClick={handleDoubleClickContainer}
+          // Se houver clique fora, fecha o contexto
+          onMouseDown={() => setContextMenu(null)}
         >
-          <div
-            style={{
-              position: "absolute",
-              right: 20,
-              top: 20,
-              display: "flex",
-              flexDirection: "column",
-              gap: "5px",
-              zIndex: 10,
-            }}
-          >
-            <button
-              onClick={() =>
-                updateTransform({
-                  ...transformRef.current,
-                  k: transformRef.current.k * 1.2,
-                })
-              }
-              style={{
-                width: 30,
-                height: 30,
-                cursor: "pointer",
-                background: "rgba(255,255,255,0.9)",
-                border: "1px solid #777",
-                color: "#000",
-                borderRadius: "4px",
-                fontWeight: "bold",
-              }}
-            >
-              +
-            </button>
-            <button
-              onClick={() =>
-                updateTransform({
-                  ...transformRef.current,
-                  k: transformRef.current.k / 1.2,
-                })
-              }
-              style={{
-                width: 30,
-                height: 30,
-                cursor: "pointer",
-                background: "rgba(255,255,255,0.9)",
-                border: "1px solid #777",
-                color: "#000",
-                borderRadius: "4px",
-                fontWeight: "bold",
-              }}
-            >
-              -
-            </button>
-            <button
-              onClick={resetZoom}
-              style={{
-                width: 30,
-                height: 30,
-                cursor: "pointer",
-                background: "rgba(255,255,255,0.9)",
-                border: "1px solid #777",
-                color: "#000",
-                borderRadius: "4px",
-                fontSize: "12px",
-              }}
-            >
-              Fit
-            </button>
-          </div>
-
-          {/* BOTÕES DE DIREÇÃO REMOVIDOS AQUI */}
-
           {totalBins > 1 && (
             <div
               style={{
@@ -1280,76 +822,23 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
               </button>
             </div>
           )}
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              padding: "20px",
-              overflow: "hidden",
-            }}
-          >
-            <svg
-              viewBox={binViewBox}
-              preserveAspectRatio="xMidYMid meet"
-              style={{
-                width: "100%",
-                height: "100%",
-                maxHeight: "100%",
-                maxWidth: "100%",
-              }}
-            >
-              <g
-                ref={panGroupRef}
-                transform={`translate(${transform.x}, ${transform.y}) scale(${transform.k})`}
-              >
-                <g transform={cncTransform}>
-                  <rect
-                    x="0"
-                    y="0"
-                    width={binSize.width}
-                    height={binSize.height}
-                    fill={showDebug ? "rgba(255,152,0,0.05)" : "none"}
-                    stroke="#ff9800"
-                    strokeWidth="4"
-                    vectorEffect="non-scaling-stroke"
-                  />
-                  {showDebug && (
-                    <rect
-                      x={margin}
-                      y={margin}
-                      width={binSize.width - margin * 2}
-                      height={binSize.height - margin * 2}
-                      fill="none"
-                      stroke="#999"
-                      strokeDasharray="5"
-                      strokeWidth="1"
-                      vectorEffect="non-scaling-stroke"
-                    />
-                  )}
-                  {currentBinParts.map((placed) => {
-                    const part = getPartById(placed.partId);
-                    if (!part) return null;
-                    return (
-                      <PartElement
-                        key={placed.partId}
-                        placed={placed}
-                        isSelected={placed.partId === selectedPartId}
-                        onMouseDown={handleMouseDownPart}
-                        onDoubleClick={handleDoubleClickPart}
-                        onContextMenu={handlePartContextMenu}
-                        partData={part}
-                        showDebug={showDebug}
-                        strategy={strategy}
-                        transformData={partTransforms[placed.partId]}
-                      />
-                    );
-                  })}
-                </g>
-              </g>
-            </svg>
-          </div>
+
+          {/* O COMPONENTE INTERATIVO FICA AQUI */}
+          <InteractiveCanvas 
+             parts={parts}
+             placedParts={currentPlacedParts}
+             binWidth={binSize.width}
+             binHeight={binSize.height}
+             margin={margin}
+             currentBinIndex={currentBinIndex}
+             showDebug={showDebug}
+             strategy={strategy}
+             selectedPartId={selectedPartId}
+             onPartMove={handlePartMove}
+             onPartSelect={setSelectedPartId}
+             onContextMenu={handlePartContextMenu}
+          />
+
           <div
             style={{
               padding: "10px 20px",
@@ -1357,6 +846,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
               gap: "20px",
               borderTop: "1px solid #555",
               background: "transparent",
+              zIndex: 5
             }}
           >
             <span style={{ opacity: 0.6, fontSize: "12px" }}>
@@ -1380,6 +870,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
             )}
           </div>
         </div>
+
+        {/* SIDEBAR (LISTA TÉCNICA E BANCO DE PEÇAS) */}
         <div
           style={{
             width: "450px",
@@ -1387,6 +879,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
             display: "flex",
             flexDirection: "column",
             backgroundColor: "inherit",
+            zIndex: 5
           }}
         >
           <div
