@@ -10,7 +10,7 @@ import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
 import { generateDxfContent } from "../utils/dxfWriter";
 import { ContextControl } from "./ContextControl";
-import { InteractiveCanvas } from "./InteractiveCanvas"; // <--- NOVO COMPONENTE
+import { InteractiveCanvas } from "./InteractiveCanvas"; // Importação do Canvas
 
 import NestingWorker from "../workers/nesting.worker?worker";
 
@@ -22,8 +22,8 @@ interface NestingBoardProps {
   parts: ImportedPart[];
 }
 
-// --- FUNÇÕES AUXILIARES PARA THUMBNAILS (BARRA LATERAL) ---
-// Mantidas aqui para garantir que a lista de peças continue renderizando as prévias
+// --- FUNÇÕES DE RENDERIZAÇÃO DA BARRA LATERAL (THUMBNAILS) ---
+// Mantemos esta cópia aqui para renderizar a lista lateral sem depender do Canvas
 const renderEntityFunction = (
   entity: any,
   index: number,
@@ -127,14 +127,12 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
     minY = Infinity,
     maxX = -Infinity,
     maxY = -Infinity;
-
   const update = (x: number, y: number) => {
     if (x < minX) minX = x;
     if (x > maxX) maxX = x;
     if (y < minY) minY = y;
     if (y > maxY) maxY = y;
   };
-
   const traverse = (ents: any[], ox = 0, oy = 0) => {
     if (!ents) return;
     ents.forEach((ent) => {
@@ -150,9 +148,7 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
           update((ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
         }
       } else if (ent.vertices) {
-        ent.vertices.forEach((v: any) => {
-          update(v.x + ox, v.y + oy);
-        });
+        ent.vertices.forEach((v: any) => update(v.x + ox, v.y + oy));
       } else if (ent.center && ent.radius && ent.type === "CIRCLE") {
         update(ent.center.x + ox - ent.radius, ent.center.y + oy - ent.radius);
         update(ent.center.x + ox + ent.radius, ent.center.y + oy + ent.radius);
@@ -174,13 +170,12 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
       }
     });
   };
-
   traverse(entities);
   if (minX === Infinity) return { minX: 0, minY: 0, width: 0, height: 0 };
   return { minX, minY, width: maxX - minX, height: maxY - minY };
 };
-// --- FIM DOS HELPERS DE THUMBNAIL ---
 
+// --- COMPONENTE PRINCIPAL ---
 export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
   const [binSize, setBinSize] = useState<Size>({ width: 1200, height: 3000 });
   const [gap, setGap] = useState(10);
@@ -188,7 +183,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
 
   // CONFIGURAÇÕES
   const [strategy, setStrategy] = useState<"rect" | "true-shape">("rect");
-  const [direction, setDirection] = useState<"auto" | "vertical" | "horizontal">("auto");
+  const [direction, setDirection] = useState<
+    "auto" | "vertical" | "horizontal"
+  >("auto");
   const [iterations] = useState(50);
   const [rotationStep, setRotationStep] = useState(90);
 
@@ -212,8 +209,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
   const [totalBins, setTotalBins] = useState(1);
   const [currentBinIndex, setCurrentBinIndex] = useState(0);
 
-  // Controle de Seleção
-  const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
+  // --- CONTROLE DE SELEÇÃO (Agora Array) ---
+  const [selectedPartIds, setSelectedPartIds] = useState<string[]>([]);
 
   // NOVO ESTADO: MENU DE CONTEXTO
   const [contextMenu, setContextMenu] = useState<{
@@ -225,29 +222,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
   // REFS
   const workerRef = useRef<Worker | null>(null);
 
-  // --- FUNÇÕES DO MENU DE CONTEXTO ---
-  const handleContextMove = useCallback(
-    (dx: number, dy: number) => {
-      if (!selectedPartId) return;
-      const realDy = -dy; // Inverte Y para sistema CNC
-      setNestingResult((prev) =>
-        prev.map((p) => {
-          if (p.partId === selectedPartId) {
-            return { ...p, x: p.x + dx, y: p.y + realDy };
-          }
-          return p;
-        })
-      );
-    },
-    [selectedPartId]
-  );
+  // --- FUNÇÕES DE CONTROLE DE PEÇAS ---
 
+  // Rotação (Aplica a todas as selecionadas)
   const handleContextRotate = useCallback(
     (angle: number) => {
-      if (!selectedPartId) return;
+      if (selectedPartIds.length === 0) return;
       setNestingResult((prev) =>
         prev.map((p) => {
-          if (p.partId === selectedPartId) {
+          if (selectedPartIds.includes(p.partId)) {
             let newRot = (p.rotation + angle) % 360;
             if (newRot < 0) newRot += 360;
             return { ...p, rotation: newRot };
@@ -256,70 +239,108 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
         })
       );
     },
-    [selectedPartId]
+    [selectedPartIds]
   );
 
-  // --- HANDLER DE MOVIMENTO VINDO DO CANVAS (INTERATIVIDADE) ---
-  const handlePartMove = useCallback((partId: string, dx: number, dy: number) => {
+  // Movimento via Contexto ou Teclado (Aplica a todas)
+  const handleContextMove = useCallback(
+    (dx: number, dy: number) => {
+      if (selectedPartIds.length === 0) return;
+      const realDy = -dy; // Inverte Y para sistema CNC
       setNestingResult((prev) =>
         prev.map((p) => {
-          if (p.partId === partId) {
-            return {
-              ...p,
-              x: p.x + dx,
-              y: p.y + dy,
-            };
+          if (selectedPartIds.includes(p.partId)) {
+            return { ...p, x: p.x + dx, y: p.y + realDy };
           }
           return p;
         })
       );
+    },
+    [selectedPartIds]
+  );
+
+  // MOVIMENTO VIA MOUSE (VINDO DO CANVAS)
+  // Recebe um array de movimentos para performance O(N)
+  const handlePartsMove = useCallback(
+    (moves: { partId: string; dx: number; dy: number }[]) => {
+      if (moves.length === 0) return;
+
+      setNestingResult((prev) => {
+        // Mapa para lookup rápido
+        const moveMap = new Map(moves.map((m) => [m.partId, m]));
+
+        return prev.map((p) => {
+          const move = moveMap.get(p.partId);
+          if (move) {
+            return {
+              ...p,
+              x: p.x + move.dx,
+              y: p.y + move.dy,
+            };
+          }
+          return p;
+        });
+      });
+    },
+    []
+  );
+
+  // SELEÇÃO
+  const handlePartSelect = useCallback((ids: string[], append: boolean) => {
+    if (append) {
+      setSelectedPartIds((prev) => [...new Set([...prev, ...ids])]);
+    } else {
+      setSelectedPartIds(ids);
+    }
   }, []);
 
-  // --- GATILHO DO MENU (CLIQUE DIREITO NA PEÇA) ---
+  // MENU DE CONTEXTO
   const handlePartContextMenu = useCallback(
     (e: React.MouseEvent, partId: string) => {
       e.preventDefault();
       e.stopPropagation();
 
-      // Regra: Só abre se a peça já estiver selecionada
-      if (partId === selectedPartId) {
-        setContextMenu({ visible: true, x: e.clientX, y: e.clientY });
-      } else {
-        setContextMenu(null);
+      // Se clicar com botão direito numa peça que NÃO está selecionada,
+      // seleciona apenas ela (comportamento padrão de SO)
+      if (!selectedPartIds.includes(partId)) {
+        setSelectedPartIds([partId]);
       }
+      setContextMenu({ visible: true, x: e.clientX, y: e.clientY });
     },
-    [selectedPartId]
+    [selectedPartIds]
   );
 
   // --- EFFECTS ---
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setQuantities((prev) => {
-      const currentIds = new Set(Object.keys(prev));
-      const newParts = parts.filter((p) => !currentIds.has(p.id));
-      if (newParts.length > 0) {
+    // 1. Identifica quais peças já temos no estado
+    const currentIds = new Set(Object.keys(quantities));
+
+    // 2. Filtra apenas as peças novas que ainda não têm quantidade definida
+    const missingParts = parts.filter((p) => !currentIds.has(p.id));
+
+    // 3. Só chama o setState se realmente houver novidade (Evita o erro do ESLint)
+    if (missingParts.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setQuantities((prev) => {
         const newQ = { ...prev };
-        newParts.forEach((p) => {
+        missingParts.forEach((p) => {
           newQ[p.id] = 1;
         });
         return newQ;
-      }
-      return prev;
-    });
-  }, [parts]);
+      });
+    }
+  }, [parts, quantities]); // Adicionei 'quantities' nas dependências para a verificação funcionar
 
   // --- HANDLERS DA BARRA DE TOPO ---
   const handleWidthChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const val = Number(e.target.value);
-      setBinSize((prev) => ({ ...prev, width: val }));
+      setBinSize((prev) => ({ ...prev, width: Number(e.target.value) }));
     },
     []
   );
   const handleHeightChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const val = Number(e.target.value);
-      setBinSize((prev) => ({ ...prev, height: val }));
+      setBinSize((prev) => ({ ...prev, height: Number(e.target.value) }));
     },
     []
   );
@@ -333,11 +354,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
     setNestingResult([]);
     setCurrentBinIndex(0);
     setTotalBins(1);
-    setSelectedPartId(null);
-    
-    // Termina worker anterior se houver
+    setSelectedPartIds([]); // Limpa seleção
+
     if (workerRef.current) workerRef.current.terminate();
-    
+
     workerRef.current = new NestingWorker();
     workerRef.current.onmessage = (e) => {
       const result = e.data;
@@ -349,7 +369,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
       else if (result.failed.length > 0)
         console.warn("Algumas peças não couberam.");
     };
-    
+
     workerRef.current.postMessage({
       parts: JSON.parse(JSON.stringify(parts)),
       quantities,
@@ -401,23 +421,19 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
       : mm2.toFixed(0) + " mm²";
   }, []);
 
-  // --- PREPARAÇÃO DE DADOS PARA O CANVAS ---
+  // --- DADOS PARA O CANVAS ---
   const currentPlacedParts = useMemo(() => {
-      return nestingResult.filter(p => p.binId === currentBinIndex);
+    return nestingResult.filter((p) => p.binId === currentBinIndex);
   }, [nestingResult, currentBinIndex]);
 
-  // --- HELPERS PARA THUMBNAIL VIEW (BARRA LATERAL) ---
-  const getThumbnailViewBox = useCallback(
-    (part: ImportedPart) => {
-      // Calculo rápido sem cache complexo para thumbnails
-      const box = calculateBoundingBox(part.entities, part.blocks);
-      const p = Math.max(box.width, box.height) * 0.1;
-      return `${box.minX - p} ${box.minY - p} ${box.width + p * 2} ${
-        box.height + p * 2
-      }`;
-    },
-    []
-  );
+  // --- HELPERS BARRA LATERAL ---
+  const getThumbnailViewBox = useCallback((part: ImportedPart) => {
+    const box = calculateBoundingBox(part.entities, part.blocks);
+    const p = Math.max(box.width, box.height) * 0.1;
+    return `${box.minX - p} ${box.minY - p} ${box.width + p * 2} ${
+      box.height + p * 2
+    }`;
+  }, []);
 
   const tabStyle = useCallback(
     (isActive: boolean): React.CSSProperties => ({
@@ -444,7 +460,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
       }}
     >
       {/* MENU CONTEXTO */}
-      {contextMenu && contextMenu.visible && selectedPartId && (
+      {contextMenu && contextMenu.visible && selectedPartIds.length > 0 && (
         <ContextControl
           x={contextMenu.x}
           y={contextMenu.y}
@@ -623,6 +639,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
             🔄
           </button>
         </div>
+
         {strategy === "true-shape" && (
           <div
             style={{
@@ -658,6 +675,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
             </div>
           </div>
         )}
+
         <div
           style={{
             display: "flex",
@@ -750,7 +768,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
 
       {/* ÁREA PRINCIPAL + SIDEBAR */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        
         {/* CONTAINER DO CANVAS INTERATIVO */}
         <div
           style={{
@@ -761,7 +778,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
             flexDirection: "column",
             overflow: "hidden",
           }}
-          // Se houver clique fora, fecha o contexto
           onMouseDown={() => setContextMenu(null)}
         >
           {totalBins > 1 && (
@@ -824,19 +840,19 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
           )}
 
           {/* O COMPONENTE INTERATIVO FICA AQUI */}
-          <InteractiveCanvas 
-             parts={parts}
-             placedParts={currentPlacedParts}
-             binWidth={binSize.width}
-             binHeight={binSize.height}
-             margin={margin}
-             currentBinIndex={currentBinIndex}
-             showDebug={showDebug}
-             strategy={strategy}
-             selectedPartId={selectedPartId}
-             onPartMove={handlePartMove}
-             onPartSelect={setSelectedPartId}
-             onContextMenu={handlePartContextMenu}
+          <InteractiveCanvas
+            parts={parts}
+            placedParts={currentPlacedParts}
+            binWidth={binSize.width}
+            binHeight={binSize.height}
+            margin={margin}
+            showDebug={showDebug}
+            strategy={strategy}
+            // Props atualizadas para multi-seleção
+            selectedPartIds={selectedPartIds}
+            onPartsMove={handlePartsMove}
+            onPartSelect={handlePartSelect}
+            onContextMenu={handlePartContextMenu}
           />
 
           <div
@@ -846,7 +862,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
               gap: "20px",
               borderTop: "1px solid #555",
               background: "transparent",
-              zIndex: 5
+              zIndex: 5,
             }}
           >
             <span style={{ opacity: 0.6, fontSize: "12px" }}>
@@ -879,7 +895,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
             display: "flex",
             flexDirection: "column",
             backgroundColor: "inherit",
-            zIndex: 5
+            zIndex: 5,
           }}
         >
           <div

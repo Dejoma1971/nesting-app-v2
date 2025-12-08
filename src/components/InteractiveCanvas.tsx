@@ -4,33 +4,27 @@ import React, {
   useRef,
   useCallback,
   useMemo,
-  // useEffect removido pois não era usado
+  forwardRef,
 } from "react";
 import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
 
 // --- TIPAGEM ---
 interface InteractiveCanvasProps {
-  // Dados Principais
   parts: ImportedPart[];
   placedParts: PlacedPart[];
   binWidth: number;
   binHeight: number;
   margin: number;
-  
-  // Estado Visual e Controle
-  currentBinIndex: number;
   showDebug: boolean;
   strategy: "rect" | "true-shape";
-  selectedPartId: string | null;
-
-  // Callbacks de Ação
-  onPartMove: (partId: string, deltaX: number, deltaY: number) => void;
-  onPartSelect: (partId: string | null) => void;
+  selectedPartIds: string[];
+  
+  onPartsMove: (moves: { partId: string; dx: number; dy: number }[]) => void;
+  onPartSelect: (partIds: string[], append: boolean) => void;
   onContextMenu: (e: React.MouseEvent, partId: string) => void;
 }
 
-// Interface auxiliar interna
 interface BoundingBoxCache {
   [partId: string]: {
     minX: number;
@@ -42,7 +36,10 @@ interface BoundingBoxCache {
   };
 }
 
-// --- FUNÇÕES AUXILIARES DE RENDERIZAÇÃO ---
+// ... (MANTENHA AS FUNÇÕES renderEntityFunction E calculateBoundingBox AQUI IGUAIS AOS ARQUIVOS ANTERIORES) ...
+// Para não poluir a resposta, imagine que renderEntityFunction e calculateBoundingBox estão aqui.
+// Se precisar, eu copio elas novamente.
+
 const renderEntityFunction = (
   entity: any,
   index: number,
@@ -142,49 +139,32 @@ const renderEntityFunction = (
 };
 
 const calculateBoundingBox = (entities: any[], blocksData: any) => {
-  let minX = Infinity,
-    minY = Infinity,
-    maxX = -Infinity,
-    maxY = -Infinity;
-
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   const update = (x: number, y: number) => {
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
   };
-
   const traverse = (ents: any[], ox = 0, oy = 0) => {
     if (!ents) return;
     ents.forEach((ent) => {
       if (ent.type === "INSERT") {
         const b = blocksData[ent.name];
         if (b && b.entities) {
-          traverse(
-            b.entities,
-            (ent.position?.x || 0) + ox,
-            (ent.position?.y || 0) + oy
-          );
+          traverse(b.entities, (ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
         } else {
           update((ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
         }
       } else if (ent.vertices) {
-        ent.vertices.forEach((v: any) => {
-          update(v.x + ox, v.y + oy);
-        });
+        ent.vertices.forEach((v: any) => update(v.x + ox, v.y + oy));
       } else if (ent.center && ent.radius && ent.type === "CIRCLE") {
         update(ent.center.x + ox - ent.radius, ent.center.y + oy - ent.radius);
         update(ent.center.x + ox + ent.radius, ent.center.y + oy + ent.radius);
       } else if (ent.type === "ARC") {
-        const cx = ent.center.x + ox;
-        const cy = ent.center.y + oy;
-        const r = ent.radius;
-        const startAngle = ent.startAngle;
-        let endAngle = ent.endAngle;
+        const cx = ent.center.x + ox; const cy = ent.center.y + oy; const r = ent.radius;
+        const startAngle = ent.startAngle; let endAngle = ent.endAngle;
         if (endAngle < startAngle) endAngle += 2 * Math.PI;
         update(cx + r * Math.cos(startAngle), cy + r * Math.sin(startAngle));
         update(cx + r * Math.cos(endAngle), cy + r * Math.sin(endAngle));
-        // Amostragem simples para arco
         const startK = Math.ceil(startAngle / (Math.PI / 2));
         const endK = Math.floor(endAngle / (Math.PI / 2));
         for (let k = startK; k <= endK; k++) {
@@ -194,18 +174,18 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
       }
     });
   };
-
   traverse(entities);
   if (minX === Infinity) return { minX: 0, minY: 0, width: 0, height: 0 };
   return { minX, minY, width: maxX - minX, height: maxY - minY };
 };
 
-// --- SUBCOMPONENTE DE PEÇA (MEMOIZADO) ---
+
+// --- SUBCOMPONENTE DE PEÇA ---
 interface PartElementProps {
   placed: PlacedPart;
   isSelected: boolean;
-  onMouseDown: (e: React.MouseEvent, partId: string, x: number, y: number) => void;
-  onDoubleClick: (e: React.MouseEvent, partId: string) => void;
+  onMouseDown: (e: React.MouseEvent, partId: string) => void;
+  onDoubleClick: (e: React.MouseEvent, partId: string) => void; // NOVO PROP
   onContextMenu: (e: React.MouseEvent, partId: string) => void;
   partData: ImportedPart | undefined;
   showDebug: boolean;
@@ -213,18 +193,18 @@ interface PartElementProps {
   transformData: any;
 }
 
-const PartElement = React.memo<PartElementProps>(
+const PartElement = React.memo(forwardRef<SVGGElement, PartElementProps>(
   ({
     placed,
     isSelected,
     onMouseDown,
-    onDoubleClick,
+    onDoubleClick, // Recebendo o duplo clique
     onContextMenu,
     partData,
     showDebug,
     strategy,
     transformData,
-  }) => {
+  }, ref) => {
     if (!partData) return null;
 
     const occupiedW = placed.rotation % 180 !== 0 ? partData.height : partData.width;
@@ -238,12 +218,13 @@ const PartElement = React.memo<PartElementProps>(
 
     return (
       <g
-        onMouseDown={(e) => onMouseDown(e, placed.partId, placed.x, placed.y)}
-        onDoubleClick={(e) => onDoubleClick(e, placed.partId)}
+        ref={ref}
+        onMouseDown={(e) => onMouseDown(e, placed.partId)}
+        onDoubleClick={(e) => onDoubleClick(e, placed.partId)} // Conectado
         onContextMenu={(e) => onContextMenu(e, placed.partId)}
         style={{
-          cursor: strategy === "rect" ? "default" : "move",
-          opacity: isSelected ? 0.6 : 1,
+          cursor: strategy === "rect" ? "default" : isSelected ? "move" : "pointer", // Cursor muda se selecionado
+          opacity: isSelected ? 0.8 : 1, 
         }}
       >
         <g>
@@ -254,7 +235,7 @@ const PartElement = React.memo<PartElementProps>(
             height={occupiedH}
             fill="transparent"
             stroke={isSelected ? "#00ff00" : showDebug ? "red" : "none"}
-            strokeWidth={isSelected ? 4 : 1}
+            strokeWidth={isSelected ? 3 : 1}
             vectorEffect="non-scaling-stroke"
             pointerEvents="all"
           />
@@ -272,7 +253,7 @@ const PartElement = React.memo<PartElementProps>(
         </g>
       </g>
     );
-  }
+  })
 );
 PartElement.displayName = "PartElement";
 
@@ -283,39 +264,30 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   binWidth,
   binHeight,
   margin,
-  // currentBinIndex, <--- REMOVIDO DAQUI POIS NÃO ERA USADO NO JSX
   showDebug,
   strategy,
-  selectedPartId,
-  onPartMove,
+  selectedPartIds,
+  onPartsMove,
   onPartSelect,
   onContextMenu,
 }) => {
-  // Estado local de Zoom/Pan
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
-  const [dragMode, setDragMode] = useState<"none" | "pan" | "part">("none");
+  const [dragMode, setDragMode] = useState<"none" | "pan" | "parts">("none");
   const [boundingBoxCache, setBoundingBoxCache] = useState<BoundingBoxCache>({});
   
-  // Refs para manipulação direta do DOM (Performance Crítica)
   const svgContainerRef = useRef<HTMLDivElement>(null);
   const panGroupRef = useRef<SVGGElement>(null);
   const transformRef = useRef({ x: 0, y: 0, k: 1 });
-  const activePartElementRef = useRef<SVGGElement | null>(null);
   const rafRef = useRef<number | null>(null);
 
-  // Refs de controle de arraste
+  const partRefs = useRef<{ [key: string]: SVGGElement | null }>({});
+  const draggingIdsRef = useRef<string[]>([]);
+
   const dragRef = useRef({
-    startX: 0,
-    startY: 0,
-    startSvgX: 0,
-    startSvgY: 0,
-    initialX: 0,
-    initialY: 0,
-    partX: 0,
-    partY: 0,
+    startX: 0, startY: 0, startSvgX: 0, startSvgY: 0, initialX: 0, initialY: 0,
   });
 
-  // Helper de conversão de coordenadas Mouse -> SVG
+  // --- HELPERS SVG ---
   const getSVGPoint = useCallback((clientX: number, clientY: number) => {
     const svgElement = svgContainerRef.current?.querySelector("svg");
     if (!svgElement) return { x: 0, y: 0 };
@@ -325,32 +297,21 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     return point.matrixTransform(svgElement.getScreenCTM()?.inverse());
   }, []);
 
-  const updateTransform = useCallback(
-    (newT: { x: number; y: number; k: number }) => {
+  const updateTransform = useCallback((newT: { x: number; y: number; k: number }) => {
       transformRef.current = newT;
       setTransform(newT);
       if (panGroupRef.current) {
-        panGroupRef.current.setAttribute(
-          "transform",
-          `translate(${newT.x}, ${newT.y}) scale(${newT.k})`
-        );
+        panGroupRef.current.setAttribute("transform", `translate(${newT.x}, ${newT.y}) scale(${newT.k})`);
       }
-    },
-    []
-  );
+    }, []);
 
-  const resetZoom = useCallback(
-    () => updateTransform({ x: 0, y: 0, k: 1 }),
-    [updateTransform]
-  );
+  const resetZoom = useCallback(() => updateTransform({ x: 0, y: 0, k: 1 }), [updateTransform]);
 
-  // --- PRÉ-CÁLCULO DE CACHING ---
   const partTransforms = useMemo(() => {
     const transforms: Record<string, any> = {};
     placedParts.forEach((placed) => {
       const part = parts.find((p) => p.id === placed.partId);
       if (!part) return;
-      
       const cachedBox = boundingBoxCache[placed.partId];
       let box;
       if (cachedBox) {
@@ -358,19 +319,15 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       } else {
         box = calculateBoundingBox(part.entities, part.blocks);
         const newBox = {
-          ...box,
-          centerX: box.minX + box.width / 2,
-          centerY: box.minY + box.height / 2,
+          ...box, centerX: box.minX + box.width / 2, centerY: box.minY + box.height / 2,
         };
-        // Atualiza cache de forma assíncrona para não travar render
         requestAnimationFrame(() => {
           setBoundingBoxCache((prev) => ({ ...prev, [placed.partId]: newBox }));
         });
         box = newBox;
       }
       transforms[placed.partId] = {
-        centerX: box.centerX,
-        centerY: box.centerY,
+        centerX: box.centerX, centerY: box.centerY,
         occupiedW: placed.rotation % 180 !== 0 ? part.height : part.width,
         occupiedH: placed.rotation % 180 !== 0 ? part.width : part.height,
       };
@@ -378,68 +335,95 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     return transforms;
   }, [placedParts, parts, boundingBoxCache]);
 
-  // --- EVENT HANDLERS (MOUSE) ---
-  const handleMouseDownContainer = useCallback(
-    (e: React.MouseEvent) => {
-      if (dragMode === "none") {
-        setDragMode("pan");
-        dragRef.current = {
-            startX: e.clientX,
-            startY: e.clientY,
-            startSvgX: 0,
-            startSvgY: 0,
-            initialX: transformRef.current.x,
-            initialY: transformRef.current.y,
-            partX: 0,
-            partY: 0
-        };
-      }
-    },
-    [dragMode]
-  );
-
-  const handleMouseDownPart = useCallback(
-    (e: React.MouseEvent, partId: string, currentX: number, currentY: number) => {
-      if (partId !== selectedPartId) {
-        // Se clicar em outra peça, seleciona ela primeiro
-        onPartSelect(partId);
-        return; 
-      }
+  // --- LÓGICA DE SELEÇÃO (DUPLO CLIQUE) ---
+  const handleDoubleClickPart = useCallback(
+    (e: React.MouseEvent, partId: string) => {
+      e.preventDefault();
       e.stopPropagation();
 
-      if (e.button === 0 && strategy !== "rect") {
+      const isCtrl = e.ctrlKey || e.metaKey;
+      let newSelection = [...selectedPartIds];
+
+      if (isCtrl) {
+        // Toggle com Ctrl
+        if (newSelection.includes(partId)) {
+          newSelection = newSelection.filter((id) => id !== partId);
+        } else {
+          newSelection.push(partId);
+        }
+        onPartSelect(newSelection, false);
+      } else {
+        // Seleção única sem Ctrl
+        onPartSelect([partId], false);
+      }
+    },
+    [selectedPartIds, onPartSelect]
+  );
+
+  // --- LÓGICA DE ARRASTE (MOUSEDOWN) ---
+  const handleMouseDownPart = useCallback(
+    (e: React.MouseEvent, partId: string) => {
+      e.stopPropagation();
+
+      // REGRA DE SEGURANÇA: Só inicia o arraste se a peça JÁ estiver selecionada
+      if (!selectedPartIds.includes(partId)) {
+        // Se não estiver selecionada, não faz nada no MouseDown
+        // O usuário deve dar Duplo Clique primeiro para selecionar
+        return;
+      }
+
+      if (strategy !== "rect" && e.button === 0) {
         e.preventDefault();
-        setDragMode("part");
-        activePartElementRef.current = e.currentTarget as SVGGElement;
+        setDragMode("parts");
+        
+        // Se a peça clicada está na seleção, movemos TODO o grupo selecionado
+        // (Nota: Como a regra acima exige que ela esteja selecionada, isso sempre será verdade aqui)
+        draggingIdsRef.current = selectedPartIds;
+
         const svgPos = getSVGPoint(e.clientX, e.clientY);
         
-        // Prepara elemento para movimento GPU-accelerated
-        if (activePartElementRef.current) {
-          activePartElementRef.current.style.transform = "translate3d(0, 0, 0)";
-          activePartElementRef.current.style.willChange = "transform";
-          activePartElementRef.current.style.cursor = "grabbing";
-        }
-        
+        // Setup visual para arraste
+        draggingIdsRef.current.forEach(id => {
+            const el = partRefs.current[id];
+            if (el) {
+                el.style.transform = "translate3d(0, 0, 0)";
+                el.style.willChange = "transform";
+                el.style.cursor = "grabbing";
+            }
+        });
+
         dragRef.current = {
             startX: e.clientX,
             startY: e.clientY,
             startSvgX: svgPos.x,
             startSvgY: svgPos.y,
             initialX: 0,
-            initialY: 0,
-            partX: currentX,
-            partY: currentY
+            initialY: 0
         };
       }
     },
-    [strategy, selectedPartId, getSVGPoint, onPartSelect]
+    [strategy, selectedPartIds, getSVGPoint]
   );
 
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
+  const handleMouseDownContainer = useCallback((e: React.MouseEvent) => {
+      // Clique simples no fundo APENAS inicia PAN, NÃO cancela seleção
+      setDragMode("pan");
+      dragRef.current = {
+          startX: e.clientX, startY: e.clientY,
+          startSvgX: 0, startSvgY: 0,
+          initialX: transformRef.current.x, initialY: transformRef.current.y
+      };
+    }, []);
+
+  const handleDoubleClickContainer = useCallback((e: React.MouseEvent) => {
+      e.preventDefault();
+      // Duplo clique no vazio -> Cancela seleção
+      onPartSelect([], false);
+  }, [onPartSelect]);
+
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
       if (dragMode === "none") return;
-      
-      // Limpa frame anterior para evitar acúmulo
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
 
       rafRef.current = requestAnimationFrame(() => {
@@ -453,128 +437,100 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           
           transformRef.current.x = newX;
           transformRef.current.y = newY;
-          
-          // Manipulação direta do DOM para Pan fluido
-          panGroupRef.current.setAttribute(
-            "transform",
-            `translate(${newX}, ${newY}) scale(${currentK})`
-          );
-        } else if (dragMode === "part" && activePartElementRef.current) {
+          panGroupRef.current.setAttribute("transform", `translate(${newX}, ${newY}) scale(${currentK})`);
+        } 
+        else if (dragMode === "parts") {
           const currentSvgPos = getSVGPoint(e.clientX, e.clientY);
           const deltaX = currentSvgPos.x - dragRef.current.startSvgX;
           const deltaY = currentSvgPos.y - dragRef.current.startSvgY;
-          const visualToCncY = -deltaY; // Inversão eixo Y (SVG vs CNC)
-          
-          // Manipulação direta do DOM da peça (transform CSS não afeta SVG coordinates, só visual)
-          activePartElementRef.current.style.transform = `translate3d(${deltaX}px, ${visualToCncY}px, 0)`;
+          const visualToCncY = -deltaY;
+
+          draggingIdsRef.current.forEach(id => {
+              const el = partRefs.current[id];
+              if (el) {
+                  el.style.transform = `translate3d(${deltaX}px, ${visualToCncY}px, 0)`;
+              }
+          });
         }
       });
-    },
-    [dragMode, getSVGPoint]
-  );
+    }, [dragMode, getSVGPoint]);
 
   const handleMouseUp = useCallback(() => {
     if (dragMode === "none") return;
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
 
     if (dragMode === "pan") {
-      // Sincroniza React state com o valor final do ref
       setTransform({ ...transformRef.current });
-    } else if (dragMode === "part" && selectedPartId && activePartElementRef.current) {
-      // Calcula o delta final baseado no estilo aplicado via JS
-      const style = window.getComputedStyle(activePartElementRef.current);
-      const matrix = new DOMMatrixReadOnly(style.transform);
-      const finalDeltaX = matrix.m41;
-      const finalDeltaY = matrix.m42; // Já está invertido visualmente
-
-      // Comunica ao Pai o movimento final
-      onPartMove(selectedPartId, finalDeltaX, finalDeltaY);
-
-      // Limpa estilos temporários
-      activePartElementRef.current.style.transform = "";
-      activePartElementRef.current.style.willChange = "";
-      activePartElementRef.current.style.cursor = "";
+    } 
+    else if (dragMode === "parts") {
+      const moves: { partId: string; dx: number; dy: number }[] = [];
+      draggingIdsRef.current.forEach(id => {
+          const el = partRefs.current[id];
+          if (el) {
+              const style = window.getComputedStyle(el);
+              const matrix = new DOMMatrixReadOnly(style.transform);
+              moves.push({ partId: id, dx: matrix.m41, dy: matrix.m42 });
+              el.style.transform = ""; el.style.willChange = ""; el.style.cursor = "";
+          }
+      });
+      if (moves.length > 0) {
+          onPartsMove(moves);
+      }
     }
     setDragMode("none");
-    activePartElementRef.current = null;
-  }, [dragMode, selectedPartId, onPartMove]);
+    draggingIdsRef.current = [];
+  }, [dragMode, onPartsMove]);
 
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const svgElement = svgContainerRef.current?.querySelector("svg");
-      if (!svgElement) return;
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    const svgElement = svgContainerRef.current?.querySelector("svg");
+    if (!svgElement) return;
+    let mouseX = 0, mouseY = 0;
+    try {
+      const point = svgElement.createSVGPoint();
+      point.x = e.clientX; point.y = e.clientY;
+      const svgPoint = point.matrixTransform(svgElement.getScreenCTM()?.inverse());
+      mouseX = svgPoint.x; mouseY = svgPoint.y;
+    } catch { 
+       const rect = svgContainerRef.current!.getBoundingClientRect();
+       mouseX = e.clientX - rect.left; mouseY = e.clientY - rect.top;
+    }
+    const zoomIntensity = 0.15;
+    const wheelDirection = e.deltaY < 0 ? 1 : -1;
+    const scaleFactor = Math.exp(wheelDirection * zoomIntensity);
+    const currentT = transformRef.current;
+    let newScale = currentT.k * scaleFactor;
+    newScale = Math.max(0.1, Math.min(newScale, 50));
+    const scaleRatio = newScale / currentT.k;
+    const newX = mouseX - (mouseX - currentT.x) * scaleRatio;
+    const newY = mouseY - (mouseY - currentT.y) * scaleRatio;
+    updateTransform({ x: newX, y: newY, k: newScale });
+  }, [updateTransform]);
 
-      let mouseX = 0;
-      let mouseY = 0;
-      try {
-        const point = svgElement.createSVGPoint();
-        point.x = e.clientX;
-        point.y = e.clientY;
-        const svgPoint = point.matrixTransform(svgElement.getScreenCTM()?.inverse());
-        mouseX = svgPoint.x;
-        mouseY = svgPoint.y;
-      } catch {
-         // Fallback seguro (removido a variável 'error' que não estava sendo usada)
-         const rect = svgContainerRef.current!.getBoundingClientRect();
-         mouseX = e.clientX - rect.left;
-         mouseY = e.clientY - rect.top;
-      }
-
-      const zoomIntensity = 0.15;
-      const wheelDirection = e.deltaY < 0 ? 1 : -1;
-      const scaleFactor = Math.exp(wheelDirection * zoomIntensity);
-      
-      const currentT = transformRef.current;
-      let newScale = currentT.k * scaleFactor;
-      newScale = Math.max(0.1, Math.min(newScale, 50));
-      
-      const scaleRatio = newScale / currentT.k;
-      const newX = mouseX - (mouseX - currentT.x) * scaleRatio;
-      const newY = mouseY - (mouseY - currentT.y) * scaleRatio;
-      
-      updateTransform({ x: newX, y: newY, k: newScale });
-    },
-    [updateTransform]
-  );
-
-  // Viewbox calculation
   const binViewBox = useMemo(() => {
     const paddingX = binWidth * 0.05;
     const paddingY = binHeight * 0.05;
-    return `${-paddingX} ${-paddingY} ${binWidth + paddingX * 2} ${
-      binHeight + paddingY * 2
-    }`;
+    return `${-paddingX} ${-paddingY} ${binWidth + paddingX * 2} ${binHeight + paddingY * 2}`;
   }, [binWidth, binHeight]);
 
   const cncTransform = `translate(0, ${binHeight}) scale(1, -1)`;
+  const btnStyle: React.CSSProperties = { width: 30, height: 30, cursor: "pointer", background: "rgba(255,255,255,0.9)", border: "1px solid #777", color: "#000", borderRadius: "4px", fontWeight: "bold" };
 
   return (
     <div
       ref={svgContainerRef}
       style={{
-        flex: 2,
-        position: "relative",
-        background: "transparent",
-        display: "flex",
-        flexDirection: "column",
-        cursor: dragMode === "part" ? "grabbing" : dragMode === "pan" ? "grabbing" : "grab",
-        overflow: "hidden",
-        width: "100%",
-        height: "100%",
+        flex: 2, position: "relative", background: "transparent", display: "flex", flexDirection: "column",
+        cursor: dragMode === "parts" ? "grabbing" : dragMode === "pan" ? "grabbing" : "grab",
+        overflow: "hidden", width: "100%", height: "100%",
       }}
       onWheel={handleWheel}
       onMouseDown={handleMouseDownContainer}
+      onDoubleClick={handleDoubleClickContainer} // <--- AÇÃO DE LIMPAR SELEÇÃO AQUI
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
-      onDoubleClick={(e) => {
-          e.preventDefault();
-          onPartSelect(null);
-      }}
     >
-        {/* Controles de Zoom Flutuantes */}
         <div style={{ position: "absolute", right: 20, top: 20, display: "flex", flexDirection: "column", gap: "5px", zIndex: 10 }}>
             <button onClick={() => updateTransform({ ...transformRef.current, k: transformRef.current.k * 1.2 })} style={btnStyle}>+</button>
             <button onClick={() => updateTransform({ ...transformRef.current, k: transformRef.current.k / 1.2 })} style={btnStyle}>-</button>
@@ -583,48 +539,22 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
 
       <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center", padding: "20px", overflow: "hidden" }}>
         <svg viewBox={binViewBox} preserveAspectRatio="xMidYMid meet" style={{ width: "100%", height: "100%" }}>
-          <g
-            ref={panGroupRef}
-            transform={`translate(${transform.x}, ${transform.y}) scale(${transform.k})`}
-          >
+          <g ref={panGroupRef} transform={`translate(${transform.x}, ${transform.y}) scale(${transform.k})`}>
             <g transform={cncTransform}>
-              {/* Borda da Chapa */}
-              <rect
-                x="0"
-                y="0"
-                width={binWidth}
-                height={binHeight}
-                fill={showDebug ? "rgba(255,152,0,0.05)" : "none"}
-                stroke="#ff9800"
-                strokeWidth="4"
-                vectorEffect="non-scaling-stroke"
-              />
-              {/* Margem de Segurança */}
-              {showDebug && (
-                <rect
-                  x={margin}
-                  y={margin}
-                  width={binWidth - margin * 2}
-                  height={binHeight - margin * 2}
-                  fill="none"
-                  stroke="#999"
-                  strokeDasharray="5"
-                  strokeWidth="1"
-                  vectorEffect="non-scaling-stroke"
-                />
-              )}
+              <rect x="0" y="0" width={binWidth} height={binHeight} fill={showDebug ? "rgba(255,152,0,0.05)" : "none"} stroke="#ff9800" strokeWidth="4" vectorEffect="non-scaling-stroke" />
+              {showDebug && <rect x={margin} y={margin} width={binWidth - margin * 2} height={binHeight - margin * 2} fill="none" stroke="#999" strokeDasharray="5" strokeWidth="1" vectorEffect="non-scaling-stroke" />}
               
-              {/* Peças Posicionadas */}
               {placedParts.map((placed) => {
                 const part = parts.find(p => p.id === placed.partId);
                 if (!part) return null;
                 return (
                   <PartElement
                     key={placed.partId}
+                    ref={(el: SVGGElement | null) => { partRefs.current[placed.partId] = el; }}
                     placed={placed}
-                    isSelected={placed.partId === selectedPartId}
+                    isSelected={selectedPartIds.includes(placed.partId)}
                     onMouseDown={handleMouseDownPart}
-                    onDoubleClick={(e) => { e.stopPropagation(); onPartSelect(placed.partId); }}
+                    onDoubleClick={handleDoubleClickPart} // <--- AÇÃO DE SELEÇÃO
                     onContextMenu={onContextMenu}
                     partData={part}
                     showDebug={showDebug}
@@ -639,9 +569,4 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       </div>
     </div>
   );
-};
-
-const btnStyle: React.CSSProperties = {
-    width: 30, height: 30, cursor: "pointer", background: "rgba(255,255,255,0.9)",
-    border: "1px solid #777", color: "#000", borderRadius: "4px", fontWeight: "bold"
 };
