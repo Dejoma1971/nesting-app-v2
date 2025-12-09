@@ -165,38 +165,6 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
   return { minX, minY, width: maxX - minX, height: maxY - minY };
 };
 
-// const calculateBoundingBox = (entities: any[], blocksData: any) => {
-//   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-//   const update = (x: number, y: number) => {
-//     if (x < minX) minX = x; if (x > maxX) maxX = x;
-//     if (y < minY) minY = y; if (y > maxY) maxY = y;
-//   };
-//   const traverse = (ents: any[], ox = 0, oy = 0) => {
-//     if (!ents) return;
-//     ents.forEach((ent) => {
-//       if (ent.type === "INSERT") {
-//         const b = blocksData[ent.name];
-//         if (b && b.entities) traverse(b.entities, (ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
-//         else update((ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
-//       } else if (ent.vertices) {
-//         ent.vertices.forEach((v: any) => update(v.x + ox, v.y + oy));
-//       } else if (ent.center && ent.radius && ent.type === "CIRCLE") {
-//         update(ent.center.x + ox - ent.radius, ent.center.y + oy - ent.radius);
-//         update(ent.center.x + ox + ent.radius, ent.center.y + oy + ent.radius);
-//       } else if (ent.type === "ARC") {
-//         const cx = ent.center.x + ox; const cy = ent.center.y + oy; const r = ent.radius;
-//         const startAngle = ent.startAngle; let endAngle = ent.endAngle;
-//         if (endAngle < startAngle) endAngle += 2 * Math.PI;
-//         update(cx + r * Math.cos(startAngle), cy + r * Math.sin(startAngle));
-//         update(cx + r * Math.cos(endAngle), cy + r * Math.sin(endAngle));
-//       }
-//     });
-//   };
-//   traverse(entities);
-//   if (minX === Infinity) return { minX: 0, minY: 0, width: 0, height: 0 };
-//   return { minX, minY, width: maxX - minX, height: maxY - minY };
-// };
-
 // --- SUBCOMPONENTE DE PEÇA ---
 interface PartElementProps {
   placed: PlacedPart;
@@ -237,7 +205,7 @@ const PartElement = React.memo(forwardRef<SVGGElement, PartElementProps>(
       : "";
 
     // 5. Usando theme para cor (Opcional, mas mantém coerência com modo escuro)
-    const strokeColor = isSelected ? "#00ff00" : (theme.text === '#e0e0e0' ? '#007bff' : '#007bff');
+    const strokeColor = isSelected ? "#c94028ff" : (theme.text === '#e0e0e0' ? '#007bff' : '#007bff');
 
     return (
       <g
@@ -257,8 +225,8 @@ const PartElement = React.memo(forwardRef<SVGGElement, PartElementProps>(
             width={occupiedW}
             height={occupiedH}
             fill="transparent"
-            stroke={isSelected ? "#00ff00" : showDebug ? "red" : "none"}
-            strokeWidth={isSelected ? 3 : 1}
+            stroke={isSelected ? "#a3a3a0ff" : showDebug ? "red" : "none"}
+            strokeWidth={isSelected ? 1 : 1}
             vectorEffect="non-scaling-stroke"
             pointerEvents="all"
           />
@@ -544,7 +512,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         <svg viewBox={binViewBox} preserveAspectRatio="xMidYMid meet" style={{ width: "100%", height: "100%" }}>
           <g ref={panGroupRef} transform={`translate(${transform.x}, ${transform.y}) scale(${transform.k})`}>
             <g transform={cncTransform}>
-              <rect x="0" y="0" width={binWidth} height={binHeight} fill={showDebug ? "none" : "none"} stroke="#ffffff" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+              <rect x="0" y="0" width={binWidth} height={binHeight} fill={showDebug ? "none" : "none"} stroke="#4e4e4dff" strokeWidth="2" vectorEffect="non-scaling-stroke" />
               {showDebug && <rect x={margin} y={margin} width={binWidth - margin * 2} height={binHeight - margin * 2} fill="none" stroke="#999" strokeDasharray="5" strokeWidth="1" vectorEffect="non-scaling-stroke" />}
               
               {placedParts.map((placed) => {
