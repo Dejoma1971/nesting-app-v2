@@ -12,6 +12,7 @@ import { generateDxfContent } from "../utils/dxfWriter";
 import { ContextControl } from "./ContextControl";
 import { InteractiveCanvas } from "./InteractiveCanvas";
 import { useUndoRedo } from "../hooks/useUndoRedo";
+import { getTheme } from "../styles/theme";
 
 import NestingWorker from "../workers/nesting.worker?worker";
 
@@ -21,9 +22,10 @@ interface Size {
 }
 interface NestingBoardProps {
   parts: ImportedPart[];
+  onBack?: () => void;
 }
 
-// --- HELPERS VISUAIS (PARA BARRA LATERAL) ---
+// --- RENDER ENTITY (MANTIDO) ---
 const renderEntityFunction = (
   entity: any,
   index: number,
@@ -49,325 +51,161 @@ const renderEntityFunction = (
       );
     }
     case "LINE":
-      return (
-        <line
-          key={index}
-          x1={entity.vertices[0].x * scale}
-          y1={entity.vertices[0].y * scale}
-          x2={entity.vertices[1].x * scale}
-          y2={entity.vertices[1].y * scale}
-          stroke={color}
-          strokeWidth={2 * scale}
-          vectorEffect="non-scaling-stroke"
-        />
-      );
+      return <line key={index} x1={entity.vertices[0].x * scale} y1={entity.vertices[0].y * scale} x2={entity.vertices[1].x * scale} y2={entity.vertices[1].y * scale} stroke={color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />;
     case "LWPOLYLINE":
     case "POLYLINE": {
       if (!entity.vertices) return null;
-      const d = entity.vertices
-        .map(
-          (v: any, i: number) =>
-            `${i === 0 ? "M" : "L"} ${v.x * scale} ${v.y * scale}`
-        )
-        .join(" ");
-      return (
-        <path
-          key={index}
-          d={entity.shape ? d + " Z" : d}
-          fill="none"
-          stroke={color}
-          strokeWidth={2 * scale}
-          vectorEffect="non-scaling-stroke"
-        />
-      );
+      const d = entity.vertices.map((v: any, i: number) => `${i === 0 ? "M" : "L"} ${v.x * scale} ${v.y * scale}`).join(" ");
+      return <path key={index} d={entity.shape ? d + " Z" : d} fill="none" stroke={color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />;
     }
     case "CIRCLE":
-      return (
-        <circle
-          key={index}
-          cx={entity.center.x * scale}
-          cy={entity.center.y * scale}
-          r={entity.radius * scale}
-          fill="none"
-          stroke={color}
-          strokeWidth={2 * scale}
-          vectorEffect="non-scaling-stroke"
-        />
-      );
+      return <circle key={index} cx={entity.center.x * scale} cy={entity.center.y * scale} r={entity.radius * scale} fill="none" stroke={color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />;
     case "ARC": {
-      const startAngle = entity.startAngle;
-      const endAngle = entity.endAngle;
-      const r = entity.radius * scale;
-      const x1 = entity.center.x * scale + r * Math.cos(startAngle);
-      const y1 = entity.center.y * scale + r * Math.sin(startAngle);
-      const x2 = entity.center.x * scale + r * Math.cos(endAngle);
-      const y2 = entity.center.y * scale + r * Math.sin(endAngle);
+      const { startAngle, endAngle, radius, center } = entity;
+      const r = radius * scale;
+      const x1 = center.x * scale + r * Math.cos(startAngle);
+      const y1 = center.y * scale + r * Math.sin(startAngle);
+      const x2 = center.x * scale + r * Math.cos(endAngle);
+      const y2 = center.y * scale + r * Math.sin(endAngle);
       let da = endAngle - startAngle;
       if (da < 0) da += 2 * Math.PI;
-      const largeArc = da > Math.PI ? 1 : 0;
-      const d = `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`;
-      return (
-        <path
-          key={index}
-          d={d}
-          fill="none"
-          stroke={color}
-          strokeWidth={2 * scale}
-          vectorEffect="non-scaling-stroke"
-        />
-      );
+      const d = `M ${x1} ${y1} A ${r} ${r} 0 ${da > Math.PI ? 1 : 0} 1 ${x2} ${y2}`;
+      return <path key={index} d={d} fill="none" stroke={color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />;
     }
-    default:
-      return null;
+    default: return null;
   }
 };
 
 const calculateBoundingBox = (entities: any[], blocksData: any) => {
-  let minX = Infinity,
-    minY = Infinity,
-    maxX = -Infinity,
-    maxY = -Infinity;
-
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   const update = (x: number, y: number) => {
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
   };
-
   const traverse = (ents: any[], ox = 0, oy = 0) => {
     if (!ents) return;
     ents.forEach((ent) => {
       if (ent.type === "INSERT") {
         const b = blocksData[ent.name];
-        if (b && b.entities) {
-          traverse(
-            b.entities,
-            (ent.position?.x || 0) + ox,
-            (ent.position?.y || 0) + oy
-          );
-        } else {
-          update((ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
-        }
+        if (b && b.entities) traverse(b.entities, (ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
+        else update((ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
       } else if (ent.vertices) {
-        ent.vertices.forEach((v: any) => {
-          update(v.x + ox, v.y + oy);
-        });
+        ent.vertices.forEach((v: any) => update(v.x + ox, v.y + oy));
       } else if (ent.center && ent.radius && ent.type === "CIRCLE") {
         update(ent.center.x + ox - ent.radius, ent.center.y + oy - ent.radius);
         update(ent.center.x + ox + ent.radius, ent.center.y + oy + ent.radius);
       } else if (ent.type === "ARC") {
-        const cx = ent.center.x + ox;
-        const cy = ent.center.y + oy;
-        const r = ent.radius;
-        const startAngle = ent.startAngle;
-        let endAngle = ent.endAngle;
+        const cx = ent.center.x + ox; const cy = ent.center.y + oy; const r = ent.radius;
+        const startAngle = ent.startAngle; let endAngle = ent.endAngle;
         if (endAngle < startAngle) endAngle += 2 * Math.PI;
         update(cx + r * Math.cos(startAngle), cy + r * Math.sin(startAngle));
         update(cx + r * Math.cos(endAngle), cy + r * Math.sin(endAngle));
-        const startK = Math.ceil(startAngle / (Math.PI / 2));
-        const endK = Math.floor(endAngle / (Math.PI / 2));
-        for (let k = startK; k <= endK; k++) {
-          const angle = k * (Math.PI / 2);
-          update(cx + r * Math.cos(angle), cy + r * Math.sin(angle));
-        }
       }
     });
   };
-
   traverse(entities);
   if (minX === Infinity) return { minX: 0, minY: 0, width: 0, height: 0 };
   return { minX, minY, width: maxX - minX, height: maxY - minY };
 };
 
 // --- COMPONENTE PRINCIPAL ---
-export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
+export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => {
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const theme = getTheme(isDarkMode);
+
   const [binSize, setBinSize] = useState<Size>({ width: 1200, height: 3000 });
   const [gap, setGap] = useState(10);
   const [margin, setMargin] = useState(10);
-
-  // CONFIGURAÇÕES
   const [strategy, setStrategy] = useState<"rect" | "true-shape">("rect");
-  const [direction, setDirection] = useState<
-    "auto" | "vertical" | "horizontal"
-  >("auto");
+  const [direction, setDirection] = useState<"auto" | "vertical" | "horizontal">("auto");
   const [iterations] = useState(50);
   const [rotationStep, setRotationStep] = useState(90);
 
-  // Quantidades
-  const [quantities, setQuantities] = useState<{ [key: string]: number }>(
-    () => {
-      const initialQ: { [key: string]: number } = {};
-      parts.forEach((p) => {
-        initialQ[p.id] = 1;
-      });
-      return initialQ;
-    }
-  );
+  const [quantities, setQuantities] = useState<{ [key: string]: number }>(() => {
+    const initialQ: { [key: string]: number } = {};
+    parts.forEach((p) => { initialQ[p.id] = 1; });
+    return initialQ;
+  });
 
   const [activeTab, setActiveTab] = useState<"grid" | "list">("grid");
   const [showDebug, setShowDebug] = useState(true);
 
-  // --- SUBSTITUIÇÃO DO STATE PELO HOOK DE UNDO/REDO ---
-  const [
-    nestingResult, // O valor atual (present)
-    setNestingResult, // Função para atualizar (salva no histórico)
-    undo, // Desfazer
-    redo, // Refazer
-    resetNestingResult, // Função para limpar histórico (reset)
-    canUndo, // Bool
-    canRedo, // Bool
-  ] = useUndoRedo<PlacedPart[]>([]);
+  // Undo/Redo Hook
+  const [nestingResult, setNestingResult, undo, redo, resetNestingResult, canUndo, canRedo] = useUndoRedo<PlacedPart[]>([]);
 
-  // Estados de UI/Controle
   const [isComputing, setIsComputing] = useState(false);
   const [failedCount, setFailedCount] = useState(0);
   const [totalBins, setTotalBins] = useState(1);
   const [currentBinIndex, setCurrentBinIndex] = useState(0);
-
-  // Seleção Múltipla
   const [selectedPartIds, setSelectedPartIds] = useState<string[]>([]);
-
-  // Menu Contexto
-  const [contextMenu, setContextMenu] = useState<{
-    visible: boolean;
-    x: number;
-    y: number;
-  } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number; } | null>(null);
 
   const workerRef = useRef<Worker | null>(null);
 
-  // --- 1. LISTENER DE TECLADO (CTRL+Z / CTRL+Y) ---
+  // --- EFEITOS E HANDLERS ---
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      ) {
-        return;
-      }
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
-        if (e.shiftKey) {
-          redo();
-        } else {
-          undo();
-        }
+        if (e.shiftKey) redo(); else undo();
       }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
-        e.preventDefault();
-        redo();
-      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [undo, redo]);
 
-  // --- 2. GERENCIAMENTO DE QUANTIDADES (CORRIGIDO) ---
   useEffect(() => {
-    // Usando a versão funcional do setState para evitar dependência cíclica em 'quantities'
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setQuantities((prev) => {
       const currentIds = new Set(Object.keys(prev));
       const missingParts = parts.filter((p) => !currentIds.has(p.id));
-
       if (missingParts.length > 0) {
         const newQ = { ...prev };
-        missingParts.forEach((p) => {
-          newQ[p.id] = 1;
-        });
+        missingParts.forEach((p) => { newQ[p.id] = 1; });
         return newQ;
       }
-      // Se não houver mudanças, retorna o estado anterior sem alterações
       return prev;
     });
-  }, [parts]); // Dependência apenas em 'parts'
+  }, [parts]);
 
-  // --- HANDLERS LÓGICOS ---
-  const handleContextRotate = useCallback(
-    (angle: number) => {
-      if (selectedPartIds.length === 0) return;
-      setNestingResult((prev) =>
-        prev.map((p) => {
-          if (selectedPartIds.includes(p.partId)) {
-            let newRot = (p.rotation + angle) % 360;
-            if (newRot < 0) newRot += 360;
-            return { ...p, rotation: newRot };
-          }
-          return p;
-        })
-      );
-    },
-    [selectedPartIds, setNestingResult]
-  );
+  const handleContextRotate = useCallback((angle: number) => {
+    if (selectedPartIds.length === 0) return;
+    setNestingResult((prev) => prev.map((p) => selectedPartIds.includes(p.partId) ? { ...p, rotation: (p.rotation + angle) % 360 } : p));
+  }, [selectedPartIds, setNestingResult]);
 
-  const handleContextMove = useCallback(
-    (dx: number, dy: number) => {
-      if (selectedPartIds.length === 0) return;
-      const realDy = -dy; // Inverte Y
-      setNestingResult((prev) =>
-        prev.map((p) => {
-          if (selectedPartIds.includes(p.partId)) {
-            return { ...p, x: p.x + dx, y: p.y + realDy };
-          }
-          return p;
-        })
-      );
-    },
-    [selectedPartIds, setNestingResult]
-  );
+  const handleContextMove = useCallback((dx: number, dy: number) => {
+    if (selectedPartIds.length === 0) return;
+    setNestingResult((prev) => prev.map((p) => selectedPartIds.includes(p.partId) ? { ...p, x: p.x + dx, y: p.y - dy } : p));
+  }, [selectedPartIds, setNestingResult]);
 
-  const handlePartsMove = useCallback(
-    (moves: { partId: string; dx: number; dy: number }[]) => {
+  const handlePartsMove = useCallback((moves: { partId: string; dx: number; dy: number }[]) => {
       if (moves.length === 0) return;
       setNestingResult((prev) => {
-        const moveMap = new Map(moves.map((m) => [m.partId, m]));
+        const moveMap = new Map(moves.map(m => [m.partId, m]));
         return prev.map((p) => {
           const move = moveMap.get(p.partId);
-          if (move) {
-            return {
-              ...p,
-              x: p.x + move.dx,
-              y: p.y + move.dy,
-            };
-          }
-          return p;
+          return move ? { ...p, x: p.x + move.dx, y: p.y + move.dy } : p;
         });
       });
-    },
-    [setNestingResult]
-  );
+  }, [setNestingResult]);
 
   const handlePartSelect = useCallback((ids: string[], append: boolean) => {
-    if (append) {
-      setSelectedPartIds((prev) => [...new Set([...prev, ...ids])]);
-    } else {
-      setSelectedPartIds(ids);
-    }
+      setSelectedPartIds(prev => append ? [...new Set([...prev, ...ids])] : ids);
   }, []);
 
-  const handlePartContextMenu = useCallback(
-    (e: React.MouseEvent, partId: string) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!selectedPartIds.includes(partId)) {
-        setSelectedPartIds([partId]);
-      }
+  const handlePartContextMenu = useCallback((e: React.MouseEvent, partId: string) => {
+      e.preventDefault(); e.stopPropagation();
+      if (!selectedPartIds.includes(partId)) setSelectedPartIds([partId]);
       setContextMenu({ visible: true, x: e.clientX, y: e.clientY });
-    },
-    [selectedPartIds]
-  );
+    }, [selectedPartIds]);
 
   const handleCalculate = useCallback(() => {
     if (parts.length === 0) return;
     setIsComputing(true);
-    resetNestingResult([]);
-    setCurrentBinIndex(0);
-    setTotalBins(1);
-    setSelectedPartIds([]);
-
+    resetNestingResult([]); setCurrentBinIndex(0); setTotalBins(1); setSelectedPartIds([]);
     if (workerRef.current) workerRef.current.terminate();
-
     workerRef.current = new NestingWorker();
     workerRef.current.onmessage = (e) => {
       const result = e.data;
@@ -376,742 +214,219 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
       setTotalBins(result.totalBins || 1);
       setIsComputing(false);
       if (result.placed.length === 0) alert("Nenhuma peça coube!");
-      else if (result.failed.length > 0)
-        console.warn("Algumas peças não couberam.");
     };
+    workerRef.current.postMessage({ parts: JSON.parse(JSON.stringify(parts)), quantities, gap, margin, binWidth: binSize.width, binHeight: binSize.height, strategy, iterations, rotationStep, direction });
+  }, [parts, quantities, gap, margin, binSize, strategy, iterations, rotationStep, direction, resetNestingResult]);
 
-    workerRef.current.postMessage({
-      parts: JSON.parse(JSON.stringify(parts)),
-      quantities,
-      gap,
-      margin,
-      binWidth: binSize.width,
-      binHeight: binSize.height,
-      strategy,
-      iterations,
-      rotationStep,
-      direction,
-    });
-  }, [
-    parts,
-    quantities,
-    gap,
-    margin,
-    binSize,
-    strategy,
-    iterations,
-    rotationStep,
-    direction,
-    resetNestingResult,
-  ]);
-
-  // --- EXPORTAÇÃO E UI ---
-  const handleWidthChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setBinSize((prev) => ({ ...prev, width: Number(e.target.value) }));
-    },
-    []
-  );
-  const handleHeightChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setBinSize((prev) => ({ ...prev, height: Number(e.target.value) }));
-    },
-    []
-  );
-  const swapDimensions = useCallback(() => {
-    setBinSize((prev) => ({ width: prev.height, height: prev.width }));
-  }, []);
+  const handleClearTable = useCallback(() => {
+      if (window.confirm("Deseja limpar todos os arranjos da mesa?")) {
+          resetNestingResult([]);
+          setFailedCount(0);
+          setTotalBins(1);
+          setCurrentBinIndex(0);
+      }
+  }, [resetNestingResult]);
 
   const handleDownload = useCallback(() => {
     if (nestingResult.length === 0) return;
-    const currentBinParts = nestingResult.filter(
-      (p) => p.binId === currentBinIndex
-    );
+    const currentBinParts = nestingResult.filter((p) => p.binId === currentBinIndex);
     const dxfString = generateDxfContent(currentBinParts, parts);
     const blob = new Blob([dxfString], { type: "application/dxf" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
-    a.download = `nesting_chapa_${currentBinIndex + 1}.dxf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    a.href = url; a.download = `nesting_chapa_${currentBinIndex + 1}.dxf`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   }, [nestingResult, currentBinIndex, parts]);
 
-  const updateQty = useCallback((id: string, val: number) => {
-    setQuantities((prev) => ({ ...prev, [id]: val }));
-  }, []);
-
-  const formatArea = useCallback((mm2: number) => {
-    return mm2 > 100000
-      ? (mm2 / 1000000).toFixed(3) + " m²"
-      : mm2.toFixed(0) + " mm²";
-  }, []);
-
-  const currentPlacedParts = useMemo(() => {
-    return nestingResult.filter((p) => p.binId === currentBinIndex);
-  }, [nestingResult, currentBinIndex]);
-
+  const updateQty = useCallback((id: string, val: number) => setQuantities((prev) => ({ ...prev, [id]: val })), []);
+  const formatArea = useCallback((mm2: number) => mm2 > 100000 ? (mm2 / 1000000).toFixed(3) + " m²" : mm2.toFixed(0) + " mm²", []);
+  const currentPlacedParts = useMemo(() => nestingResult.filter(p => p.binId === currentBinIndex), [nestingResult, currentBinIndex]);
   const getThumbnailViewBox = useCallback((part: ImportedPart) => {
-    const box = calculateBoundingBox(part.entities, part.blocks);
-    const p = Math.max(box.width, box.height) * 0.1;
-    return `${box.minX - p} ${box.minY - p} ${box.width + p * 2} ${
-      box.height + p * 2
-    }`;
+      const box = calculateBoundingBox(part.entities, part.blocks);
+      const p = Math.max(box.width, box.height) * 0.1;
+      return `${box.minX - p} ${box.minY - p} ${box.width + p * 2} ${box.height + p * 2}`;
   }, []);
 
-  const tabStyle = useCallback(
-    (isActive: boolean): React.CSSProperties => ({
-      padding: "10px 15px",
-      cursor: "pointer",
-      background: "transparent",
-      outline: "none",
-      border: "none",
-      borderBottom: isActive ? "2px solid #28a745" : "2px solid transparent",
-      color: isActive ? "inherit" : "rgba(128,128,128,0.7)",
-      fontWeight: isActive ? "bold" : "normal",
-      fontSize: "13px",
-    }),
-    []
-  );
+  // --- ESTILOS DINÂMICOS ---
+  const containerStyle: React.CSSProperties = { display: "flex", flexDirection: "column", height: "100%", width: "100%", background: theme.bg, color: theme.text };
+  const topBarStyle: React.CSSProperties = { padding: "10px 20px", borderBottom: `1px solid ${theme.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: theme.headerBg };
+  const toolbarStyle: React.CSSProperties = { padding: "10px 20px", borderBottom: `1px solid ${theme.border}`, display: "flex", gap: "15px", alignItems: "center", backgroundColor: theme.panelBg, flexWrap: "wrap" };
+  const inputStyle: React.CSSProperties = { padding: 5, borderRadius: 4, border: `1px solid ${theme.border}`, background: theme.inputBg, color: theme.text };
+  const btnStyle = (active: boolean): React.CSSProperties => ({ padding: "4px 8px", border: "none", borderRadius: "3px", cursor: "pointer", background: active ? "#007bff" : "transparent", color: active ? "#fff" : theme.text, fontSize: "16px" });
+  const tabStyle = (active: boolean): React.CSSProperties => ({ padding: "10px 15px", cursor: "pointer", background: "transparent", outline: "none", border: "none", borderBottom: active ? "2px solid #28a745" : "2px solid transparent", color: active ? theme.text : theme.label, fontWeight: active ? "bold" : "normal", fontSize: "13px" });
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        width: "100%",
-      }}
-    >
-      {/* MENU CONTEXTO */}
-      {contextMenu && contextMenu.visible && selectedPartIds.length > 0 && (
-        <ContextControl
-          x={contextMenu.x}
-          y={contextMenu.y}
-          onClose={() => setContextMenu(null)}
-          onMove={handleContextMove}
-          onRotate={handleContextRotate}
-        />
-      )}
+    <div style={containerStyle}>
+      {contextMenu && contextMenu.visible && selectedPartIds.length > 0 && <ContextControl x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu(null)} onMove={handleContextMove} onRotate={handleContextRotate} />}
 
-      {/* TOPO DE CONTROLES - AGORA COMPLETO PARA EVITAR ERROS DE LINT */}
-      <div
-        style={{
-          padding: "10px 20px",
-          borderBottom: "1px solid #444",
-          display: "flex",
-          gap: "20px",
-          alignItems: "center",
-          backgroundColor: "rgba(0,0,0,0.03)",
-          flexWrap: "wrap",
-        }}
-      >
-        {/* Seletor de Motor */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            borderRight: "1px solid #555",
-            paddingRight: "15px",
-          }}
-        >
-          <span
-            style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}
-          >
-            Motor:
-          </span>
-          <select
-            value={strategy}
-            onChange={(e) =>
-              setStrategy(e.target.value as "rect" | "true-shape")
-            }
-            style={{
-              padding: "5px",
-              borderRadius: "4px",
-              border: "1px solid #555",
-              background: "rgba(0,0,0,0.1)",
-              color: "inherit",
-              fontWeight: "bold",
-            }}
-          >
-            <option value="rect">🔳 Retangular (Fixo)</option>
-            <option value="true-shape">🧩 True Shape (Manual)</option>
+      {/* 1. FAIXA SUPERIOR */}
+      <div style={topBarStyle}>
+          <div style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
+            {onBack && (
+                <button onClick={onBack} title="Voltar" style={{background: 'transparent', border: 'none', color: theme.text, cursor: 'pointer', fontSize: '24px', display: 'flex', alignItems: 'center', padding: 0}}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+                </button>
+            )}
+            <h2 style={{margin: 0, fontSize: '18px', color: '#007bff', whiteSpace: 'nowrap'}}>Planejamento de Corte</h2>
+          </div>
+
+          <div style={{ marginLeft: 'auto', paddingRight: '10px' }}>
+              <button 
+                onClick={() => setIsDarkMode(!isDarkMode)} 
+                title="Alternar Tema"
+                style={{
+                    background: 'transparent', 
+                    border: `1px solid ${theme.border}`, 
+                    color: theme.text, 
+                    padding: '6px 12px', 
+                    borderRadius: '20px', 
+                    cursor: 'pointer',
+                    fontSize: '16px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}
+              >
+                 {isDarkMode ? '☀️' : '🌙'}
+              </button>
+          </div>
+      </div>
+
+      {/* 2. BARRA DE FERRAMENTAS */}
+      <div style={toolbarStyle}>
+        
+        <div style={{ display: "flex", alignItems: "center", borderRight: `1px solid ${theme.border}`, paddingRight: "15px" }}>
+          <span style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}>Motor:</span>
+          <select value={strategy} onChange={(e) => setStrategy(e.target.value as any)} style={inputStyle}>
+            <option value="rect">🔳 Retangular</option>
+            <option value="true-shape">🧩 True Shape</option>
           </select>
         </div>
 
-        {/* Seletor de Direção (Usa setDirection) */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            borderRight: "1px solid #555",
-            paddingRight: "15px",
-          }}
-        >
-          <span
-            style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}
-          >
-            Preencher:
-          </span>
-          <div
-            style={{
-              display: "flex",
-              gap: "2px",
-              background: "rgba(0,0,0,0.1)",
-              borderRadius: "4px",
-              padding: "2px",
-            }}
-          >
-            <button
-              title="Automático"
-              onClick={() => setDirection("auto")}
-              style={{
-                padding: "4px 8px",
-                border: "none",
-                borderRadius: "3px",
-                cursor: "pointer",
-                background: direction === "auto" ? "#007bff" : "transparent",
-                color: direction === "auto" ? "#fff" : "inherit",
-                fontSize: "12px",
-              }}
-            >
-              Auto
-            </button>
-            <button
-              title="Vertical"
-              onClick={() => setDirection("vertical")}
-              style={{
-                padding: "4px 8px",
-                border: "none",
-                borderRadius: "3px",
-                cursor: "pointer",
-                background:
-                  direction === "vertical" ? "#007bff" : "transparent",
-                color: direction === "vertical" ? "#fff" : "inherit",
-                fontSize: "16px",
-              }}
-            >
-              ⬇️
-            </button>
-            <button
-              title="Horizontal"
-              onClick={() => setDirection("horizontal")}
-              style={{
-                padding: "4px 8px",
-                border: "none",
-                borderRadius: "3px",
-                cursor: "pointer",
-                background:
-                  direction === "horizontal" ? "#007bff" : "transparent",
-                color: direction === "horizontal" ? "#fff" : "inherit",
-                fontSize: "16px",
-              }}
-            >
-              ➡️
-            </button>
+        <div style={{ display: "flex", alignItems: "center", borderRight: `1px solid ${theme.border}`, paddingRight: "15px" }}>
+          <span style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}>Dir:</span>
+          <div style={{ display: "flex", gap: "2px", background: theme.inputBg, borderRadius: "4px", padding: "2px" }}>
+            <button title="Auto" onClick={() => setDirection("auto")} style={btnStyle(direction === 'auto')}>Auto</button>
+            <button title="Vertical" onClick={() => setDirection("vertical")} style={btnStyle(direction === 'vertical')}>⬇️</button>
+            <button title="Horizontal" onClick={() => setDirection("horizontal")} style={btnStyle(direction === 'horizontal')}>➡️</button>
           </div>
         </div>
 
-        {/* Dimensões da Chapa */}
-        <div style={{ fontWeight: "bold", fontSize: "14px" }}>📐</div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            background: "rgba(0,0,0,0.05)",
-            padding: "5px",
-            borderRadius: "4px",
-            gap: "10px",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <label style={{ marginRight: 5, fontSize: 13 }}>L:</label>
-            <input
-              type="number"
-              value={binSize.width}
-              onChange={handleWidthChange}
-              style={{
-                padding: 5,
-                width: 60,
-                border: "1px solid #555",
-                background: "rgba(0,0,0,0.1)",
-                color: "inherit",
-              }}
-            />
-          </div>
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <label style={{ marginRight: 5, fontSize: 13 }}>A:</label>
-            <input
-              type="number"
-              value={binSize.height}
-              onChange={handleHeightChange}
-              style={{
-                padding: 5,
-                width: 60,
-                border: "1px solid #555",
-                background: "rgba(0,0,0,0.1)",
-                color: "inherit",
-              }}
-            />
-          </div>
-          <button
-            onClick={swapDimensions}
-            title="Inverter X / Y"
-            style={{
-              cursor: "pointer",
-              border: "none",
-              background: "transparent",
-              fontSize: "16px",
-              padding: "0 5px",
-            }}
-          >
-            🔄
-          </button>
+        <div style={{ display: "flex", alignItems: "center", background: theme.hoverRow, padding: "5px", borderRadius: "4px", gap: "5px" }}>
+            <label style={{ fontSize: 12 }}>L:</label><input type="number" value={binSize.width} onChange={e => setBinSize(p => ({...p, width: Number(e.target.value)}))} style={{...inputStyle, width: 50}} />
+            <label style={{ fontSize: 12 }}>A:</label><input type="number" value={binSize.height} onChange={e => setBinSize(p => ({...p, height: Number(e.target.value)}))} style={{...inputStyle, width: 50}} />
         </div>
 
-        {/* Controle de Giro Manual (Usa setRotationStep) */}
-        {strategy === "true-shape" && (
-          <div
-            style={{
-              display: "flex",
-              gap: "10px",
-              borderLeft: "1px solid #555",
-              paddingLeft: "15px",
-              animation: "fadeIn 0.3s",
-            }}
-          >
-            <div
-              style={{ display: "flex", alignItems: "center" }}
-              title="Precisão de rotação manual"
-            >
-              <label style={{ marginRight: 5, fontSize: 12, color: "inherit" }}>
-                Giro:
-              </label>
-              <select
-                value={rotationStep}
-                onChange={(e) => setRotationStep(Number(e.target.value))}
-                style={{
-                  padding: 5,
-                  border: "1px solid #555",
-                  background: "rgba(0,0,0,0.1)",
-                  color: "inherit",
-                  cursor: "pointer",
-                }}
-              >
-                <option value="90">90°</option>
-                <option value="45">45°</option>
-                <option value="10">10°</option>
-              </select>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <label style={{ fontSize: 12 }}>Gap:</label><input type="number" value={gap} onChange={e => setGap(Number(e.target.value))} style={{...inputStyle, width: 40}} />
+            <label style={{ fontSize: 12 }}>Margem:</label><input type="number" value={margin} onChange={e => setMargin(Number(e.target.value))} style={{...inputStyle, width: 40}} />
+        </div>
+        
+        {strategy === 'true-shape' && (
+            <div style={{ display: "flex", alignItems: "center" }}>
+                <label style={{ fontSize: 12, marginRight: 5 }}>Rot:</label>
+                <select value={rotationStep} onChange={e => setRotationStep(Number(e.target.value))} style={inputStyle}>
+                    <option value="90">90°</option><option value="45">45°</option><option value="10">10°</option>
+                </select>
             </div>
-          </div>
         )}
 
-        {/* Gap e Margem (Usam setGap e setMargin) */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            borderLeft: "1px solid #555",
-            paddingLeft: "15px",
-          }}
-        >
-          <label style={{ marginRight: 5, fontSize: 13 }}>Gap:</label>
-          <input
-            type="number"
-            value={gap}
-            onChange={(e) => setGap(Number(e.target.value))}
-            style={{
-              padding: 5,
-              width: 40,
-              border: "1px solid #555",
-              background: "rgba(0,0,0,0.1)",
-              color: "inherit",
-            }}
-          />
-        </div>
-        <div style={{ display: "flex", alignItems: "center" }}>
-          <label style={{ marginRight: 5, fontSize: 13 }}>Margem:</label>
-          <input
-            type="number"
-            value={margin}
-            onChange={(e) => setMargin(Number(e.target.value))}
-            style={{
-              padding: 5,
-              width: 40,
-              border: "1px solid #555",
-              background: "rgba(0,0,0,0.1)",
-              color: "inherit",
-            }}
-          />
-        </div>
-
-        {/* Botões de Ação */}
-        <div style={{ marginLeft: "auto", display: "flex", gap: "10px" }}>
-          <button
-            style={{
-              background: isComputing ? "#666" : "#28a745",
-              color: "white",
-              border: "none",
-              padding: "8px 20px",
-              cursor: isComputing ? "wait" : "pointer",
-              borderRadius: "4px",
-              fontWeight: "bold",
-              transition: "0.3s",
-            }}
-            onClick={handleCalculate}
-            disabled={isComputing}
-          >
-            {isComputing ? "⏳..." : "▶ Calcular"}
-          </button>
-          <button
-            onClick={handleDownload}
-            disabled={nestingResult.length === 0}
-            style={{
-              background: "#007bff",
-              color: "white",
-              border: "none",
-              padding: "8px 20px",
-              cursor: nestingResult.length === 0 ? "not-allowed" : "pointer",
-              borderRadius: "4px",
-              opacity: nestingResult.length === 0 ? 0.5 : 1,
-            }}
-          >
-            💾 DXF
-          </button>
-        </div>
-
-        <label
-          style={{
-            marginLeft: "10px",
-            fontSize: "12px",
-            display: "flex",
-            alignItems: "center",
-            cursor: "pointer",
-            userSelect: "none",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={showDebug}
-            onChange={(e) => setShowDebug(e.target.checked)}
-            style={{ marginRight: "5px" }}
+        <label style={{ fontSize: "12px", display: "flex", alignItems: "center", cursor: "pointer", userSelect: "none" }}>
+          <input 
+            type="checkbox" 
+            checked={showDebug} 
+            onChange={(e) => setShowDebug(e.target.checked)} 
+            style={{ marginRight: "5px" }} 
           />
           Ver Box
         </label>
-      </div>
 
-      {/* ÁREA PRINCIPAL */}
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        <div
-          style={{
-            flex: 2,
-            position: "relative",
-            background: "transparent",
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-          }}
-          onMouseDown={() => setContextMenu(null)}
-        >
-          {/* BOTÕES FLUTUANTES DE UNDO/REDO */}
-          <div
+        <div style={{ marginLeft: "auto", display: "flex", gap: "10px", alignItems: "center" }}>
+          <button style={{ background: isComputing ? "#666" : "#28a745", color: "white", border: "none", padding: "8px 20px", cursor: isComputing ? "wait" : "pointer", borderRadius: "4px", fontWeight: "bold" }} onClick={handleCalculate} disabled={isComputing}>{isComputing ? "..." : "▶ Calcular"}</button>
+          
+          <button onClick={handleDownload} disabled={nestingResult.length === 0} style={{ background: "#007bff", color: "white", border: "none", padding: "8px 20px", cursor: nestingResult.length === 0 ? "not-allowed" : "pointer", borderRadius: "4px", opacity: nestingResult.length === 0 ? 0.5 : 1 }}>💾 DXF</button>
+          
+          <button 
+            onClick={handleClearTable} 
+            title="Limpar Mesa"
             style={{
-              position: "absolute",
-              bottom: 20,
-              left: "50%",
-              transform: "translateX(-50%)",
-              display: "flex",
-              gap: 10,
-              zIndex: 20,
+                background: 'transparent', 
+                color: '#dc3545', 
+                border: `1px solid #dc3545`, 
+                padding: '8px 12px', 
+                borderRadius: '4px', 
+                cursor: 'pointer',
+                fontWeight: 'bold', fontSize: '13px'
             }}
           >
-            <button
-              onClick={undo}
-              disabled={!canUndo}
-              title="Ctrl + Z"
-              style={{
-                padding: "8px 15px",
-                borderRadius: "20px",
-                border: "1px solid #555",
-                background: canUndo
-                  ? "rgba(255,255,255,0.9)"
-                  : "rgba(200,200,200,0.5)",
-                color: canUndo ? "#000" : "#888",
-                cursor: canUndo ? "pointer" : "default",
-                boxShadow: "0 2px 5px rgba(0,0,0,0.2)",
-                fontWeight: "bold",
-                fontSize: "12px",
-              }}
-            >
-              ↩ Desfazer
-            </button>
-            <button
-              onClick={redo}
-              disabled={!canRedo}
-              title="Ctrl + Shift + Z / Ctrl + Y"
-              style={{
-                padding: "8px 15px",
-                borderRadius: "20px",
-                border: "1px solid #555",
-                background: canRedo
-                  ? "rgba(255,255,255,0.9)"
-                  : "rgba(200,200,200,0.5)",
-                color: canRedo ? "#000" : "#888",
-                cursor: canRedo ? "pointer" : "default",
-                boxShadow: "0 2px 5px rgba(0,0,0,0.2)",
-                fontWeight: "bold",
-                fontSize: "12px",
-              }}
-            >
-              ↪ Refazer
-            </button>
+            🗑️
+          </button>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        <div style={{ flex: 2, position: "relative", background: theme.canvasBg, display: "flex", flexDirection: "column", overflow: "hidden" }} onMouseDown={() => setContextMenu(null)}>
+          
+          {/* BOTÕES DE UNDO/REDO (CENTRO) */}
+          <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 10, zIndex: 20 }}>
+            <button onClick={undo} disabled={!canUndo} style={{ padding: "8px 15px", borderRadius: "20px", border: `1px solid ${theme.buttonBorder}`, background: theme.buttonBg, color: canUndo ? theme.buttonText : "#888", cursor: canUndo ? "pointer" : "default", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", fontWeight: "bold", fontSize: "12px" }}>↩ Desfazer</button>
+            <button onClick={redo} disabled={!canRedo} style={{ padding: "8px 15px", borderRadius: "20px", border: `1px solid ${theme.buttonBorder}`, background: theme.buttonBg, color: canRedo ? theme.buttonText : "#888", cursor: canRedo ? "pointer" : "default", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", fontWeight: "bold", fontSize: "12px" }}>↪ Refazer</button>
           </div>
 
-          {/* Paginação de Bins */}
+          {/* CONTROLE DE NAVEGAÇÃO DE CHAPAS (AGORA BOTTOM-RIGHT, ESTILIZADO) */}
           {totalBins > 1 && (
-            <div
-              style={{
-                position: "absolute",
-                top: 10,
-                left: "50%",
-                transform: "translateX(-50%)",
-                zIndex: 10,
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                background: "rgba(255,255,255,0.9)",
-                padding: "5px 15px",
-                borderRadius: "20px",
-                boxShadow: "0 2px 5px rgba(0,0,0,0.2)",
-              }}
-            >
-              <button
-                onClick={() =>
-                  setCurrentBinIndex(Math.max(0, currentBinIndex - 1))
-                }
-                disabled={currentBinIndex === 0}
-                style={{
-                  cursor: "pointer",
-                  border: "none",
-                  background: "transparent",
-                  fontWeight: "bold",
-                }}
-              >
-                ◀
-              </button>
-              <span
-                style={{ fontWeight: "bold", fontSize: "13px", color: "#333" }}
-              >
-                Chapa {currentBinIndex + 1} de {totalBins}
-              </span>
-              <button
-                onClick={() =>
-                  setCurrentBinIndex(
-                    Math.min(totalBins - 1, currentBinIndex + 1)
-                  )
-                }
-                disabled={currentBinIndex === totalBins - 1}
-                style={{
-                  cursor: "pointer",
-                  border: "none",
-                  background: "transparent",
-                  fontWeight: "bold",
-                }}
-              >
-                ▶
-              </button>
+            <div style={{ 
+                position: "absolute", 
+                bottom: 20, 
+                right: 20, // <--- POSICIONAMENTO BOTTOM-RIGHT
+                zIndex: 20, 
+                display: "flex", 
+                alignItems: "center", 
+                gap: "10px", 
+                background: theme.buttonBg, // MESMO ESTILO DO UNDO
+                padding: "5px 15px", 
+                borderRadius: "20px", 
+                border: `1px solid ${theme.buttonBorder}`,
+                boxShadow: "0 2px 5px rgba(0,0,0,0.2)", 
+                color: theme.buttonText 
+            }}>
+              <button onClick={() => setCurrentBinIndex(Math.max(0, currentBinIndex - 1))} disabled={currentBinIndex === 0} style={{ cursor: "pointer", border: "none", background: "transparent", fontWeight: "bold", color: theme.buttonText, opacity: currentBinIndex===0?0.3:1 }}>◀</button>
+              <span style={{ fontWeight: "bold", fontSize: "13px" }}>Chapa {currentBinIndex + 1} de {totalBins}</span>
+              <button onClick={() => setCurrentBinIndex(Math.min(totalBins - 1, currentBinIndex + 1))} disabled={currentBinIndex === totalBins - 1} style={{ cursor: "pointer", border: "none", background: "transparent", fontWeight: "bold", color: theme.buttonText, opacity: currentBinIndex===totalBins-1?0.3:1 }}>▶</button>
             </div>
           )}
 
-          {/* CANVAS INTERATIVO */}
-          <InteractiveCanvas
-            parts={parts}
-            placedParts={currentPlacedParts}
-            binWidth={binSize.width}
-            binHeight={binSize.height}
-            margin={margin}
-            showDebug={showDebug}
-            strategy={strategy}
-            selectedPartIds={selectedPartIds}
-            onPartsMove={handlePartsMove}
-            onPartSelect={handlePartSelect}
-            onContextMenu={handlePartContextMenu}
+          <InteractiveCanvas 
+             parts={parts} placedParts={currentPlacedParts}
+             binWidth={binSize.width} binHeight={binSize.height} margin={margin}
+             showDebug={showDebug} strategy={strategy} theme={theme}
+             selectedPartIds={selectedPartIds} onPartsMove={handlePartsMove} onPartSelect={handlePartSelect} onContextMenu={handlePartContextMenu}
           />
 
-          <div
-            style={{
-              padding: "10px 20px",
-              display: "flex",
-              gap: "20px",
-              borderTop: "1px solid #555",
-              background: "transparent",
-              zIndex: 5,
-            }}
-          >
-            <span style={{ opacity: 0.6, fontSize: "12px" }}>
-              {nestingResult.length > 0
-                ? `Total: ${nestingResult.length} Peças`
-                : `Área: ${binSize.width}x${binSize.height}mm`}
-            </span>
-            {failedCount > 0 && (
-              <span
-                style={{
-                  color: "#dc3545",
-                  fontWeight: "bold",
-                  fontSize: "12px",
-                  background: "rgba(255,0,0,0.1)",
-                  padding: "2px 8px",
-                  borderRadius: "4px",
-                }}
-              >
-                ⚠️ {failedCount} NÃO COUBERAM
-              </span>
-            )}
+          <div style={{ padding: "10px 20px", display: "flex", gap: "20px", borderTop: `1px solid ${theme.border}`, background: theme.panelBg, zIndex: 5, color: theme.text }}>
+            <span style={{ opacity: 0.6, fontSize: "12px" }}>{nestingResult.length > 0 ? `Total: ${nestingResult.length} Peças` : `Área: ${binSize.width}x${binSize.height}mm`}</span>
+            {failedCount > 0 && <span style={{ color: "#dc3545", fontWeight: "bold", fontSize: "12px", background: "rgba(255,0,0,0.1)", padding: "2px 8px", borderRadius: "4px" }}>⚠️ {failedCount} NÃO COUBERAM</span>}
           </div>
         </div>
 
-        {/* SIDEBAR (USANDO formatArea) */}
-        <div
-          style={{
-            width: "450px",
-            borderLeft: "1px solid #444",
-            display: "flex",
-            flexDirection: "column",
-            backgroundColor: "inherit",
-            zIndex: 5,
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              borderBottom: "1px solid #444",
-              background: "rgba(0,0,0,0.05)",
-            }}
-          >
-            <button
-              style={tabStyle(activeTab === "grid")}
-              onClick={() => setActiveTab("grid")}
-            >
-              🔳 Banco de Peças
-            </button>
-            <button
-              style={tabStyle(activeTab === "list")}
-              onClick={() => setActiveTab("list")}
-            >
-              📄 Lista Técnica
-            </button>
+        <div style={{ width: "450px", borderLeft: `1px solid ${theme.border}`, display: "flex", flexDirection: "column", backgroundColor: theme.panelBg, zIndex: 5, color: theme.text }}>
+          <div style={{ display: "flex", borderBottom: `1px solid ${theme.border}`, background: theme.headerBg }}>
+            <button style={tabStyle(activeTab === "grid")} onClick={() => setActiveTab("grid")}>🔳 Banco de Peças</button>
+            <button style={tabStyle(activeTab === "list")} onClick={() => setActiveTab("list")}>📄 Lista Técnica</button>
           </div>
-          <div
-            style={{
-              flex: 1,
-              overflowY: "auto",
-              padding: activeTab === "grid" ? "15px" : "0",
-            }}
-          >
+          <div style={{ flex: 1, overflowY: "auto", padding: activeTab === "grid" ? "15px" : "0" }}>
             {activeTab === "grid" && (
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))",
-                  gap: "15px",
-                  alignContent: "start",
-                }}
-              >
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "15px", alignContent: "start" }}>
                 {parts.map((part) => (
-                  <div
-                    key={part.id}
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: "100%",
-                        aspectRatio: "1/1",
-                        background: "rgba(127,127,127,0.1)",
-                        borderRadius: "8px",
-                        marginBottom: "8px",
-                        padding: "10px",
-                        boxSizing: "border-box",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <svg
-                        viewBox={getThumbnailViewBox(part)}
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          overflow: "visible",
-                        }}
-                        transform="scale(1, -1)"
-                        preserveAspectRatio="xMidYMid meet"
-                      >
-                        {part.entities.map((ent, i) =>
-                          renderEntityFunction(ent, i, part.blocks)
-                        )}
+                  <div key={part.id} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                    <div style={{ width: "100%", aspectRatio: "1/1", background: theme.cardBg, border: `1px solid ${theme.border}`, borderRadius: "8px", marginBottom: "8px", padding: "10px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <svg viewBox={getThumbnailViewBox(part)} style={{ width: "100%", height: "100%", overflow: "visible", color: theme.text }} transform="scale(1, -1)" preserveAspectRatio="xMidYMid meet">
+                        {part.entities.map((ent, i) => renderEntityFunction(ent, i, part.blocks, 1, theme.text))}
                       </svg>
                     </div>
-                    <div
-                      style={{
-                        width: "100%",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        fontSize: "12px",
-                      }}
-                    >
-                      <span
-                        title={part.name}
-                        style={{
-                          fontWeight: "bold",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          maxWidth: "70px",
-                        }}
-                      >
-                        {part.name}
-                      </span>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          background: "rgba(0,0,0,0.1)",
-                          borderRadius: "4px",
-                        }}
-                      >
-                        <span
-                          style={{
-                            padding: "0 4px",
-                            fontSize: 10,
-                            opacity: 0.7,
-                          }}
-                        >
-                          Qtd:
-                        </span>
-                        <input
-                          type="number"
-                          min="1"
-                          value={quantities[part.id] || 1}
-                          onChange={(e) =>
-                            updateQty(part.id, Number(e.target.value))
-                          }
-                          style={{
-                            width: 35,
-                            border: "none",
-                            background: "transparent",
-                            textAlign: "center",
-                            color: "inherit",
-                            fontWeight: "bold",
-                            padding: "4px 0",
-                          }}
-                        />
+                    <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px" }}>
+                      <span title={part.name} style={{ fontWeight: "bold", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70px" }}>{part.name}</span>
+                      <div style={{ display: "flex", alignItems: "center", background: theme.hoverRow, borderRadius: "4px" }}>
+                        <span style={{ padding: "0 4px", fontSize: 10, opacity: 0.7 }}>Qtd:</span>
+                        <input type="number" min="1" value={quantities[part.id] || 1} onChange={(e) => updateQty(part.id, Number(e.target.value))} style={{ width: 35, border: "none", background: "transparent", textAlign: "center", color: theme.text, fontWeight: "bold", padding: "4px 0" }} />
                       </div>
                     </div>
                   </div>
@@ -1119,116 +434,25 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts }) => {
               </div>
             )}
             {activeTab === "list" && (
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  borderSpacing: 0,
-                }}
-              >
-                <thead
-                  style={{
-                    position: "sticky",
-                    top: 0,
-                    background: "inherit",
-                    zIndex: 1,
-                  }}
-                >
+              <table style={{ width: "100%", borderCollapse: "collapse", borderSpacing: 0 }}>
+                <thead style={{ position: "sticky", top: 0, background: theme.panelBg, zIndex: 1 }}>
                   <tr>
-                    <th
-                      style={{
-                        padding: "10px",
-                        textAlign: "left",
-                        fontSize: "12px",
-                        opacity: 0.7,
-                      }}
-                    >
-                      #
-                    </th>
-                    <th
-                      style={{
-                        padding: "10px",
-                        textAlign: "left",
-                        fontSize: "12px",
-                        opacity: 0.7,
-                      }}
-                    >
-                      Peça
-                    </th>
-                    <th
-                      style={{
-                        padding: "10px",
-                        textAlign: "left",
-                        fontSize: "12px",
-                        opacity: 0.7,
-                      }}
-                    >
-                      Dimensões
-                    </th>
-                    <th
-                      style={{
-                        padding: "10px",
-                        textAlign: "left",
-                        fontSize: "12px",
-                        opacity: 0.7,
-                      }}
-                    >
-                      Área
-                    </th>
-                    <th
-                      style={{
-                        padding: "10px",
-                        textAlign: "left",
-                        fontSize: "12px",
-                        opacity: 0.7,
-                      }}
-                    >
-                      Qtd.
-                    </th>
+                    <th style={{ padding: "10px", textAlign: "left", fontSize: "12px", opacity: 0.7, borderBottom: `1px solid ${theme.border}` }}>#</th>
+                    <th style={{ padding: "10px", textAlign: "left", fontSize: "12px", opacity: 0.7, borderBottom: `1px solid ${theme.border}` }}>Peça</th>
+                    <th style={{ padding: "10px", textAlign: "left", fontSize: "12px", opacity: 0.7, borderBottom: `1px solid ${theme.border}` }}>Dimensões</th>
+                    <th style={{ padding: "10px", textAlign: "left", fontSize: "12px", opacity: 0.7, borderBottom: `1px solid ${theme.border}` }}>Área</th>
+                    <th style={{ padding: "10px", textAlign: "left", fontSize: "12px", opacity: 0.7, borderBottom: `1px solid ${theme.border}` }}>Qtd.</th>
                   </tr>
                 </thead>
                 <tbody>
                   {parts.map((part, index) => (
-                    <tr
-                      key={part.id}
-                      style={{
-                        borderBottom: "1px solid rgba(128,128,128,0.1)",
-                      }}
-                    >
+                    <tr key={part.id} style={{ borderBottom: `1px solid ${theme.border}` }}>
+                      <td style={{ padding: "8px 10px", fontSize: "13px" }}>{index + 1}</td>
+                      <td style={{ padding: "8px 10px", fontSize: "13px", fontWeight: "bold" }}>{part.name}</td>
+                      <td style={{ padding: "8px 10px", fontSize: "13px" }}>{part.width.toFixed(0)}x{part.height.toFixed(0)}</td>
+                      <td style={{ padding: "8px 10px", fontSize: "13px" }}>{formatArea(part.grossArea)}</td>
                       <td style={{ padding: "8px 10px", fontSize: "13px" }}>
-                        {index + 1}
-                      </td>
-                      <td
-                        style={{
-                          padding: "8px 10px",
-                          fontSize: "13px",
-                          fontWeight: "bold",
-                        }}
-                      >
-                        {part.name}
-                      </td>
-                      <td style={{ padding: "8px 10px", fontSize: "13px" }}>
-                        {part.width.toFixed(0)}x{part.height.toFixed(0)}
-                      </td>
-                      {/* USO DE formatArea AQUI: */}
-                      <td style={{ padding: "8px 10px", fontSize: "13px" }}>
-                        {formatArea(part.grossArea)}
-                      </td>
-                      <td style={{ padding: "8px 10px", fontSize: "13px" }}>
-                        <input
-                          type="number"
-                          min="1"
-                          value={quantities[part.id] || 1}
-                          onChange={(e) =>
-                            updateQty(part.id, Number(e.target.value))
-                          }
-                          style={{
-                            width: 40,
-                            textAlign: "center",
-                            background: "rgba(0,0,0,0.2)",
-                            border: "1px solid #555",
-                          }}
-                        />
+                        <input type="number" min="1" value={quantities[part.id] || 1} onChange={(e) => updateQty(part.id, Number(e.target.value))} style={{ width: 40, textAlign: "center", background: theme.inputBg, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 4 }} />
                       </td>
                     </tr>
                   ))}

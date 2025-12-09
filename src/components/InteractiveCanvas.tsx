@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
+import type { AppTheme } from "../styles/theme"; // <--- 1. Importando o tipo do Tema
 
 // --- TIPAGEM ---
 interface InteractiveCanvasProps {
@@ -20,6 +21,9 @@ interface InteractiveCanvasProps {
   strategy: "rect" | "true-shape";
   selectedPartIds: string[];
   
+  // 2. CORREÇÃO: Adicionada a propriedade theme na interface
+  theme: AppTheme; 
+
   onPartsMove: (moves: { partId: string; dx: number; dy: number }[]) => void;
   onPartSelect: (partIds: string[], append: boolean) => void;
   onContextMenu: (e: React.MouseEvent, partId: string) => void;
@@ -36,10 +40,7 @@ interface BoundingBoxCache {
   };
 }
 
-// ... (MANTENHA AS FUNÇÕES renderEntityFunction E calculateBoundingBox AQUI IGUAIS AOS ARQUIVOS ANTERIORES) ...
-// Para não poluir a resposta, imagine que renderEntityFunction e calculateBoundingBox estão aqui.
-// Se precisar, eu copio elas novamente.
-
+// ... (FUNÇÕES AUXILIARES DE RENDERIZAÇÃO MANTIDAS IGUAIS) ...
 const renderEntityFunction = (
   entity: any,
   index: number,
@@ -65,88 +66,45 @@ const renderEntityFunction = (
       );
     }
     case "LINE":
-      return (
-        <line
-          key={index}
-          x1={entity.vertices[0].x * scale}
-          y1={entity.vertices[0].y * scale}
-          x2={entity.vertices[1].x * scale}
-          y2={entity.vertices[1].y * scale}
-          stroke={color}
-          strokeWidth={2 * scale}
-          vectorEffect="non-scaling-stroke"
-        />
-      );
+      return <line key={index} x1={entity.vertices[0].x * scale} y1={entity.vertices[0].y * scale} x2={entity.vertices[1].x * scale} y2={entity.vertices[1].y * scale} stroke={color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />;
     case "LWPOLYLINE":
     case "POLYLINE": {
       if (!entity.vertices) return null;
-      const d = entity.vertices
-        .map(
-          (v: any, i: number) =>
-            `${i === 0 ? "M" : "L"} ${v.x * scale} ${v.y * scale}`
-        )
-        .join(" ");
-      return (
-        <path
-          key={index}
-          d={entity.shape ? d + " Z" : d}
-          fill="none"
-          stroke={color}
-          strokeWidth={2 * scale}
-          vectorEffect="non-scaling-stroke"
-        />
-      );
+      const d = entity.vertices.map((v: any, i: number) => `${i === 0 ? "M" : "L"} ${v.x * scale} ${v.y * scale}`).join(" ");
+      return <path key={index} d={entity.shape ? d + " Z" : d} fill="none" stroke={color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />;
     }
     case "CIRCLE":
-      return (
-        <circle
-          key={index}
-          cx={entity.center.x * scale}
-          cy={entity.center.y * scale}
-          r={entity.radius * scale}
-          fill="none"
-          stroke={color}
-          strokeWidth={2 * scale}
-          vectorEffect="non-scaling-stroke"
-        />
-      );
+      return <circle key={index} cx={entity.center.x * scale} cy={entity.center.y * scale} r={entity.radius * scale} fill="none" stroke={color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />;
     case "ARC": {
-      const startAngle = entity.startAngle;
-      const endAngle = entity.endAngle;
-      const r = entity.radius * scale;
-      const x1 = entity.center.x * scale + r * Math.cos(startAngle);
-      const y1 = entity.center.y * scale + r * Math.sin(startAngle);
-      const x2 = entity.center.x * scale + r * Math.cos(endAngle);
-      const y2 = entity.center.y * scale + r * Math.sin(endAngle);
+      const { startAngle, endAngle, radius, center } = entity;
+      const r = radius * scale;
+      const x1 = center.x * scale + r * Math.cos(startAngle);
+      const y1 = center.y * scale + r * Math.sin(startAngle);
+      const x2 = center.x * scale + r * Math.cos(endAngle);
+      const y2 = center.y * scale + r * Math.sin(endAngle);
       let da = endAngle - startAngle;
       if (da < 0) da += 2 * Math.PI;
-      const largeArc = da > Math.PI ? 1 : 0;
-      const d = `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`;
-      return (
-        <path
-          key={index}
-          d={d}
-          fill="none"
-          stroke={color}
-          strokeWidth={2 * scale}
-          vectorEffect="non-scaling-stroke"
-        />
-      );
+      const d = `M ${x1} ${y1} A ${r} ${r} 0 ${da > Math.PI ? 1 : 0} 1 ${x2} ${y2}`;
+      return <path key={index} d={d} fill="none" stroke={color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />;
     }
-    default:
-      return null;
+    default: return null;
   }
 };
 
 const calculateBoundingBox = (entities: any[], blocksData: any) => {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
   const update = (x: number, y: number) => {
-    if (x < minX) minX = x; if (x > maxX) maxX = x;
-    if (y < minY) minY = y; if (y > maxY) maxY = y;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
   };
+
   const traverse = (ents: any[], ox = 0, oy = 0) => {
     if (!ents) return;
     ents.forEach((ent) => {
+      // 1. BLOCOS (INSERT)
       if (ent.type === "INSERT") {
         const b = blocksData[ent.name];
         if (b && b.entities) {
@@ -154,43 +112,104 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
         } else {
           update((ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
         }
-      } else if (ent.vertices) {
+      } 
+      // 2. LINHAS E POLILINHAS
+      else if (ent.vertices) {
         ent.vertices.forEach((v: any) => update(v.x + ox, v.y + oy));
-      } else if (ent.center && ent.radius && ent.type === "CIRCLE") {
+      } 
+      // 3. CÍRCULOS
+      else if (ent.center && ent.radius && ent.type === "CIRCLE") {
         update(ent.center.x + ox - ent.radius, ent.center.y + oy - ent.radius);
         update(ent.center.x + ox + ent.radius, ent.center.y + oy + ent.radius);
-      } else if (ent.type === "ARC") {
-        const cx = ent.center.x + ox; const cy = ent.center.y + oy; const r = ent.radius;
-        const startAngle = ent.startAngle; let endAngle = ent.endAngle;
+      } 
+      // 4. ARCOS (CORRIGIDO)
+      else if (ent.type === "ARC") {
+        const cx = ent.center.x + ox;
+        const cy = ent.center.y + oy;
+        const r = ent.radius;
+        
+        // CORREÇÃO DO ESLINT AQUI:
+        const startAngle = ent.startAngle; // 'const' pois não muda
+        let endAngle = ent.endAngle;       // 'let' pois pode mudar abaixo
+
+        // Normaliza para garantir que end > start (sentido anti-horário)
         if (endAngle < startAngle) endAngle += 2 * Math.PI;
+
+        // A. Adiciona os pontos inicial e final do arco
         update(cx + r * Math.cos(startAngle), cy + r * Math.sin(startAngle));
         update(cx + r * Math.cos(endAngle), cy + r * Math.sin(endAngle));
-        const startK = Math.ceil(startAngle / (Math.PI / 2));
-        const endK = Math.floor(endAngle / (Math.PI / 2));
-        for (let k = startK; k <= endK; k++) {
-          const angle = k * (Math.PI / 2);
-          update(cx + r * Math.cos(angle), cy + r * Math.sin(angle));
+
+        // B. Verifica pontos cardeais (0, 90, 180, 270 graus e suas voltas)
+        const cardinalAngles = [
+            0,              
+            0.5 * Math.PI,  
+            Math.PI,        
+            1.5 * Math.PI,  
+            2.0 * Math.PI,  
+            2.5 * Math.PI,  
+            3.0 * Math.PI   
+        ];
+
+        for (const angle of cardinalAngles) {
+            // Se o ângulo cardeal está DENTRO do intervalo do arco
+            if (angle > startAngle && angle < endAngle) {
+                update(cx + r * Math.cos(angle), cy + r * Math.sin(angle));
+            }
         }
       }
     });
   };
+
   traverse(entities);
   if (minX === Infinity) return { minX: 0, minY: 0, width: 0, height: 0 };
   return { minX, minY, width: maxX - minX, height: maxY - minY };
 };
 
+// const calculateBoundingBox = (entities: any[], blocksData: any) => {
+//   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+//   const update = (x: number, y: number) => {
+//     if (x < minX) minX = x; if (x > maxX) maxX = x;
+//     if (y < minY) minY = y; if (y > maxY) maxY = y;
+//   };
+//   const traverse = (ents: any[], ox = 0, oy = 0) => {
+//     if (!ents) return;
+//     ents.forEach((ent) => {
+//       if (ent.type === "INSERT") {
+//         const b = blocksData[ent.name];
+//         if (b && b.entities) traverse(b.entities, (ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
+//         else update((ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
+//       } else if (ent.vertices) {
+//         ent.vertices.forEach((v: any) => update(v.x + ox, v.y + oy));
+//       } else if (ent.center && ent.radius && ent.type === "CIRCLE") {
+//         update(ent.center.x + ox - ent.radius, ent.center.y + oy - ent.radius);
+//         update(ent.center.x + ox + ent.radius, ent.center.y + oy + ent.radius);
+//       } else if (ent.type === "ARC") {
+//         const cx = ent.center.x + ox; const cy = ent.center.y + oy; const r = ent.radius;
+//         const startAngle = ent.startAngle; let endAngle = ent.endAngle;
+//         if (endAngle < startAngle) endAngle += 2 * Math.PI;
+//         update(cx + r * Math.cos(startAngle), cy + r * Math.sin(startAngle));
+//         update(cx + r * Math.cos(endAngle), cy + r * Math.sin(endAngle));
+//       }
+//     });
+//   };
+//   traverse(entities);
+//   if (minX === Infinity) return { minX: 0, minY: 0, width: 0, height: 0 };
+//   return { minX, minY, width: maxX - minX, height: maxY - minY };
+// };
 
 // --- SUBCOMPONENTE DE PEÇA ---
 interface PartElementProps {
   placed: PlacedPart;
   isSelected: boolean;
   onMouseDown: (e: React.MouseEvent, partId: string) => void;
-  onDoubleClick: (e: React.MouseEvent, partId: string) => void; // NOVO PROP
+  onDoubleClick: (e: React.MouseEvent, partId: string) => void;
   onContextMenu: (e: React.MouseEvent, partId: string) => void;
   partData: ImportedPart | undefined;
   showDebug: boolean;
   strategy: "rect" | "true-shape";
   transformData: any;
+  // 3. Adicionado theme aqui também
+  theme: AppTheme; 
 }
 
 const PartElement = React.memo(forwardRef<SVGGElement, PartElementProps>(
@@ -198,12 +217,13 @@ const PartElement = React.memo(forwardRef<SVGGElement, PartElementProps>(
     placed,
     isSelected,
     onMouseDown,
-    onDoubleClick, // Recebendo o duplo clique
+    onDoubleClick,
     onContextMenu,
     partData,
     showDebug,
     strategy,
     transformData,
+    theme // 4. Recebendo theme
   }, ref) => {
     if (!partData) return null;
 
@@ -216,14 +236,17 @@ const PartElement = React.memo(forwardRef<SVGGElement, PartElementProps>(
         }) rotate(${placed.rotation}) translate(${-transformData.centerX}, ${-transformData.centerY})`
       : "";
 
+    // 5. Usando theme para cor (Opcional, mas mantém coerência com modo escuro)
+    const strokeColor = isSelected ? "#00ff00" : (theme.text === '#e0e0e0' ? '#007bff' : '#007bff');
+
     return (
       <g
         ref={ref}
         onMouseDown={(e) => onMouseDown(e, placed.partId)}
-        onDoubleClick={(e) => onDoubleClick(e, placed.partId)} // Conectado
+        onDoubleClick={(e) => onDoubleClick(e, placed.partId)}
         onContextMenu={(e) => onContextMenu(e, placed.partId)}
         style={{
-          cursor: strategy === "rect" ? "default" : isSelected ? "move" : "pointer", // Cursor muda se selecionado
+          cursor: strategy === "rect" ? "default" : isSelected ? "move" : "pointer",
           opacity: isSelected ? 0.8 : 1, 
         }}
       >
@@ -246,7 +269,7 @@ const PartElement = React.memo(forwardRef<SVGGElement, PartElementProps>(
                 j,
                 partData.blocks,
                 1,
-                isSelected ? "#00ff00" : "#007bff"
+                strokeColor
               )
             )}
           </g>
@@ -270,6 +293,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   onPartsMove,
   onPartSelect,
   onContextMenu,
+  theme, // 6. Recebendo theme
 }) => {
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
   const [dragMode, setDragMode] = useState<"none" | "pan" | "parts">("none");
@@ -287,7 +311,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     startX: 0, startY: 0, startSvgX: 0, startSvgY: 0, initialX: 0, initialY: 0,
   });
 
-  // --- HELPERS SVG ---
   const getSVGPoint = useCallback((clientX: number, clientY: number) => {
     const svgElement = svgContainerRef.current?.querySelector("svg");
     if (!svgElement) return { x: 0, y: 0 };
@@ -297,6 +320,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     return point.matrixTransform(svgElement.getScreenCTM()?.inverse());
   }, []);
 
+  // --- LÓGICA DE TRANSFORMAÇÃO (MANTIDA) ---
   const updateTransform = useCallback((newT: { x: number; y: number; k: number }) => {
       transformRef.current = newT;
       setTransform(newT);
@@ -306,6 +330,54 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     }, []);
 
   const resetZoom = useCallback(() => updateTransform({ x: 0, y: 0, k: 1 }), [updateTransform]);
+
+  // --- HANDLER DE ZOOM (MANTIDO) ---
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault(); 
+    e.stopPropagation();
+    
+    const svgElement = svgContainerRef.current?.querySelector("svg");
+    if (!svgElement) return;
+    
+    let mouseX = 0, mouseY = 0;
+    try {
+      const point = svgElement.createSVGPoint();
+      point.x = e.clientX; point.y = e.clientY;
+      const svgPoint = point.matrixTransform(svgElement.getScreenCTM()?.inverse());
+      mouseX = svgPoint.x; mouseY = svgPoint.y;
+    } catch { 
+       const rect = svgContainerRef.current!.getBoundingClientRect();
+       mouseX = e.clientX - rect.left; mouseY = e.clientY - rect.top;
+    }
+    
+    const zoomIntensity = 0.15;
+    const wheelDirection = e.deltaY < 0 ? 1 : -1;
+    const scaleFactor = Math.exp(wheelDirection * zoomIntensity);
+    
+    const currentT = transformRef.current;
+    let newScale = currentT.k * scaleFactor;
+    newScale = Math.max(0.1, Math.min(newScale, 50));
+    
+    const scaleRatio = newScale / currentT.k;
+    const newX = mouseX - (mouseX - currentT.x) * scaleRatio;
+    const newY = mouseY - (mouseY - currentT.y) * scaleRatio;
+    
+    updateTransform({ x: newX, y: newY, k: newScale });
+  }, [updateTransform]);
+
+  // --- HANDLERS MOUSE (MANTIDOS) ---
+  const handleMouseDownContainer = useCallback((e: React.MouseEvent) => {
+      setDragMode("pan");
+      dragRef.current = {
+          startX: e.clientX, startY: e.clientY, startSvgX: 0, startSvgY: 0,
+          initialX: transformRef.current.x, initialY: transformRef.current.y
+      };
+    }, []);
+
+  const handleDoubleClickContainer = useCallback((e: React.MouseEvent) => {
+      e.preventDefault();
+      onPartSelect([], false);
+  }, [onPartSelect]);
 
   const partTransforms = useMemo(() => {
     const transforms: Record<string, any> = {};
@@ -335,54 +407,27 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     return transforms;
   }, [placedParts, parts, boundingBoxCache]);
 
-  // --- LÓGICA DE SELEÇÃO (DUPLO CLIQUE) ---
-  const handleDoubleClickPart = useCallback(
-    (e: React.MouseEvent, partId: string) => {
-      e.preventDefault();
-      e.stopPropagation();
-
+  const handleDoubleClickPart = useCallback((e: React.MouseEvent, partId: string) => {
+      e.preventDefault(); e.stopPropagation();
       const isCtrl = e.ctrlKey || e.metaKey;
       let newSelection = [...selectedPartIds];
-
       if (isCtrl) {
-        // Toggle com Ctrl
-        if (newSelection.includes(partId)) {
-          newSelection = newSelection.filter((id) => id !== partId);
-        } else {
-          newSelection.push(partId);
-        }
+        if (newSelection.includes(partId)) newSelection = newSelection.filter((id) => id !== partId);
+        else newSelection.push(partId);
         onPartSelect(newSelection, false);
       } else {
-        // Seleção única sem Ctrl
         onPartSelect([partId], false);
       }
-    },
-    [selectedPartIds, onPartSelect]
-  );
+    }, [selectedPartIds, onPartSelect]);
 
-  // --- LÓGICA DE ARRASTE (MOUSEDOWN) ---
-  const handleMouseDownPart = useCallback(
-    (e: React.MouseEvent, partId: string) => {
+  const handleMouseDownPart = useCallback((e: React.MouseEvent, partId: string) => {
       e.stopPropagation();
-
-      // REGRA DE SEGURANÇA: Só inicia o arraste se a peça JÁ estiver selecionada
-      if (!selectedPartIds.includes(partId)) {
-        // Se não estiver selecionada, não faz nada no MouseDown
-        // O usuário deve dar Duplo Clique primeiro para selecionar
-        return;
-      }
-
+      if (!selectedPartIds.includes(partId)) return;
       if (strategy !== "rect" && e.button === 0) {
         e.preventDefault();
         setDragMode("parts");
-        
-        // Se a peça clicada está na seleção, movemos TODO o grupo selecionado
-        // (Nota: Como a regra acima exige que ela esteja selecionada, isso sempre será verdade aqui)
         draggingIdsRef.current = selectedPartIds;
-
         const svgPos = getSVGPoint(e.clientX, e.clientY);
-        
-        // Setup visual para arraste
         draggingIdsRef.current.forEach(id => {
             const el = partRefs.current[id];
             if (el) {
@@ -391,50 +436,22 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                 el.style.cursor = "grabbing";
             }
         });
-
         dragRef.current = {
-            startX: e.clientX,
-            startY: e.clientY,
-            startSvgX: svgPos.x,
-            startSvgY: svgPos.y,
-            initialX: 0,
-            initialY: 0
+            startX: e.clientX, startY: e.clientY, startSvgX: svgPos.x, startSvgY: svgPos.y, initialX: 0, initialY: 0
         };
       }
-    },
-    [strategy, selectedPartIds, getSVGPoint]
-  );
-
-  const handleMouseDownContainer = useCallback((e: React.MouseEvent) => {
-      // Clique simples no fundo APENAS inicia PAN, NÃO cancela seleção
-      setDragMode("pan");
-      dragRef.current = {
-          startX: e.clientX, startY: e.clientY,
-          startSvgX: 0, startSvgY: 0,
-          initialX: transformRef.current.x, initialY: transformRef.current.y
-      };
-    }, []);
-
-  const handleDoubleClickContainer = useCallback((e: React.MouseEvent) => {
-      e.preventDefault();
-      // Duplo clique no vazio -> Cancela seleção
-      onPartSelect([], false);
-  }, [onPartSelect]);
-
+    }, [strategy, selectedPartIds, getSVGPoint]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
       if (dragMode === "none") return;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-
       rafRef.current = requestAnimationFrame(() => {
         if (dragMode === "pan" && panGroupRef.current) {
           const dx = e.clientX - dragRef.current.startX;
           const dy = e.clientY - dragRef.current.startY;
           const currentK = transformRef.current.k;
-          
           const newX = dragRef.current.initialX + dx;
           const newY = dragRef.current.initialY + dy;
-          
           transformRef.current.x = newX;
           transformRef.current.y = newY;
           panGroupRef.current.setAttribute("transform", `translate(${newX}, ${newY}) scale(${currentK})`);
@@ -444,12 +461,9 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           const deltaX = currentSvgPos.x - dragRef.current.startSvgX;
           const deltaY = currentSvgPos.y - dragRef.current.startSvgY;
           const visualToCncY = -deltaY;
-
           draggingIdsRef.current.forEach(id => {
               const el = partRefs.current[id];
-              if (el) {
-                  el.style.transform = `translate3d(${deltaX}px, ${visualToCncY}px, 0)`;
-              }
+              if (el) el.style.transform = `translate3d(${deltaX}px, ${visualToCncY}px, 0)`;
           });
         }
       });
@@ -458,7 +472,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   const handleMouseUp = useCallback(() => {
     if (dragMode === "none") return;
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
-
     if (dragMode === "pan") {
       setTransform({ ...transformRef.current });
     } 
@@ -473,39 +486,11 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
               el.style.transform = ""; el.style.willChange = ""; el.style.cursor = "";
           }
       });
-      if (moves.length > 0) {
-          onPartsMove(moves);
-      }
+      if (moves.length > 0) onPartsMove(moves);
     }
     setDragMode("none");
     draggingIdsRef.current = [];
   }, [dragMode, onPartsMove]);
-
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault(); e.stopPropagation();
-    const svgElement = svgContainerRef.current?.querySelector("svg");
-    if (!svgElement) return;
-    let mouseX = 0, mouseY = 0;
-    try {
-      const point = svgElement.createSVGPoint();
-      point.x = e.clientX; point.y = e.clientY;
-      const svgPoint = point.matrixTransform(svgElement.getScreenCTM()?.inverse());
-      mouseX = svgPoint.x; mouseY = svgPoint.y;
-    } catch { 
-       const rect = svgContainerRef.current!.getBoundingClientRect();
-       mouseX = e.clientX - rect.left; mouseY = e.clientY - rect.top;
-    }
-    const zoomIntensity = 0.15;
-    const wheelDirection = e.deltaY < 0 ? 1 : -1;
-    const scaleFactor = Math.exp(wheelDirection * zoomIntensity);
-    const currentT = transformRef.current;
-    let newScale = currentT.k * scaleFactor;
-    newScale = Math.max(0.1, Math.min(newScale, 50));
-    const scaleRatio = newScale / currentT.k;
-    const newX = mouseX - (mouseX - currentT.x) * scaleRatio;
-    const newY = mouseY - (mouseY - currentT.y) * scaleRatio;
-    updateTransform({ x: newX, y: newY, k: newScale });
-  }, [updateTransform]);
 
   const binViewBox = useMemo(() => {
     const paddingX = binWidth * 0.05;
@@ -514,7 +499,25 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   }, [binWidth, binHeight]);
 
   const cncTransform = `translate(0, ${binHeight}) scale(1, -1)`;
-  const btnStyle: React.CSSProperties = { width: 30, height: 30, cursor: "pointer", background: "rgba(255,255,255,0.9)", border: "1px solid #777", color: "#000", borderRadius: "4px", fontWeight: "bold" };
+  
+  // -- BOTÕES (MANTIDOS FEIOS E FUNCIONAIS) --
+  const btnStyle: React.CSSProperties = { 
+    width: 30, 
+    height: 30, 
+    padding: 0,          // <--- Zera o padding padrão do navegador
+    lineHeight: 1,       // <--- Remove altura de linha extra do texto
+    cursor: "pointer", 
+    background: theme.buttonBg, 
+    border: `1px solid ${theme.buttonBorder}`,
+    color: theme.text, 
+    borderRadius: "4px", 
+    fontWeight: "bold",
+    fontSize: "16px",    // Tamanho do emoji
+    display: 'flex', 
+    alignItems: 'center', 
+    justifyContent: 'center', // Garante o centro horizontal
+    paddingBottom: '2px'      // <--- Ajuste fino: Emojis costumam ficar um pouco altos, isso centraliza visualmente
+  };
 
   return (
     <div
@@ -526,22 +529,22 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       }}
       onWheel={handleWheel}
       onMouseDown={handleMouseDownContainer}
-      onDoubleClick={handleDoubleClickContainer} // <--- AÇÃO DE LIMPAR SELEÇÃO AQUI
+      onDoubleClick={handleDoubleClickContainer} 
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
     >
         <div style={{ position: "absolute", right: 20, top: 20, display: "flex", flexDirection: "column", gap: "5px", zIndex: 10 }}>
-            <button onClick={() => updateTransform({ ...transformRef.current, k: transformRef.current.k * 1.2 })} style={btnStyle}>+</button>
-            <button onClick={() => updateTransform({ ...transformRef.current, k: transformRef.current.k / 1.2 })} style={btnStyle}>-</button>
-            <button onClick={resetZoom} style={{...btnStyle, fontSize: "12px"}}>Fit</button>
+            <button onClick={() => updateTransform({ ...transformRef.current, k: transformRef.current.k * 1.2 })} style={btnStyle}>➕</button>
+            <button onClick={() => updateTransform({ ...transformRef.current, k: transformRef.current.k / 1.2 })} style={btnStyle}>➖</button>
+            <button onClick={resetZoom} style={{...btnStyle, fontSize: "12px"}}>⛶</button>
         </div>
 
       <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center", padding: "20px", overflow: "hidden" }}>
         <svg viewBox={binViewBox} preserveAspectRatio="xMidYMid meet" style={{ width: "100%", height: "100%" }}>
           <g ref={panGroupRef} transform={`translate(${transform.x}, ${transform.y}) scale(${transform.k})`}>
             <g transform={cncTransform}>
-              <rect x="0" y="0" width={binWidth} height={binHeight} fill={showDebug ? "rgba(255,152,0,0.05)" : "none"} stroke="#ff9800" strokeWidth="4" vectorEffect="non-scaling-stroke" />
+              <rect x="0" y="0" width={binWidth} height={binHeight} fill={showDebug ? "none" : "none"} stroke="#ffffff" strokeWidth="2" vectorEffect="non-scaling-stroke" />
               {showDebug && <rect x={margin} y={margin} width={binWidth - margin * 2} height={binHeight - margin * 2} fill="none" stroke="#999" strokeDasharray="5" strokeWidth="1" vectorEffect="non-scaling-stroke" />}
               
               {placedParts.map((placed) => {
@@ -554,12 +557,13 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                     placed={placed}
                     isSelected={selectedPartIds.includes(placed.partId)}
                     onMouseDown={handleMouseDownPart}
-                    onDoubleClick={handleDoubleClickPart} // <--- AÇÃO DE SELEÇÃO
+                    onDoubleClick={handleDoubleClickPart} 
                     onContextMenu={onContextMenu}
                     partData={part}
                     showDebug={showDebug}
                     strategy={strategy}
                     transformData={partTransforms[placed.partId]}
+                    theme={theme} // 7. Passando o tema para a peça
                   />
                 );
               })}
