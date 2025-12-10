@@ -14,20 +14,32 @@ import { InteractiveCanvas } from "./InteractiveCanvas";
 import { useUndoRedo } from "../hooks/useUndoRedo";
 import { getTheme } from "../styles/theme";
 import { PartFilter, type FilterState } from "./PartFilter";
-// REMOVIDO: import { applyLabelsToParts, type LabelMode } from "../utils/labelManager";
-
 import NestingWorker from "../workers/nesting.worker?worker";
+
+// --- NOVOS IMPORTS DE ETIQUETAS ---
+import { useLabelManager } from "../hooks/useLabelManager";
+import { GlobalLabelPanel } from "./labels/LabelControls";
+import { ThumbnailFlags } from "./labels/LabelControls";
+import { LabelContextMenu } from "./labels/LabelContextMenu";
+import type { LabelConfig } from "./labels/LabelTypes";
+import { textToVectorLines } from "../utils/vectorFont"; 
 
 interface Size {
   width: number;
   height: number;
 }
 interface NestingBoardProps {
-  parts: ImportedPart[]; // Todas as peças (Brutas)
+  parts: ImportedPart[]; 
   onBack?: () => void;
 }
 
-// --- RENDER ENTITY (LOCAL - PARA MINIATURAS DA SIDEBAR) ---
+// Helper para extrair apenas números e letras essenciais
+const cleanTextContent = (text: string): string => {
+    if (!text) return "";
+    return text.replace(/[^a-zA-Z0-9-]/g, '');
+};
+
+// --- RENDER ENTITY ---
 const renderEntityFunction = (
   entity: any,
   index: number,
@@ -52,8 +64,11 @@ const renderEntityFunction = (
         </g>
       );
     }
-    case "LINE":
-      return <line key={index} x1={entity.vertices[0].x * scale} y1={entity.vertices[0].y * scale} x2={entity.vertices[1].x * scale} y2={entity.vertices[1].y * scale} stroke={color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />;
+    // --- CORREÇÃO AQUI: Chaves { } adicionadas para isolar o escopo da variável 'lineColor'
+    case "LINE": {
+      const lineColor = entity.isLabel ? (entity.color || color) : color;
+      return <line key={index} x1={entity.vertices[0].x * scale} y1={entity.vertices[0].y * scale} x2={entity.vertices[1].x * scale} y2={entity.vertices[1].y * scale} stroke={lineColor} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />;
+    }
     case "LWPOLYLINE":
     case "POLYLINE": {
       if (!entity.vertices) return null;
@@ -74,15 +89,16 @@ const renderEntityFunction = (
       const d = `M ${x1} ${y1} A ${r} ${r} 0 ${da > Math.PI ? 1 : 0} 1 ${x2} ${y2}`;
       return <path key={index} d={d} fill="none" stroke={color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />;
     }
-    // MANTIDO SUPORTE A TEXTO (RENDERIZAÇÃO PASSIVA), MAS REMOVIDA A GERAÇÃO AUTOMÁTICA
+    // Caso ainda exista algum TEXT residual
     case "TEXT": {
         const textColor = entity.color || color;
+        const finalColor = entity.isLabel ? (entity.labelType === 'white' ? '#999' : '#FF00FF') : textColor;
         return (
             <text
                 key={index}
                 x={entity.position.x * scale}
                 y={entity.position.y * scale}
-                fill={textColor}
+                fill={finalColor}
                 stroke="none"
                 fontSize={entity.height * scale}
                 textAnchor="middle"
@@ -143,7 +159,21 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
   const [iterations] = useState(50);
   const [rotationStep, setRotationStep] = useState(90);
 
-  // REMOVIDO ESTADO: const [labelMode, setLabelMode] ...
+  const { 
+      labelStates, 
+      globalWhiteEnabled, 
+      globalPinkEnabled, 
+      toggleGlobal, 
+      togglePartFlag, 
+      updateLabelConfig 
+  } = useLabelManager(parts);
+
+  const [labelMenu, setLabelMenu] = useState<{ 
+      x: number; 
+      y: number; 
+      partId: string; 
+      type: 'white' | 'pink' 
+  } | null>(null);
 
   const [quantities, setQuantities] = useState<{ [key: string]: number }>(() => {
     const initialQ: { [key: string]: number } = {};
@@ -158,17 +188,89 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
       espessura: '' 
   });
 
-  // --- LÓGICA PRINCIPAL: FILTRO ---
-  // APLICAÇÃO DE ETIQUETA REMOVIDA DESTE USEMEMO
+  // --- LÓGICA DE FILTRO + INJEÇÃO DE TEXTO VETORIAL ---
   const displayedParts = useMemo(() => {
-    return parts.filter(p => {
+    // A. Filtra Primeiro
+    const filtered = parts.filter(p => {
         const matchPedido = filters.pedido.length === 0 || filters.pedido.includes(p.pedido);
         const matchOp = filters.op.length === 0 || filters.op.includes(p.op);
         const matchMaterial = !filters.material || p.material === filters.material;
         const matchEspessura = !filters.espessura || p.espessura === filters.espessura;
         return matchPedido && matchOp && matchMaterial && matchEspessura;
     });
-  }, [parts, filters]);
+
+    // B. Injeta as Etiquetas (LINHAS VETORIAIS)
+    return filtered.map(part => {
+        const state = labelStates[part.id];
+        if (!state) return part;
+
+        const newEntities = [...part.entities];
+
+        // PRIORIDADE: PEDIDO > OP > NOME
+        const rawText = part.pedido || part.op || part.name;
+        const finalText = cleanTextContent(rawText);
+
+        // Função auxiliar para criar linhas vetoriais
+        const addLabelVector = (config: LabelConfig, color: string, type: 'white' | 'pink') => {
+            if (config.active && finalText) {
+                const posX = (part.width / 2) + config.offsetX;
+                const posY = (part.height / 2) + config.offsetY;
+
+                // 1. Gera as linhas usando sua função vectorFonts
+                const vectorLines = textToVectorLines(
+                    finalText, 
+                    posX, 
+                    posY, 
+                    config.fontSize, 
+                    color
+                );
+
+                // 2. Aplica Rotação se necessário
+                const rotatedLines = vectorLines.map((line: any) => {
+                    if(config.rotation === 0) return line;
+                    
+                    // Rotaciona ponto ao redor de (posX, posY)
+                    const rotatePoint = (x: number, y: number) => {
+                         const rad = (config.rotation * Math.PI) / 180;
+                         const dx = x - posX;
+                         const dy = y - posY;
+                         return {
+                             x: posX + dx * Math.cos(rad) - dy * Math.sin(rad),
+                             y: posY + dx * Math.sin(rad) + dy * Math.cos(rad)
+                         };
+                    };
+                    
+                    const p1 = rotatePoint(line.vertices[0].x, line.vertices[0].y);
+                    const p2 = rotatePoint(line.vertices[1].x, line.vertices[1].y);
+                    
+                    return { ...line, vertices: [p1, p2] };
+                });
+
+                // 3. Adiciona metadados para interação
+                const taggedLines = rotatedLines.map((line: any) => ({
+                    ...line,
+                    isLabel: true,
+                    labelType: type,
+                    partId: part.id,
+                    color: color
+                }));
+
+                newEntities.push(...taggedLines);
+            }
+        };
+
+        // Adiciona texto Branco
+        addLabelVector(state.white, '#FFFFFF', 'white');
+        
+        // Adiciona texto Rosa
+        addLabelVector(state.pink, '#FF00FF', 'pink');
+
+        return {
+            ...part,
+            entities: newEntities
+        };
+    });
+  }, [parts, filters, labelStates]);
 
   const [activeTab, setActiveTab] = useState<"grid" | "list">("grid");
   const [showDebug, setShowDebug] = useState(true);
@@ -241,7 +343,21 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
       e.preventDefault(); e.stopPropagation();
       if (!selectedPartIds.includes(partId)) setSelectedPartIds([partId]);
       setContextMenu({ visible: true, x: e.clientX, y: e.clientY });
-    }, [selectedPartIds]);
+  }, [selectedPartIds]);
+
+  // Handler para Menu de Contexto do Texto (Linhas Vetoriais)
+  const handleEntityContextMenu = useCallback((e: React.MouseEvent, entity: any) => {
+      if (entity && entity.isLabel) {
+          e.preventDefault();
+          e.stopPropagation();
+          setLabelMenu({
+              x: e.clientX,
+              y: e.clientY,
+              partId: entity.partId,
+              type: entity.labelType
+          });
+      }
+  }, [setLabelMenu]);
 
   const handleCalculate = useCallback(() => {
     if (displayedParts.length === 0) {
@@ -324,7 +440,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
       </div>
 
       <div style={toolbarStyle}>
-        {/* GRUPO DE CONFIGURAÇÃO */}
         <div style={{ display: "flex", alignItems: "center", borderRight: `1px solid ${theme.border}`, paddingRight: "15px" }}>
           <span style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}>Motor:</span>
           <select value={strategy} onChange={(e) => setStrategy(e.target.value as any)} style={inputStyle}>
@@ -362,8 +477,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
           Ver Box
         </label>
 
-        {/* SELETOR DE ETIQUETA REMOVIDO AQUI */}
-
         <div style={{ marginLeft: "auto", display: "flex", gap: "10px", alignItems: "center" }}>
           <button style={{ background: isComputing ? "#666" : "#28a745", color: "white", border: "none", padding: "8px 20px", cursor: isComputing ? "wait" : "pointer", borderRadius: "4px", fontWeight: "bold" }} onClick={handleCalculate} disabled={isComputing}>{isComputing ? "..." : "▶ Calcular"}</button>
           <button onClick={handleDownload} disabled={nestingResult.length === 0} style={{ background: "#007bff", color: "white", border: "none", padding: "8px 20px", cursor: nestingResult.length === 0 ? "not-allowed" : "pointer", borderRadius: "4px", opacity: nestingResult.length === 0 ? 0.5 : 1 }}>💾 DXF</button>
@@ -379,7 +492,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
             <button onClick={redo} disabled={!canRedo} style={{ padding: "8px 15px", borderRadius: "20px", border: `1px solid ${theme.buttonBorder}`, background: theme.buttonBg, color: canRedo ? theme.buttonText : "#888", cursor: canRedo ? "pointer" : "default", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", fontWeight: "bold", fontSize: "12px" }}>↪ Refazer</button>
           </div>
 
-          {/* NAVEGAÇÃO DE CHAPAS - RODAPÉ DIREITO */}
           {totalBins > 1 && (
             <div style={{ position: "absolute", bottom: 20, right: 20, zIndex: 20, display: "flex", alignItems: "center", gap: "10px", background: theme.buttonBg, padding: "5px 15px", borderRadius: "20px", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", color: theme.text, border: `1px solid ${theme.buttonBorder}` }}>
               <button onClick={() => setCurrentBinIndex(Math.max(0, currentBinIndex - 1))} disabled={currentBinIndex === 0} style={{ cursor: "pointer", border: "none", background: "transparent", fontWeight: "bold", color: theme.text }}>◀</button>
@@ -394,6 +506,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
              binWidth={binSize.width} binHeight={binSize.height} margin={margin}
              showDebug={showDebug} strategy={strategy} theme={theme}
              selectedPartIds={selectedPartIds} onPartsMove={handlePartsMove} onPartSelect={handlePartSelect} onContextMenu={handlePartContextMenu}
+             
+             onEntityContextMenu={handleEntityContextMenu}
           />
 
           <div style={{ padding: "10px 20px", display: "flex", gap: "20px", borderTop: `1px solid ${theme.border}`, background: theme.panelBg, zIndex: 5, color: theme.text }}>
@@ -410,6 +524,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
              onFilterChange={setFilters} 
              theme={theme} 
           />
+          
+          {/* --- PAINEL GLOBAL DE ETIQUETAS (ESTILIZADO) --- */}
+          <GlobalLabelPanel 
+              showWhite={globalWhiteEnabled}
+              showPink={globalPinkEnabled}
+              onToggleWhite={() => toggleGlobal('white')}
+              onTogglePink={() => toggleGlobal('pink')}
+              theme={theme}
+          />
 
           <div style={{ display: "flex", borderBottom: `1px solid ${theme.border}`, background: theme.headerBg }}>
             <button style={tabStyle(activeTab === "grid")} onClick={() => setActiveTab("grid")}>🔳 Banco de Peças</button>
@@ -420,7 +543,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
             {activeTab === "grid" && (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "15px", alignContent: "start" }}>
                 {displayedParts.map((part) => (
-                  <div key={part.id} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <div key={part.id} style={{ display: "flex", flexDirection: "column", alignItems: "center", position: 'relative' }}>
+                    
+                    {/* --- FLAGS NA MINIATURA (SEM MOLDURA) --- */}
+                    <ThumbnailFlags 
+                        partId={part.id} 
+                        labelState={labelStates} 
+                        onTogglePartFlag={togglePartFlag} 
+                    />
+
                     <div style={{ width: "100%", aspectRatio: "1/1", background: theme.cardBg, border: `1px solid ${theme.border}`, borderRadius: "8px", marginBottom: "8px", padding: "10px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       <svg viewBox={getThumbnailViewBox(part)} style={{ width: "100%", height: "100%", overflow: "visible", color: theme.text }} transform="scale(1, -1)" preserveAspectRatio="xMidYMid meet">
                         {part.entities.map((ent, i) => renderEntityFunction(ent, i, part.blocks, 1, theme.text))}
@@ -477,6 +608,20 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
           </div>
         </div>
       </div>
+
+      {labelMenu && labelStates[labelMenu.partId] && (
+        <LabelContextMenu
+            visible={true}
+            x={labelMenu.x}
+            y={labelMenu.y}
+            type={labelMenu.type}
+            partId={labelMenu.partId}
+            currentConfig={labelStates[labelMenu.partId][labelMenu.type]}
+            onClose={() => setLabelMenu(null)}
+            onUpdate={(updates) => updateLabelConfig(labelMenu.partId, labelMenu.type, updates)}
+            onToggleFlag={() => togglePartFlag(labelMenu.partId, labelMenu.type)}
+        />
+      )}
     </div>
   );
 };

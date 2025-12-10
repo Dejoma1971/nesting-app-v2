@@ -8,7 +8,7 @@ import React, {
 } from "react";
 import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
-import type { AppTheme } from "../styles/theme"; // <--- 1. Importando o tipo do Tema
+import type { AppTheme } from "../styles/theme"; 
 
 // --- TIPAGEM ---
 interface InteractiveCanvasProps {
@@ -20,13 +20,12 @@ interface InteractiveCanvasProps {
   showDebug: boolean;
   strategy: "rect" | "true-shape";
   selectedPartIds: string[];
-
-  // 2. CORREÇÃO: Adicionada a propriedade theme na interface
   theme: AppTheme;
-
   onPartsMove: (moves: { partId: string; dx: number; dy: number }[]) => void;
   onPartSelect: (partIds: string[], append: boolean) => void;
   onContextMenu: (e: React.MouseEvent, partId: string) => void;
+  // Handler opcional para clique direito na entidade de texto
+  onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void; 
 }
 
 interface BoundingBoxCache {
@@ -40,14 +39,31 @@ interface BoundingBoxCache {
   };
 }
 
-// ... (FUNÇÕES AUXILIARES DE RENDERIZAÇÃO MANTIDAS IGUAIS) ...
+// ... (FUNÇÕES AUXILIARES DE RENDERIZAÇÃO) ...
 const renderEntityFunction = (
   entity: any,
   index: number,
   blocks: any,
   scale = 1,
-  color: string = "currentColor"
+  color: string = "currentColor",
+  onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void
 ): React.ReactNode => {
+  
+  // Handler local para passar o clique direito para cima
+  const handleContextMenu = (e: React.MouseEvent) => {
+      if (entity.isLabel && onEntityContextMenu) {
+          // Para a propagação para não abrir o menu da peça
+          e.preventDefault(); 
+          e.stopPropagation();
+          onEntityContextMenu(e, entity);
+      }
+  };
+
+  // Estilo para aumentar a área de clique em textos finos
+  const labelStyle = entity.isLabel ? { cursor: 'context-menu' } : {};
+  // Linha invisível grossa para facilitar o clique (hit area)
+  const hitAreaWidth = 4 * scale; 
+
   switch (entity.type) {
     case "INSERT": {
       const block = blocks[entity.name];
@@ -60,26 +76,43 @@ const renderEntityFunction = (
           }) scale(${scale})`}
         >
           {block.entities.map((s: any, i: number) =>
-            renderEntityFunction(s, i, blocks, 1, color)
+            renderEntityFunction(s, i, blocks, 1, color, onEntityContextMenu)
           )}
         </g>
       );
     }
-    case "LINE":
+    case "LINE": { // <--- Chaves adicionadas
+      // CORREÇÃO DE COR: Respeita a cor da etiqueta
+      const lineColor = entity.isLabel ? (entity.color || color) : color;
       return (
-        <line
-          key={index}
-          x1={entity.vertices[0].x * scale}
-          y1={entity.vertices[0].y * scale}
-          x2={entity.vertices[1].x * scale}
-          y2={entity.vertices[1].y * scale}
-          stroke={color}
-          strokeWidth={2 * scale}
-          vectorEffect="non-scaling-stroke"
-        />
+        <g key={index} onContextMenu={handleContextMenu} style={labelStyle}>
+            {/* Linha Visível */}
+            <line
+            x1={entity.vertices[0].x * scale}
+            y1={entity.vertices[0].y * scale}
+            x2={entity.vertices[1].x * scale}
+            y2={entity.vertices[1].y * scale}
+            stroke={lineColor}
+            strokeWidth={2 * scale}
+            vectorEffect="non-scaling-stroke"
+            />
+            {/* Área de Clique Invisível (Se for label) */}
+            {entity.isLabel && (
+                <line
+                x1={entity.vertices[0].x * scale}
+                y1={entity.vertices[0].y * scale}
+                x2={entity.vertices[1].x * scale}
+                y2={entity.vertices[1].y * scale}
+                stroke="transparent"
+                strokeWidth={hitAreaWidth}
+                vectorEffect="non-scaling-stroke"
+                />
+            )}
+        </g>
       );
+    }
     case "LWPOLYLINE":
-    case "POLYLINE": {
+    case "POLYLINE": { // <--- Chaves adicionadas
       if (!entity.vertices) return null;
       const d = entity.vertices
         .map(
@@ -87,14 +120,17 @@ const renderEntityFunction = (
             `${i === 0 ? "M" : "L"} ${v.x * scale} ${v.y * scale}`
         )
         .join(" ");
+      const polyColor = entity.isLabel ? (entity.color || color) : color;
       return (
         <path
           key={index}
           d={entity.shape ? d + " Z" : d}
           fill="none"
-          stroke={color}
+          stroke={polyColor}
           strokeWidth={2 * scale}
           vectorEffect="non-scaling-stroke"
+          onContextMenu={handleContextMenu}
+          style={labelStyle}
         />
       );
     }
@@ -106,12 +142,14 @@ const renderEntityFunction = (
           cy={entity.center.y * scale}
           r={entity.radius * scale}
           fill="none"
-          stroke={color}
+          stroke={entity.isLabel ? (entity.color || color) : color}
           strokeWidth={2 * scale}
           vectorEffect="non-scaling-stroke"
+          onContextMenu={handleContextMenu}
+          style={labelStyle}
         />
       );
-    case "ARC": {
+    case "ARC": { // <--- Chaves adicionadas
       const { startAngle, endAngle, radius, center } = entity;
       const r = radius * scale;
       const x1 = center.x * scale + r * Math.cos(startAngle);
@@ -128,21 +166,19 @@ const renderEntityFunction = (
           key={index}
           d={d}
           fill="none"
-          stroke={color}
+          stroke={entity.isLabel ? (entity.color || color) : color}
           strokeWidth={2 * scale}
           vectorEffect="non-scaling-stroke"
+          onContextMenu={handleContextMenu}
+          style={labelStyle}
         />
       );
     }
-    case "TEXT": {
-      // Usa a cor definida na etiqueta (Branco ou Rosa) ou herda a cor da peça
+    case "TEXT": { // <--- Chaves adicionadas
+      // Caso legado ou texto não vetorial
       const textColor = entity.color || color;
-
-      // Posição ajustada pela escala
       const px = entity.position.x * scale;
       const py = entity.position.y * scale;
-
-      // Correção de rotação: Inverte o sinal porque o eixo Y do SVG está invertido (scale 1, -1)
       const rotation = -(entity.rotation || 0);
 
       return (
@@ -153,13 +189,12 @@ const renderEntityFunction = (
           fill={textColor}
           stroke="none"
           fontSize={entity.height * scale}
-          textAnchor="middle" // Centraliza Horizontalmente
-          dominantBaseline="middle" // Centraliza Verticalmente
+          textAnchor="middle" 
+          dominantBaseline="middle" 
           fontWeight="bold"
-          // A MÁGICA: Translada -> Desvira Y -> Rotaciona
           transform={`translate(${px}, ${py}) scale(1, -1) rotate(${rotation})`}
           style={{
-            pointerEvents: "none", // O mouse ignora o texto (clica na peça atrás)
+            pointerEvents: "none", 
             userSelect: "none",
           }}
         >
@@ -210,24 +245,20 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
         update(ent.center.x + ox - ent.radius, ent.center.y + oy - ent.radius);
         update(ent.center.x + ox + ent.radius, ent.center.y + oy + ent.radius);
       }
-      // 4. ARCOS (CORRIGIDO)
+      // 4. ARCOS
       else if (ent.type === "ARC") {
         const cx = ent.center.x + ox;
         const cy = ent.center.y + oy;
         const r = ent.radius;
 
-        // CORREÇÃO DO ESLINT AQUI:
-        const startAngle = ent.startAngle; // 'const' pois não muda
-        let endAngle = ent.endAngle; // 'let' pois pode mudar abaixo
+        const startAngle = ent.startAngle; 
+        let endAngle = ent.endAngle; 
 
-        // Normaliza para garantir que end > start (sentido anti-horário)
         if (endAngle < startAngle) endAngle += 2 * Math.PI;
 
-        // A. Adiciona os pontos inicial e final do arco
         update(cx + r * Math.cos(startAngle), cy + r * Math.sin(startAngle));
         update(cx + r * Math.cos(endAngle), cy + r * Math.sin(endAngle));
 
-        // B. Verifica pontos cardeais (0, 90, 180, 270 graus e suas voltas)
         const cardinalAngles = [
           0,
           0.5 * Math.PI,
@@ -239,7 +270,6 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
         ];
 
         for (const angle of cardinalAngles) {
-          // Se o ângulo cardeal está DENTRO do intervalo do arco
           if (angle > startAngle && angle < endAngle) {
             update(cx + r * Math.cos(angle), cy + r * Math.sin(angle));
           }
@@ -260,11 +290,11 @@ interface PartElementProps {
   onMouseDown: (e: React.MouseEvent, partId: string) => void;
   onDoubleClick: (e: React.MouseEvent, partId: string) => void;
   onContextMenu: (e: React.MouseEvent, partId: string) => void;
+  onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void; // NOVO PROP
   partData: ImportedPart | undefined;
   showDebug: boolean;
   strategy: "rect" | "true-shape";
   transformData: any;
-  // 3. Adicionado theme aqui também
   theme: AppTheme;
 }
 
@@ -277,11 +307,12 @@ const PartElement = React.memo(
         onMouseDown,
         onDoubleClick,
         onContextMenu,
+        onEntityContextMenu, // Recebe o handler
         partData,
         showDebug,
         strategy,
         transformData,
-        theme, // 4. Recebendo theme
+        theme, 
       },
       ref
     ) => {
@@ -300,7 +331,6 @@ const PartElement = React.memo(
           }) translate(${-transformData.centerX}, ${-transformData.centerY})`
         : "";
 
-      // 5. Usando theme para cor (Opcional, mas mantém coerência com modo escuro)
       const strokeColor = isSelected
         ? "#c94028ff"
         : theme.text === "#e0e0e0"
@@ -332,8 +362,9 @@ const PartElement = React.memo(
               pointerEvents="all"
             />
             <g transform={finalTransform} style={{ pointerEvents: "none" }}>
+              {/* Agora passamos o onEntityContextMenu para renderEntityFunction */}
               {partData.entities.map((ent, j) =>
-                renderEntityFunction(ent, j, partData.blocks, 1, strokeColor)
+                renderEntityFunction(ent, j, partData.blocks, 1, strokeColor, onEntityContextMenu)
               )}
             </g>
           </g>
@@ -357,7 +388,8 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   onPartsMove,
   onPartSelect,
   onContextMenu,
-  theme, // 6. Recebendo theme
+  onEntityContextMenu, // Recebe o handler do pai (NestingBoard)
+  theme, 
 }) => {
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
   const [dragMode, setDragMode] = useState<"none" | "pan" | "parts">("none");
@@ -391,7 +423,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     return point.matrixTransform(svgElement.getScreenCTM()?.inverse());
   }, []);
 
-  // --- LÓGICA DE TRANSFORMAÇÃO (MANTIDA) ---
   const updateTransform = useCallback(
     (newT: { x: number; y: number; k: number }) => {
       transformRef.current = newT;
@@ -411,7 +442,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     [updateTransform]
   );
 
-  // --- HANDLER DE ZOOM (MANTIDO) ---
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
       e.preventDefault();
@@ -454,7 +484,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     [updateTransform]
   );
 
-  // --- HANDLERS MOUSE (MANTIDOS) ---
   const handleMouseDownContainer = useCallback((e: React.MouseEvent) => {
     setDragMode("pan");
     dragRef.current = {
@@ -621,23 +650,22 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
 
   const cncTransform = `translate(0, ${binHeight}) scale(1, -1)`;
 
-  // -- BOTÕES (MANTIDOS FEIOS E FUNCIONAIS) --
   const btnStyle: React.CSSProperties = {
     width: 30,
     height: 30,
-    padding: 0, // <--- Zera o padding padrão do navegador
-    lineHeight: 1, // <--- Remove altura de linha extra do texto
+    padding: 0,
+    lineHeight: 1,
     cursor: "pointer",
     background: theme.buttonBg,
     border: `1px solid ${theme.buttonBorder}`,
     color: theme.text,
     borderRadius: "4px",
     fontWeight: "bold",
-    fontSize: "16px", // Tamanho do emoji
+    fontSize: "16px",
     display: "flex",
     alignItems: "center",
-    justifyContent: "center", // Garante o centro horizontal
-    paddingBottom: "2px", // <--- Ajuste fino: Emojis costumam ficar um pouco altos, isso centraliza visualmente
+    justifyContent: "center",
+    paddingBottom: "2px",
   };
 
   return (
@@ -762,11 +790,12 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                     onMouseDown={handleMouseDownPart}
                     onDoubleClick={handleDoubleClickPart}
                     onContextMenu={onContextMenu}
+                    onEntityContextMenu={onEntityContextMenu} // Passa para a peça
                     partData={part}
                     showDebug={showDebug}
                     strategy={strategy}
                     transformData={partTransforms[placed.partId]}
-                    theme={theme} // 7. Passando o tema para a peça
+                    theme={theme}
                   />
                 );
               })}
