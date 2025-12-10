@@ -13,6 +13,7 @@ import { ContextControl } from "./ContextControl";
 import { InteractiveCanvas } from "./InteractiveCanvas";
 import { useUndoRedo } from "../hooks/useUndoRedo";
 import { getTheme } from "../styles/theme";
+import { PartFilter, type FilterState } from "./PartFilter"; // <--- NOVO COMPONENTE
 
 import NestingWorker from "../workers/nesting.worker?worker";
 
@@ -21,7 +22,7 @@ interface Size {
   height: number;
 }
 interface NestingBoardProps {
-  parts: ImportedPart[];
+  parts: ImportedPart[]; // Todas as peças
   onBack?: () => void;
 }
 
@@ -127,6 +128,32 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
     return initialQ;
   });
 
+  // --- FILTROS DE PEÇAS ---
+ // --- ALTERAÇÃO 1: ESTADO INICIAL (Arrays para múltiplos) ---
+  const [filters, setFilters] = useState<FilterState>({ 
+      pedido: [], 
+      op: [], 
+      material: '', 
+      espessura: '' 
+  });
+
+  // --- ALTERAÇÃO 2: LÓGICA DE FILTRO (Suporte a múltiplos) ---
+  const filteredParts = useMemo(() => {
+    return parts.filter(p => {
+        // Pedido: Se a lista de filtro estiver vazia, aceita tudo. Se não, verifica se o pedido da peça está na lista.
+        const matchPedido = filters.pedido.length === 0 || filters.pedido.includes(p.pedido);
+        
+        // OP: Mesma lógica
+        const matchOp = filters.op.length === 0 || filters.op.includes(p.op);
+        
+        // Material/Espessura: Seleção única (Match exato)
+        const matchMaterial = !filters.material || p.material === filters.material;
+        const matchEspessura = !filters.espessura || p.espessura === filters.espessura;
+
+        return matchPedido && matchOp && matchMaterial && matchEspessura;
+    });
+  }, [parts, filters]);
+
   const [activeTab, setActiveTab] = useState<"grid" | "list">("grid");
   const [showDebug, setShowDebug] = useState(true);
 
@@ -202,7 +229,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
     }, [selectedPartIds]);
 
   const handleCalculate = useCallback(() => {
-    if (parts.length === 0) return;
+    if (filteredParts.length === 0) { // <--- USANDO LISTA FILTRADA
+        alert("Nenhuma peça disponível no filtro atual!");
+        return;
+    }
     setIsComputing(true);
     resetNestingResult([]); setCurrentBinIndex(0); setTotalBins(1); setSelectedPartIds([]);
     if (workerRef.current) workerRef.current.terminate();
@@ -215,8 +245,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
       setIsComputing(false);
       if (result.placed.length === 0) alert("Nenhuma peça coube!");
     };
-    workerRef.current.postMessage({ parts: JSON.parse(JSON.stringify(parts)), quantities, gap, margin, binWidth: binSize.width, binHeight: binSize.height, strategy, iterations, rotationStep, direction });
-  }, [parts, quantities, gap, margin, binSize, strategy, iterations, rotationStep, direction, resetNestingResult]);
+    // Envia apenas as peças filtradas para o worker
+    workerRef.current.postMessage({ parts: JSON.parse(JSON.stringify(filteredParts)), quantities, gap, margin, binWidth: binSize.width, binHeight: binSize.height, strategy, iterations, rotationStep, direction });
+  }, [filteredParts, quantities, gap, margin, binSize, strategy, iterations, rotationStep, direction, resetNestingResult]);
 
   const handleClearTable = useCallback(() => {
       if (window.confirm("Deseja limpar todos os arranjos da mesa?")) {
@@ -230,6 +261,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
   const handleDownload = useCallback(() => {
     if (nestingResult.length === 0) return;
     const currentBinParts = nestingResult.filter((p) => p.binId === currentBinIndex);
+    // Usa 'parts' completo aqui para buscar a geometria original de qualquer peça
     const dxfString = generateDxfContent(currentBinParts, parts);
     const blob = new Blob([dxfString], { type: "application/dxf" });
     const url = URL.createObjectURL(blob);
@@ -239,7 +271,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
   }, [nestingResult, currentBinIndex, parts]);
 
   const updateQty = useCallback((id: string, val: number) => setQuantities((prev) => ({ ...prev, [id]: val })), []);
+  
   const formatArea = useCallback((mm2: number) => mm2 > 100000 ? (mm2 / 1000000).toFixed(3) + " m²" : mm2.toFixed(0) + " mm²", []);
+  
   const currentPlacedParts = useMemo(() => nestingResult.filter(p => p.binId === currentBinIndex), [nestingResult, currentBinIndex]);
   const getThumbnailViewBox = useCallback((part: ImportedPart) => {
       const box = calculateBoundingBox(part.entities, part.blocks);
@@ -254,12 +288,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
   const inputStyle: React.CSSProperties = { padding: 5, borderRadius: 4, border: `1px solid ${theme.border}`, background: theme.inputBg, color: theme.text };
   const btnStyle = (active: boolean): React.CSSProperties => ({ padding: "4px 8px", border: "none", borderRadius: "3px", cursor: "pointer", background: active ? "#007bff" : "transparent", color: active ? "#fff" : theme.text, fontSize: "16px" });
   const tabStyle = (active: boolean): React.CSSProperties => ({ padding: "10px 15px", cursor: "pointer", background: "transparent", outline: "none", border: "none", borderBottom: active ? "2px solid #28a745" : "2px solid transparent", color: active ? theme.text : theme.label, fontWeight: active ? "bold" : "normal", fontSize: "13px" });
+  
+  const thStyle: React.CSSProperties = { padding: "10px", textAlign: "left", fontSize: "12px", opacity: 0.7, borderBottom: `1px solid ${theme.border}`, whiteSpace: 'nowrap' };
+  const tdStyle: React.CSSProperties = { padding: "8px 10px", fontSize: "13px", borderBottom: `1px solid ${theme.border}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '120px' };
 
   return (
     <div style={containerStyle}>
       {contextMenu && contextMenu.visible && selectedPartIds.length > 0 && <ContextControl x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu(null)} onMove={handleContextMove} onRotate={handleContextRotate} />}
 
-      {/* 1. FAIXA SUPERIOR */}
       <div style={topBarStyle}>
           <div style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
             {onBack && (
@@ -267,32 +303,16 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
                 </button>
             )}
-            <h2 style={{margin: 0, fontSize: '18px', color: '#007bff', whiteSpace: 'nowrap'}}>Planejamento de Corte</h2>
+            <h2 style={{margin: 0, fontSize: '18px', color: '#28a745', whiteSpace: 'nowrap'}}>Planejamento de Corte</h2>
           </div>
-
           <div style={{ marginLeft: 'auto', paddingRight: '10px' }}>
-              <button 
-                onClick={() => setIsDarkMode(!isDarkMode)} 
-                title="Alternar Tema"
-                style={{
-                    background: 'transparent', 
-                    border: `1px solid ${theme.border}`, 
-                    color: theme.text, 
-                    padding: '6px 12px', 
-                    borderRadius: '20px', 
-                    cursor: 'pointer',
-                    fontSize: '16px',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center'
-                }}
-              >
+              <button onClick={() => setIsDarkMode(!isDarkMode)} title="Alternar Tema" style={{background: 'transparent', border: `1px solid ${theme.border}`, color: theme.text, padding: '6px 12px', borderRadius: '20px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
                  {isDarkMode ? '☀️' : '🌙'}
               </button>
           </div>
       </div>
 
-      {/* 2. BARRA DE FERRAMENTAS */}
       <div style={toolbarStyle}>
-        
         <div style={{ display: "flex", alignItems: "center", borderRight: `1px solid ${theme.border}`, paddingRight: "15px" }}>
           <span style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}>Motor:</span>
           <select value={strategy} onChange={(e) => setStrategy(e.target.value as any)} style={inputStyle}>
@@ -300,7 +320,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
             <option value="true-shape">🧩 True Shape</option>
           </select>
         </div>
-
         <div style={{ display: "flex", alignItems: "center", borderRight: `1px solid ${theme.border}`, paddingRight: "15px" }}>
           <span style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}>Dir:</span>
           <div style={{ display: "flex", gap: "2px", background: theme.inputBg, borderRadius: "4px", padding: "2px" }}>
@@ -309,17 +328,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
             <button title="Horizontal" onClick={() => setDirection("horizontal")} style={btnStyle(direction === 'horizontal')}>➡️</button>
           </div>
         </div>
-
         <div style={{ display: "flex", alignItems: "center", background: theme.hoverRow, padding: "5px", borderRadius: "4px", gap: "5px" }}>
             <label style={{ fontSize: 12 }}>L:</label><input type="number" value={binSize.width} onChange={e => setBinSize(p => ({...p, width: Number(e.target.value)}))} style={{...inputStyle, width: 50}} />
             <label style={{ fontSize: 12 }}>A:</label><input type="number" value={binSize.height} onChange={e => setBinSize(p => ({...p, height: Number(e.target.value)}))} style={{...inputStyle, width: 50}} />
         </div>
-
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <label style={{ fontSize: 12 }}>Gap:</label><input type="number" value={gap} onChange={e => setGap(Number(e.target.value))} style={{...inputStyle, width: 40}} />
             <label style={{ fontSize: 12 }}>Margem:</label><input type="number" value={margin} onChange={e => setMargin(Number(e.target.value))} style={{...inputStyle, width: 40}} />
         </div>
-        
         {strategy === 'true-shape' && (
             <div style={{ display: "flex", alignItems: "center" }}>
                 <label style={{ fontSize: 12, marginRight: 5 }}>Rot:</label>
@@ -328,72 +344,36 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
                 </select>
             </div>
         )}
-
         <label style={{ fontSize: "12px", display: "flex", alignItems: "center", cursor: "pointer", userSelect: "none" }}>
-          <input 
-            type="checkbox" 
-            checked={showDebug} 
-            onChange={(e) => setShowDebug(e.target.checked)} 
-            style={{ marginRight: "5px" }} 
-          />
+          <input type="checkbox" checked={showDebug} onChange={(e) => setShowDebug(e.target.checked)} style={{ marginRight: "5px" }} />
           Ver Box
         </label>
-
         <div style={{ marginLeft: "auto", display: "flex", gap: "10px", alignItems: "center" }}>
           <button style={{ background: isComputing ? "#666" : "#28a745", color: "white", border: "none", padding: "8px 20px", cursor: isComputing ? "wait" : "pointer", borderRadius: "4px", fontWeight: "bold" }} onClick={handleCalculate} disabled={isComputing}>{isComputing ? "..." : "▶ Calcular"}</button>
-          
           <button onClick={handleDownload} disabled={nestingResult.length === 0} style={{ background: "#007bff", color: "white", border: "none", padding: "8px 20px", cursor: nestingResult.length === 0 ? "not-allowed" : "pointer", borderRadius: "4px", opacity: nestingResult.length === 0 ? 0.5 : 1 }}>💾 DXF</button>
-          
-          <button 
-            onClick={handleClearTable} 
-            title="Limpar Mesa"
-            style={{
-                background: 'transparent', 
-                color: '#dc3545', 
-                border: `1px solid #dc3545`, 
-                padding: '8px 12px', 
-                borderRadius: '4px', 
-                cursor: 'pointer',
-                fontWeight: 'bold', fontSize: '13px'
-            }}
-          >
-            🗑️
-          </button>
+          <button onClick={handleClearTable} title="Limpar Mesa" style={{ background: 'transparent', color: '#dc3545', border: `1px solid #dc3545`, padding: '8px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>🗑️</button>
         </div>
       </div>
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         <div style={{ flex: 2, position: "relative", background: theme.canvasBg, display: "flex", flexDirection: "column", overflow: "hidden" }} onMouseDown={() => setContextMenu(null)}>
           
-          {/* BOTÕES DE UNDO/REDO (CENTRO) */}
+          {/* UNDO/REDO CENTRALIZADO */}
           <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 10, zIndex: 20 }}>
             <button onClick={undo} disabled={!canUndo} style={{ padding: "8px 15px", borderRadius: "20px", border: `1px solid ${theme.buttonBorder}`, background: theme.buttonBg, color: canUndo ? theme.buttonText : "#888", cursor: canUndo ? "pointer" : "default", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", fontWeight: "bold", fontSize: "12px" }}>↩ Desfazer</button>
             <button onClick={redo} disabled={!canRedo} style={{ padding: "8px 15px", borderRadius: "20px", border: `1px solid ${theme.buttonBorder}`, background: theme.buttonBg, color: canRedo ? theme.buttonText : "#888", cursor: canRedo ? "pointer" : "default", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", fontWeight: "bold", fontSize: "12px" }}>↪ Refazer</button>
           </div>
 
-          {/* CONTROLE DE NAVEGAÇÃO DE CHAPAS (AGORA BOTTOM-RIGHT, ESTILIZADO) */}
+          {/* NAVEGAÇÃO DE CHAPAS - RODAPÉ DIREITO */}
           {totalBins > 1 && (
-            <div style={{ 
-                position: "absolute", 
-                bottom: 20, 
-                right: 20, // <--- POSICIONAMENTO BOTTOM-RIGHT
-                zIndex: 20, 
-                display: "flex", 
-                alignItems: "center", 
-                gap: "10px", 
-                background: theme.buttonBg, // MESMO ESTILO DO UNDO
-                padding: "5px 15px", 
-                borderRadius: "20px", 
-                border: `1px solid ${theme.buttonBorder}`,
-                boxShadow: "0 2px 5px rgba(0,0,0,0.2)", 
-                color: theme.buttonText 
-            }}>
-              <button onClick={() => setCurrentBinIndex(Math.max(0, currentBinIndex - 1))} disabled={currentBinIndex === 0} style={{ cursor: "pointer", border: "none", background: "transparent", fontWeight: "bold", color: theme.buttonText, opacity: currentBinIndex===0?0.3:1 }}>◀</button>
+            <div style={{ position: "absolute", bottom: 20, right: 20, zIndex: 20, display: "flex", alignItems: "center", gap: "10px", background: theme.buttonBg, padding: "5px 15px", borderRadius: "20px", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", color: theme.text, border: `1px solid ${theme.buttonBorder}` }}>
+              <button onClick={() => setCurrentBinIndex(Math.max(0, currentBinIndex - 1))} disabled={currentBinIndex === 0} style={{ cursor: "pointer", border: "none", background: "transparent", fontWeight: "bold", color: theme.text }}>◀</button>
               <span style={{ fontWeight: "bold", fontSize: "13px" }}>Chapa {currentBinIndex + 1} de {totalBins}</span>
-              <button onClick={() => setCurrentBinIndex(Math.min(totalBins - 1, currentBinIndex + 1))} disabled={currentBinIndex === totalBins - 1} style={{ cursor: "pointer", border: "none", background: "transparent", fontWeight: "bold", color: theme.buttonText, opacity: currentBinIndex===totalBins-1?0.3:1 }}>▶</button>
+              <button onClick={() => setCurrentBinIndex(Math.min(totalBins - 1, currentBinIndex + 1))} disabled={currentBinIndex === totalBins - 1} style={{ cursor: "pointer", border: "none", background: "transparent", fontWeight: "bold", color: theme.text }}>▶</button>
             </div>
           )}
 
+          {/* Canvas usa 'parts' completo para desenho visual, mas 'handleCalculate' usa 'filteredParts' */}
           <InteractiveCanvas 
              parts={parts} placedParts={currentPlacedParts}
              binWidth={binSize.width} binHeight={binSize.height} margin={margin}
@@ -407,15 +387,25 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
           </div>
         </div>
 
-        <div style={{ width: "450px", borderLeft: `1px solid ${theme.border}`, display: "flex", flexDirection: "column", backgroundColor: theme.panelBg, zIndex: 5, color: theme.text }}>
+        <div style={{ width: "500px", borderLeft: `1px solid ${theme.border}`, display: "flex", flexDirection: "column", backgroundColor: theme.panelBg, zIndex: 5, color: theme.text }}>
+          {/* BARRA DE FILTROS ADICIONADA AQUI NO TOPO DA SIDEBAR */}
+          <PartFilter 
+             allParts={parts} 
+             filters={filters} 
+             onFilterChange={setFilters} 
+             theme={theme} 
+          />
+
           <div style={{ display: "flex", borderBottom: `1px solid ${theme.border}`, background: theme.headerBg }}>
             <button style={tabStyle(activeTab === "grid")} onClick={() => setActiveTab("grid")}>🔳 Banco de Peças</button>
             <button style={tabStyle(activeTab === "list")} onClick={() => setActiveTab("list")}>📄 Lista Técnica</button>
           </div>
+          
           <div style={{ flex: 1, overflowY: "auto", padding: activeTab === "grid" ? "15px" : "0" }}>
             {activeTab === "grid" && (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "15px", alignContent: "start" }}>
-                {parts.map((part) => (
+                {/* USA FILTERED PARTS PARA O GRID */}
+                {filteredParts.map((part) => (
                   <div key={part.id} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
                     <div style={{ width: "100%", aspectRatio: "1/1", background: theme.cardBg, border: `1px solid ${theme.border}`, borderRadius: "8px", marginBottom: "8px", padding: "10px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       <svg viewBox={getThumbnailViewBox(part)} style={{ width: "100%", height: "100%", overflow: "visible", color: theme.text }} transform="scale(1, -1)" preserveAspectRatio="xMidYMid meet">
@@ -433,31 +423,43 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
                 ))}
               </div>
             )}
+            
             {activeTab === "list" && (
-              <table style={{ width: "100%", borderCollapse: "collapse", borderSpacing: 0 }}>
-                <thead style={{ position: "sticky", top: 0, background: theme.panelBg, zIndex: 1 }}>
-                  <tr>
-                    <th style={{ padding: "10px", textAlign: "left", fontSize: "12px", opacity: 0.7, borderBottom: `1px solid ${theme.border}` }}>#</th>
-                    <th style={{ padding: "10px", textAlign: "left", fontSize: "12px", opacity: 0.7, borderBottom: `1px solid ${theme.border}` }}>Peça</th>
-                    <th style={{ padding: "10px", textAlign: "left", fontSize: "12px", opacity: 0.7, borderBottom: `1px solid ${theme.border}` }}>Dimensões</th>
-                    <th style={{ padding: "10px", textAlign: "left", fontSize: "12px", opacity: 0.7, borderBottom: `1px solid ${theme.border}` }}>Área</th>
-                    <th style={{ padding: "10px", textAlign: "left", fontSize: "12px", opacity: 0.7, borderBottom: `1px solid ${theme.border}` }}>Qtd.</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {parts.map((part, index) => (
-                    <tr key={part.id} style={{ borderBottom: `1px solid ${theme.border}` }}>
-                      <td style={{ padding: "8px 10px", fontSize: "13px" }}>{index + 1}</td>
-                      <td style={{ padding: "8px 10px", fontSize: "13px", fontWeight: "bold" }}>{part.name}</td>
-                      <td style={{ padding: "8px 10px", fontSize: "13px" }}>{part.width.toFixed(0)}x{part.height.toFixed(0)}</td>
-                      <td style={{ padding: "8px 10px", fontSize: "13px" }}>{formatArea(part.grossArea)}</td>
-                      <td style={{ padding: "8px 10px", fontSize: "13px" }}>
-                        <input type="number" min="1" value={quantities[part.id] || 1} onChange={(e) => updateQty(part.id, Number(e.target.value))} style={{ width: 40, textAlign: "center", background: theme.inputBg, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 4 }} />
-                      </td>
+              <div style={{ overflowX: 'auto', transform: 'rotateX(180deg)', borderBottom: `1px solid ${theme.border}` }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", borderSpacing: 0, minWidth: '600px', transform: 'rotateX(180deg)' }}>
+                  <thead style={{ background: theme.panelBg }}>
+                    <tr>
+                      <th style={thStyle}>#</th>
+                      <th style={thStyle}>Peça</th>
+                      <th style={thStyle}>Pedido</th>
+                      <th style={thStyle}>OP</th>
+                      <th style={thStyle}>Material</th>
+                      <th style={thStyle}>Espessura</th>
+                      <th style={thStyle}>Dimensões</th>
+                      <th style={thStyle}>Área</th>
+                      <th style={thStyle}>Qtd.</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {/* USA FILTERED PARTS PARA A LISTA */}
+                    {filteredParts.map((part, index) => (
+                      <tr key={part.id} style={{ borderBottom: `1px solid ${theme.border}` }}>
+                        <td style={tdStyle}>{index + 1}</td>
+                        <td style={{...tdStyle, fontWeight: 'bold'}} title={part.name}>{part.name}</td>
+                        <td style={tdStyle}>{part.pedido || '-'}</td>
+                        <td style={tdStyle}>{part.op || '-'}</td>
+                        <td style={tdStyle}>{part.material}</td>
+                        <td style={tdStyle}>{part.espessura || '-'}</td>
+                        <td style={tdStyle}>{part.width.toFixed(0)}x{part.height.toFixed(0)}</td>
+                        <td style={tdStyle}>{formatArea(part.grossArea)}</td>
+                        <td style={tdStyle}>
+                          <input type="number" min="1" value={quantities[part.id] || 1} onChange={(e) => updateQty(part.id, Number(e.target.value))} style={{ width: 40, textAlign: "center", background: theme.inputBg, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 4 }} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </div>

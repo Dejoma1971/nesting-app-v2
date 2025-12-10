@@ -1,4 +1,5 @@
 export interface AppTheme {
+    batchBg: Background<string | number> | undefined;
     bg: string;
     panelBg: string;
     headerBg: string;
