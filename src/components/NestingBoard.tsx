@@ -33,7 +33,7 @@ interface NestingBoardProps {
 
 const cleanTextContent = (text: string): string => text ? text.replace(/[^a-zA-Z0-9-]/g, '') : "";
 
-// --- MATEMÁTICA DE ARCOS (Para sincronia perfeita com o Modal) ---
+// --- MATEMÁTICA DE ARCOS ---
 const bulgeToArc = (p1: {x: number, y: number}, p2: {x: number, y: number}, bulge: number) => {
     const chordDx = p2.x - p1.x;
     const chordDy = p2.y - p1.y;
@@ -44,7 +44,7 @@ const bulgeToArc = (p1: {x: number, y: number}, p2: {x: number, y: number}, bulg
     return { radius, cx, cy };
 };
 
-// --- CÁLCULO DE BOUNDING BOX ROBUSTO (Idêntico ao Modal) ---
+// --- CÁLCULO DE BOUNDING BOX ROBUSTO ---
 const calculateBoundingBox = (entities: any[], blocks: any = {}): { minX: number, minY: number, maxX: number, maxY: number, width: number, height: number, cx: number, cy: number } => {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     
@@ -99,7 +99,7 @@ const calculateBoundingBox = (entities: any[], blocks: any = {}): { minX: number
     return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
 };
 
-// --- RENDER ENTITY (Versão robusta para Miniaturas) ---
+// --- RENDER ENTITY (Local) ---
 const renderEntityFunction = (
   entity: any,
   index: number,
@@ -157,26 +157,6 @@ const renderEntityFunction = (
       const d = `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`;
       return <path key={index} d={d} fill="none" stroke={color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />;
     }
-    case "TEXT": {
-        const textColor = entity.color || color;
-        const finalColor = entity.isLabel ? (entity.labelType === 'white' ? '#999' : '#FF00FF') : textColor;
-        return (
-            <text
-                key={index}
-                x={entity.position.x * scale}
-                y={entity.position.y * scale}
-                fill={finalColor}
-                stroke="none"
-                fontSize={entity.height * scale}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                transform={`rotate(${entity.rotation || 0}, ${entity.position.x * scale}, ${entity.position.y * scale})`}
-                style={{ pointerEvents: 'none', userSelect: 'none', fontWeight: 'bold' }}
-            >
-                {entity.text}
-            </text>
-        );
-    }
     default: return null;
   }
 };
@@ -195,6 +175,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
 
   const { labelStates, globalWhiteEnabled, globalPinkEnabled, toggleGlobal, togglePartFlag, updateLabelConfig } = useLabelManager(parts);
   const [editingPartId, setEditingPartId] = useState<string | null>(null);
+
+  // --- REFERÊNCIAS PARA SCROLL AUTOMÁTICO ---
+  // Guardamos o elemento DOM de cada miniatura aqui
+  const thumbnailRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
   const [quantities, setQuantities] = useState<{ [key: string]: number }>(() => {
     const initialQ: { [key: string]: number } = {};
@@ -218,7 +202,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
         const state = labelStates[part.id];
         if (!state) return part;
 
-        // USA O CÁLCULO ROBUSTO PARA ACHAR O CENTRO (Sincronizado com o Modal)
         const bounds = calculateBoundingBox(part.entities, part.blocks);
         
         const newEntities = [...part.entities];
@@ -227,7 +210,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
 
         const addLabelVector = (config: LabelConfig, color: string, type: 'white' | 'pink') => {
             if (config.active && finalText) {
-                // USA bounds.cx e bounds.cy 
                 const posX = bounds.cx + config.offsetX;
                 const posY = bounds.cy + config.offsetY;
 
@@ -258,7 +240,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
     });
   }, [parts, filters, labelStates]);
 
-  // (Restante do componente mantido igual)
   const [activeTab, setActiveTab] = useState<"grid" | "list">("grid");
   const [showDebug, setShowDebug] = useState(true);
   const [nestingResult, setNestingResult, undo, redo, resetNestingResult, canUndo, canRedo] = useUndoRedo<PlacedPart[]>([]);
@@ -289,6 +270,19 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
       return prev;
     });
   }, [parts]);
+
+  // --- EFEITO DE AUTO-SCROLL ---
+  // Quando uma peça é selecionada, rola a lista até ela
+  useEffect(() => {
+    if (selectedPartIds.length > 0) {
+      // Pega a última peça selecionada
+      const lastSelectedId = selectedPartIds[selectedPartIds.length - 1];
+      const el = thumbnailRefs.current[lastSelectedId];
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [selectedPartIds]);
 
   const handleContextRotate = useCallback((angle: number) => {
     if (selectedPartIds.length === 0) return;
@@ -416,7 +410,21 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
           <GlobalLabelPanel showWhite={globalWhiteEnabled} showPink={globalPinkEnabled} onToggleWhite={() => toggleGlobal('white')} onTogglePink={() => toggleGlobal('pink')} theme={theme} />
           <div style={{ display: "flex", borderBottom: `1px solid ${theme.border}`, background: theme.headerBg }}><button style={tabStyle(activeTab === "grid")} onClick={() => setActiveTab("grid")}>🔳 Banco de Peças</button><button style={tabStyle(activeTab === "list")} onClick={() => setActiveTab("list")}>📄 Lista Técnica</button></div>
           <div style={{ flex: 1, overflowY: "auto", padding: activeTab === "grid" ? "15px" : "0" }}>
-            {activeTab === "grid" && (<div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "15px", alignContent: "start" }}>{displayedParts.map((part) => (<div key={part.id} style={{ display: "flex", flexDirection: "column", alignItems: "center", position: 'relative' }} onContextMenu={(e) => handleThumbnailContextMenu(e, part.id)}><ThumbnailFlags partId={part.id} labelState={labelStates} onTogglePartFlag={togglePartFlag} /><div style={{ width: "100%", aspectRatio: "1/1", background: theme.cardBg, border: `1px solid ${theme.border}`, borderRadius: "8px", marginBottom: "8px", padding: "10px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" }}><svg viewBox={getThumbnailViewBox(part)} style={{ width: "100%", height: "100%", overflow: "visible", color: theme.text }} transform="scale(1, -1)" preserveAspectRatio="xMidYMid meet">{part.entities.map((ent, i) => renderEntityFunction(ent, i, part.blocks, 1, theme.text))}</svg></div><div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px" }}><span title={part.name} style={{ fontWeight: "bold", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70px" }}>{part.name}</span><div style={{ display: "flex", alignItems: "center", background: theme.hoverRow, borderRadius: "4px" }}><span style={{ padding: "0 4px", fontSize: 10, opacity: 0.7 }}>Qtd:</span><input type="number" min="1" value={quantities[part.id] || 1} onChange={(e) => updateQty(part.id, Number(e.target.value))} style={{ width: 35, border: "none", background: "transparent", textAlign: "center", color: theme.text, fontWeight: "bold", padding: "4px 0" }} /></div></div></div>))}</div>)}
+            {activeTab === "grid" && (<div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "15px", alignContent: "start" }}>{displayedParts.map((part) => (
+                <div 
+                    key={part.id} 
+                    // ATRIBUINDO A REF PARA SCROLL AUTOMÁTICO
+                    ref={(el) => { thumbnailRefs.current[part.id] = el; }} 
+                    style={{ display: "flex", flexDirection: "column", alignItems: "center", position: 'relative' }} 
+                    onContextMenu={(e) => handleThumbnailContextMenu(e, part.id)}
+                >
+                    <ThumbnailFlags partId={part.id} labelState={labelStates} onTogglePartFlag={togglePartFlag} />
+                    {/* Borda condicional azul para seleção */}
+                    <div style={{ width: "100%", aspectRatio: "1/1", background: theme.cardBg, border: `1px solid ${selectedPartIds.includes(part.id) ? '#007bff' : theme.border}`, borderRadius: "8px", marginBottom: "8px", padding: "10px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: selectedPartIds.includes(part.id) ? '0 0 5px rgba(0,123,255,0.5)' : 'none' }}>
+                        <svg viewBox={getThumbnailViewBox(part)} style={{ width: "100%", height: "100%", overflow: "visible", color: theme.text }} transform="scale(1, -1)" preserveAspectRatio="xMidYMid meet">{part.entities.map((ent, i) => renderEntityFunction(ent, i, part.blocks, 1, theme.text))}</svg>
+                    </div>
+                    <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px" }}><span title={part.name} style={{ fontWeight: "bold", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70px" }}>{part.name}</span><div style={{ display: "flex", alignItems: "center", background: theme.hoverRow, borderRadius: "4px" }}><span style={{ padding: "0 4px", fontSize: 10, opacity: 0.7 }}>Qtd:</span><input type="number" min="1" value={quantities[part.id] || 1} onChange={(e) => updateQty(part.id, Number(e.target.value))} style={{ width: 35, border: "none", background: "transparent", textAlign: "center", color: theme.text, fontWeight: "bold", padding: "4px 0" }} /></div></div>
+                </div>))}</div>)}
             {activeTab === "list" && (<div style={{ overflowX: 'auto', transform: 'rotateX(180deg)', borderBottom: `1px solid ${theme.border}` }}><table style={{ width: "100%", borderCollapse: "collapse", borderSpacing: 0, minWidth: '600px', transform: 'rotateX(180deg)' }}><thead style={{ background: theme.panelBg }}><tr><th style={thStyle}>#</th><th style={thStyle}>Peça</th><th style={thStyle}>Pedido</th><th style={thStyle}>OP</th><th style={thStyle}>Material</th><th style={thStyle}>Espessura</th><th style={thStyle}>Dimensões</th><th style={thStyle}>Área</th><th style={thStyle}>Qtd.</th></tr></thead><tbody>{displayedParts.map((part, index) => (<tr key={part.id} style={{ borderBottom: `1px solid ${theme.border}` }}><td style={tdStyle}>{index + 1}</td><td style={{...tdStyle, fontWeight: 'bold'}} title={part.name}>{part.name}</td><td style={tdStyle}>{part.pedido || '-'}</td><td style={tdStyle}>{part.op || '-'}</td><td style={tdStyle}>{part.material}</td><td style={tdStyle}>{part.espessura || '-'}</td><td style={tdStyle}>{part.width.toFixed(0)}x{part.height.toFixed(0)}</td><td style={tdStyle}>{formatArea(part.grossArea)}</td><td style={tdStyle}><input type="number" min="1" value={quantities[part.id] || 1} onChange={(e) => updateQty(part.id, Number(e.target.value))} style={{ width: 40, textAlign: "center", background: theme.inputBg, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 4 }} /></td></tr>))}</tbody></table></div>)}
           </div>
         </div>

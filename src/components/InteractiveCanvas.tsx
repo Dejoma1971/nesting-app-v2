@@ -1,15 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, {
-  useState,
-  useRef,
-  useCallback,
-  useMemo,
-  forwardRef,
-  useEffect,
-} from "react";
+import React, { useState, useRef, useCallback, useMemo, forwardRef, useEffect } from "react";
 import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
-import type { AppTheme } from "../styles/theme";
+import type { AppTheme } from "../styles/theme"; 
 
 interface InteractiveCanvasProps {
   parts: ImportedPart[];
@@ -22,45 +15,29 @@ interface InteractiveCanvasProps {
   selectedPartIds: string[];
   theme: AppTheme;
   onPartsMove: (moves: { partId: string; dx: number; dy: number }[]) => void;
-  onLabelDrag?: (
-    partId: string,
-    type: "white" | "pink",
-    dx: number,
-    dy: number
-  ) => void;
+  onLabelDrag?: (partId: string, type: 'white' | 'pink', dx: number, dy: number) => void;
   onPartSelect: (partIds: string[], append: boolean) => void;
   onContextMenu: (e: React.MouseEvent, partId: string) => void;
-  onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void;
+  onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void; 
 }
 
 interface BoundingBoxCache {
-  [partId: string]: {
-    minX: number;
-    minY: number;
-    width: number;
-    height: number;
-    centerX: number;
-    centerY: number;
-  };
+  [partId: string]: { minX: number; minY: number; width: number; height: number; centerX: number; centerY: number; };
 }
 
 // --- HELPER: CONVERTE BULGE EM PARÂMETROS DE ARCO ---
-const bulgeToArc = (
-  p1: { x: number; y: number },
-  p2: { x: number; y: number },
-  bulge: number
-) => {
-  const chordDx = p2.x - p1.x;
-  const chordDy = p2.y - p1.y;
-  const chordLen = Math.sqrt(chordDx * chordDx + chordDy * chordDy);
+const bulgeToArc = (p1: {x: number, y: number}, p2: {x: number, y: number}, bulge: number) => {
+    const chordDx = p2.x - p1.x;
+    const chordDy = p2.y - p1.y;
+    const chordLen = Math.sqrt(chordDx * chordDx + chordDy * chordDy);
+    
+    const radius = chordLen * (1 + bulge * bulge) / (4 * Math.abs(bulge));
+    
+    // Centro do arco
+    const cx = (p1.x + p2.x) / 2 - (chordDy * (1 - bulge * bulge)) / (4 * bulge);
+    const cy = (p1.y + p2.y) / 2 + (chordDx * (1 - bulge * bulge)) / (4 * bulge);
 
-  const radius = (chordLen * (1 + bulge * bulge)) / (4 * Math.abs(bulge));
-
-  // Centro do arco
-  const cx = (p1.x + p2.x) / 2 - (chordDy * (1 - bulge * bulge)) / (4 * bulge);
-  const cy = (p1.y + p2.y) / 2 + (chordDx * (1 - bulge * bulge)) / (4 * bulge);
-
-  return { radius, cx, cy };
+    return { radius, cx, cy };
 };
 
 // --- RENDER ENTITY (AGORA COM SUPORTE A CURVAS REAIS) ---
@@ -70,152 +47,85 @@ const renderEntityFunction = (
   blocks: any,
   scale = 1,
   color: string = "currentColor",
-  onLabelDown?: (e: React.MouseEvent, type: "white" | "pink") => void,
-  onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void
+  onLabelDown?: (e: React.MouseEvent, type: 'white' | 'pink') => void,
+  onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void 
 ): React.ReactNode => {
+
   const handleLabelDown = (e: React.MouseEvent) => {
-    if (entity.isLabel && onLabelDown) {
-      e.stopPropagation();
-      onLabelDown(e, entity.labelType);
-    }
+      if (entity.isLabel && onLabelDown) {
+          e.stopPropagation(); 
+          onLabelDown(e, entity.labelType);
+      }
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
-    if (entity.isLabel && onEntityContextMenu) {
-      e.preventDefault();
-      e.stopPropagation();
-      onEntityContextMenu(e, entity);
-    }
+      if (entity.isLabel && onEntityContextMenu) {
+          e.preventDefault();
+          e.stopPropagation();
+          onEntityContextMenu(e, entity);
+      }
   };
 
-  const labelStyle: React.CSSProperties = entity.isLabel
-    ? { cursor: "move" }
-    : {};
-  const hitAreaWidth = 6 * scale;
+  const labelStyle: React.CSSProperties = entity.isLabel ? { cursor: 'move' } : {};
+  const hitAreaWidth = 6 * scale; 
 
   switch (entity.type) {
     case "INSERT": {
       const block = blocks[entity.name];
       if (!block || !block.entities) return null;
       return (
-        <g
-          key={index}
-          transform={`translate(${(entity.position?.x || 0) * scale}, ${
-            (entity.position?.y || 0) * scale
-          }) scale(${scale})`}
-        >
-          {block.entities.map((s: any, i: number) =>
-            renderEntityFunction(
-              s,
-              i,
-              blocks,
-              1,
-              color,
-              onLabelDown,
-              onEntityContextMenu
-            )
-          )}
+        <g key={index} transform={`translate(${(entity.position?.x || 0) * scale}, ${(entity.position?.y || 0) * scale}) scale(${scale})`}>
+          {block.entities.map((s: any, i: number) => renderEntityFunction(s, i, blocks, 1, color, onLabelDown, onEntityContextMenu))}
         </g>
       );
     }
     case "LINE": {
-      const lineColor = entity.isLabel ? entity.color || color : color;
+      const lineColor = entity.isLabel ? (entity.color || color) : color;
       return (
-        <g
-          key={index}
-          onMouseDown={handleLabelDown}
-          onContextMenu={handleContextMenu}
-          style={labelStyle}
-        >
-          <line
-            x1={entity.vertices[0].x * scale}
-            y1={entity.vertices[0].y * scale}
-            x2={entity.vertices[1].x * scale}
-            y2={entity.vertices[1].y * scale}
-            stroke={lineColor}
-            strokeWidth={2 * scale}
-            vectorEffect="non-scaling-stroke"
-          />
-          {entity.isLabel && (
-            <line
-              x1={entity.vertices[0].x * scale}
-              y1={entity.vertices[0].y * scale}
-              x2={entity.vertices[1].x * scale}
-              y2={entity.vertices[1].y * scale}
-              stroke="transparent"
-              strokeWidth={hitAreaWidth}
-              vectorEffect="non-scaling-stroke"
-            />
-          )}
+        <g key={index} onMouseDown={handleLabelDown} onContextMenu={handleContextMenu} style={labelStyle}>
+            <line x1={entity.vertices[0].x * scale} y1={entity.vertices[0].y * scale} x2={entity.vertices[1].x * scale} y2={entity.vertices[1].y * scale} stroke={lineColor} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />
+            {entity.isLabel && <line x1={entity.vertices[0].x * scale} y1={entity.vertices[0].y * scale} x2={entity.vertices[1].x * scale} y2={entity.vertices[1].y * scale} stroke="transparent" strokeWidth={hitAreaWidth} vectorEffect="non-scaling-stroke" />}
         </g>
       );
     }
     case "LWPOLYLINE":
     case "POLYLINE": {
       if (!entity.vertices || entity.vertices.length < 2) return null;
-
+      
       // Construção do Path SVG com suporte a Bulge (Arcos)
-      let d = `M ${entity.vertices[0].x * scale} ${
-        entity.vertices[0].y * scale
-      }`;
-
+      let d = `M ${entity.vertices[0].x * scale} ${entity.vertices[0].y * scale}`;
+      
       for (let i = 0; i < entity.vertices.length; i++) {
-        const v1 = entity.vertices[i];
-        // Se for o último vértice e estiver fechado, conecta ao primeiro
-        const v2 = entity.vertices[(i + 1) % entity.vertices.length];
+          const v1 = entity.vertices[i];
+          // Se for o último vértice e estiver fechado, conecta ao primeiro
+          const v2 = entity.vertices[(i + 1) % entity.vertices.length];
+          
+          // Se estamos no último vértice e não é fechado, paramos
+          if (i === entity.vertices.length - 1 && !entity.shape) break;
 
-        // Se estamos no último vértice e não é fechado, paramos
-        if (i === entity.vertices.length - 1 && !entity.shape) break;
-
-        if (v1.bulge && v1.bulge !== 0) {
-          // Desenha Arco
-          const { radius } = bulgeToArc(v1, v2, v1.bulge);
-          const rx = radius * scale;
-          const ry = radius * scale;
-          const rotation = 0;
-          const largeArc = Math.abs(v1.bulge) > 1 ? 1 : 0;
-          const sweep = v1.bulge > 0 ? 1 : 0; // DXF positivo é CCW
-          const x = v2.x * scale;
-          const y = v2.y * scale;
-          d += ` A ${rx} ${ry} ${rotation} ${largeArc} ${sweep} ${x} ${y}`;
-        } else {
-          // Desenha Linha Reta
-          d += ` L ${v2.x * scale} ${v2.y * scale}`;
-        }
+          if (v1.bulge && v1.bulge !== 0) {
+              // Desenha Arco
+              const { radius } = bulgeToArc(v1, v2, v1.bulge);
+              const rx = radius * scale;
+              const ry = radius * scale;
+              const rotation = 0;
+              const largeArc = Math.abs(v1.bulge) > 1 ? 1 : 0;
+              const sweep = v1.bulge > 0 ? 1 : 0; // DXF positivo é CCW
+              const x = v2.x * scale;
+              const y = v2.y * scale;
+              d += ` A ${rx} ${ry} ${rotation} ${largeArc} ${sweep} ${x} ${y}`;
+          } else {
+              // Desenha Linha Reta
+              d += ` L ${v2.x * scale} ${v2.y * scale}`;
+          }
       }
-
+      
       if (entity.shape) d += " Z";
 
-      return (
-        <path
-          key={index}
-          d={d}
-          fill="none"
-          stroke={entity.isLabel ? entity.color || color : color}
-          strokeWidth={2 * scale}
-          vectorEffect="non-scaling-stroke"
-          onMouseDown={handleLabelDown}
-          onContextMenu={handleContextMenu}
-          style={labelStyle}
-        />
-      );
+      return <path key={index} d={d} fill="none" stroke={entity.isLabel ? (entity.color || color) : color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" onMouseDown={handleLabelDown} onContextMenu={handleContextMenu} style={labelStyle} />;
     }
     case "CIRCLE":
-      return (
-        <circle
-          key={index}
-          cx={entity.center.x * scale}
-          cy={entity.center.y * scale}
-          r={entity.radius * scale}
-          fill="none"
-          stroke={entity.isLabel ? entity.color || color : color}
-          strokeWidth={2 * scale}
-          vectorEffect="non-scaling-stroke"
-          onMouseDown={handleLabelDown}
-          onContextMenu={handleContextMenu}
-          style={labelStyle}
-        />
-      );
+      return <circle key={index} cx={entity.center.x * scale} cy={entity.center.y * scale} r={entity.radius * scale} fill="none" stroke={entity.isLabel ? (entity.color || color) : color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" onMouseDown={handleLabelDown} onContextMenu={handleContextMenu} style={labelStyle} />;
     case "ARC": {
       const { startAngle, endAngle, radius, center } = entity;
       const r = radius * scale;
@@ -223,169 +133,108 @@ const renderEntityFunction = (
       const y1 = center.y * scale + r * Math.sin(startAngle);
       const x2 = center.x * scale + r * Math.cos(endAngle);
       const y2 = center.y * scale + r * Math.sin(endAngle);
-      let da = endAngle - startAngle;
-      if (da < 0) da += 2 * Math.PI;
-      const d = `M ${x1} ${y1} A ${r} ${r} 0 ${
-        da > Math.PI ? 1 : 0
-      } 1 ${x2} ${y2}`;
-      return (
-        <path
-          key={index}
-          d={d}
-          fill="none"
-          stroke={entity.isLabel ? entity.color || color : color}
-          strokeWidth={2 * scale}
-          vectorEffect="non-scaling-stroke"
-          onMouseDown={handleLabelDown}
-          onContextMenu={handleContextMenu}
-          style={labelStyle}
-        />
-      );
+      let da = endAngle - startAngle; if (da < 0) da += 2 * Math.PI;
+      const d = `M ${x1} ${y1} A ${r} ${r} 0 ${da > Math.PI ? 1 : 0} 1 ${x2} ${y2}`;
+      return <path key={index} d={d} fill="none" stroke={entity.isLabel ? (entity.color || color) : color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" onMouseDown={handleLabelDown} onContextMenu={handleContextMenu} style={labelStyle} />;
     }
     case "TEXT": {
-      const textColor = entity.color || color;
-      const px = entity.position.x * scale;
-      const py = entity.position.y * scale;
-      const rotation = -(entity.rotation || 0);
-      return (
-        <text
-          key={index}
-          x={0}
-          y={0}
-          fill={textColor}
-          stroke="none"
-          fontSize={entity.height * scale}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          fontWeight="bold"
-          transform={`translate(${px}, ${py}) scale(1, -1) rotate(${rotation})`}
-          style={{ pointerEvents: "none", userSelect: "none" }}
-        >
-          {entity.text}
-        </text>
-      );
+        const textColor = entity.color || color;
+        const px = entity.position.x * scale;
+        const py = entity.position.y * scale;
+        const rotation = -(entity.rotation || 0);
+        return (
+            <text key={index} x={0} y={0} fill={textColor} stroke="none" fontSize={entity.height * scale}
+                textAnchor="middle" dominantBaseline="middle" fontWeight="bold"
+                transform={`translate(${px}, ${py}) scale(1, -1) rotate(${rotation})`}
+                style={{ pointerEvents: "none", userSelect: "none" }}
+            >
+                {entity.text}
+            </text>
+        );
     }
-    default:
-      return null;
+    default: return null;
   }
 };
 
 // --- CÁLCULO ROBUSTO DE BOUNDING BOX (INCLUI BULGES) ---
 const calculateBoundingBox = (entities: any[], blocksData: any) => {
-  let minX = Infinity,
-    minY = Infinity,
-    maxX = -Infinity,
-    maxY = -Infinity;
-  const update = (x: number, y: number) => {
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
-  };
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const update = (x: number, y: number) => { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; };
+    
+    // Verifica pontos extremos de um arco (Cardinal Points: 0, 90, 180, 270 graus)
+    const checkArcBounds = (cx: number, cy: number, r: number, startAngle: number, endAngle: number) => {
+        // Normaliza ângulos para 0-2PI
+        let start = startAngle % (2 * Math.PI);
+        if (start < 0) start += 2 * Math.PI;
+        let end = endAngle % (2 * Math.PI);
+        if (end < 0) end += 2 * Math.PI;
+        if (end < start) end += 2 * Math.PI; // Garante varredura correta
 
-  // Verifica pontos extremos de um arco (Cardinal Points: 0, 90, 180, 270 graus)
-  const checkArcBounds = (
-    cx: number,
-    cy: number,
-    r: number,
-    startAngle: number,
-    endAngle: number
-  ) => {
-    // Normaliza ângulos para 0-2PI
-    let start = startAngle % (2 * Math.PI);
-    if (start < 0) start += 2 * Math.PI;
-    let end = endAngle % (2 * Math.PI);
-    if (end < 0) end += 2 * Math.PI;
-    if (end < start) end += 2 * Math.PI; // Garante varredura correta
+        // Adiciona extremos inicial e final
+        update(cx + r * Math.cos(startAngle), cy + r * Math.sin(startAngle));
+        update(cx + r * Math.cos(endAngle), cy + r * Math.sin(endAngle));
 
-    // Adiciona extremos inicial e final
-    update(cx + r * Math.cos(startAngle), cy + r * Math.sin(startAngle));
-    update(cx + r * Math.cos(endAngle), cy + r * Math.sin(endAngle));
-
-    // Verifica cardeais (0, PI/2, PI, 3PI/2)
-    const cardinals = [
-      0,
-      Math.PI / 2,
-      Math.PI,
-      (3 * Math.PI) / 2,
-      2 * Math.PI,
-      (5 * Math.PI) / 2,
-    ];
-    for (const ang of cardinals) {
-      if (ang > start && ang < end) {
-        update(cx + r * Math.cos(ang), cy + r * Math.sin(ang));
-      }
-    }
-  };
-
-  const traverse = (ents: any[], ox = 0, oy = 0) => {
-    if (!ents) return;
-    ents.forEach((ent) => {
-      if (ent.type === "INSERT") {
-        const b = blocksData[ent.name];
-        if (b && b.entities)
-          traverse(
-            b.entities,
-            (ent.position?.x || 0) + ox,
-            (ent.position?.y || 0) + oy
-          );
-        else update((ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
-      }
-      // --- CORREÇÃO: LÓGICA DE POLYLINE COM BULGE ---
-      else if (ent.vertices) {
-        for (let i = 0; i < ent.vertices.length; i++) {
-          const v1 = ent.vertices[i];
-          update(v1.x + ox, v1.y + oy); // Adiciona vértice atual
-
-          // Se tiver curvatura (Bulge)
-          if (v1.bulge && v1.bulge !== 0) {
-            const v2 = ent.vertices[(i + 1) % ent.vertices.length];
-            if (i === ent.vertices.length - 1 && !ent.shape) continue; // Não fecha se não for loop
-
-            const { cx, cy, radius } = bulgeToArc(v1, v2, v1.bulge);
-
-            // Calcula ângulos
-            const startAngle = Math.atan2(v1.y - cy, v1.x - cx);
-            let endAngle = Math.atan2(v2.y - cy, v2.x - cx);
-
-            // Ajusta direção baseada no Bulge (Negativo = Horário, Positivo = Anti-horário)
-            if (v1.bulge > 0 && endAngle < startAngle) endAngle += 2 * Math.PI;
-            if (v1.bulge < 0 && endAngle > startAngle) endAngle -= 2 * Math.PI;
-
-            // Troca para garantir start < end para a função de verificação
-            if (v1.bulge < 0) {
-              checkArcBounds(cx + ox, cy + oy, radius, endAngle, startAngle);
-            } else {
-              checkArcBounds(cx + ox, cy + oy, radius, startAngle, endAngle);
+        // Verifica cardeais (0, PI/2, PI, 3PI/2)
+        const cardinals = [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2, 2 * Math.PI, 5 * Math.PI / 2];
+        for (const ang of cardinals) {
+            if (ang > start && ang < end) {
+                update(cx + r * Math.cos(ang), cy + r * Math.sin(ang));
             }
-          }
         }
-      } else if (ent.center && ent.radius) {
-        if (ent.type === "ARC") {
-          checkArcBounds(
-            ent.center.x + ox,
-            ent.center.y + oy,
-            ent.radius,
-            ent.startAngle,
-            ent.endAngle
-          );
-        } else {
-          // Circle
-          update(
-            ent.center.x + ox - ent.radius,
-            ent.center.y + oy - ent.radius
-          );
-          update(
-            ent.center.x + ox + ent.radius,
-            ent.center.y + oy + ent.radius
-          );
-        }
-      }
-    });
-  };
-  traverse(entities);
-  if (minX === Infinity) return { minX: 0, minY: 0, width: 0, height: 0 };
-  return { minX, minY, width: maxX - minX, height: maxY - minY };
+    };
+
+    const traverse = (ents: any[], ox = 0, oy = 0) => {
+        if(!ents) return;
+        ents.forEach(ent => {
+             if (ent.type === "INSERT") {
+                const b = blocksData[ent.name];
+                if (b && b.entities) traverse(b.entities, (ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
+                else update((ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
+             } 
+             // --- CORREÇÃO: LÓGICA DE POLYLINE COM BULGE ---
+             else if (ent.vertices) {
+                for (let i = 0; i < ent.vertices.length; i++) {
+                    const v1 = ent.vertices[i];
+                    update(v1.x + ox, v1.y + oy); // Adiciona vértice atual
+
+                    // Se tiver curvatura (Bulge)
+                    if (v1.bulge && v1.bulge !== 0) {
+                        const v2 = ent.vertices[(i + 1) % ent.vertices.length];
+                        if (i === ent.vertices.length - 1 && !ent.shape) continue; // Não fecha se não for loop
+
+                        const { cx, cy, radius } = bulgeToArc(v1, v2, v1.bulge);
+                        
+                        // Calcula ângulos
+                        const startAngle = Math.atan2(v1.y - cy, v1.x - cx);
+                        let endAngle = Math.atan2(v2.y - cy, v2.x - cx);
+                        
+                        // Ajusta direção baseada no Bulge (Negativo = Horário, Positivo = Anti-horário)
+                        if (v1.bulge > 0 && endAngle < startAngle) endAngle += 2 * Math.PI;
+                        if (v1.bulge < 0 && endAngle > startAngle) endAngle -= 2 * Math.PI;
+                        
+                        // Troca para garantir start < end para a função de verificação
+                        if (v1.bulge < 0) {
+                             checkArcBounds(cx + ox, cy + oy, radius, endAngle, startAngle);
+                        } else {
+                             checkArcBounds(cx + ox, cy + oy, radius, startAngle, endAngle);
+                        }
+                    }
+                }
+             } 
+             else if (ent.center && ent.radius) { 
+                 if (ent.type === "ARC") {
+                     checkArcBounds(ent.center.x + ox, ent.center.y + oy, ent.radius, ent.startAngle, ent.endAngle);
+                 } else {
+                     // Circle
+                     update(ent.center.x + ox - ent.radius, ent.center.y + oy - ent.radius);
+                     update(ent.center.x + ox + ent.radius, ent.center.y + oy + ent.radius);
+                 }
+             }
+        });
+    };
+    traverse(entities);
+    if (minX === Infinity) return { minX: 0, minY: 0, width: 0, height: 0 };
+    return { minX, minY, width: maxX - minX, height: maxY - minY };
 };
 
 // --- SUBCOMPONENTE PEÇA ---
@@ -393,7 +242,7 @@ interface PartElementProps {
   placed: PlacedPart;
   isSelected: boolean;
   onMouseDown: (e: React.MouseEvent, partId: string) => void;
-  onLabelDown: (e: React.MouseEvent, type: "white" | "pink") => void;
+  onLabelDown: (e: React.MouseEvent, type: 'white' | 'pink') => void; 
   onDoubleClick: (e: React.MouseEvent, partId: string) => void;
   onContextMenu: (e: React.MouseEvent, partId: string) => void;
   onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void;
@@ -404,221 +253,113 @@ interface PartElementProps {
   theme: AppTheme;
 }
 
-const PartElement = React.memo(
-  forwardRef<SVGGElement, PartElementProps>(
-    (
-      {
-        placed,
-        isSelected,
-        onMouseDown,
-        onLabelDown,
-        onDoubleClick,
-        onContextMenu,
-        onEntityContextMenu,
-        partData,
-        showDebug,
-        strategy,
-        transformData,
-        theme,
-      },
-      ref
-    ) => {
-      if (!partData) return null;
-      const occupiedW =
-        placed.rotation % 180 !== 0 ? partData.height : partData.width;
-      const occupiedH =
-        placed.rotation % 180 !== 0 ? partData.width : partData.height;
-      const finalTransform = transformData
-        ? `translate(${placed.x + transformData.occupiedW / 2}, ${
-            placed.y + transformData.occupiedH / 2
-          }) rotate(${
-            placed.rotation
-          }) translate(${-transformData.centerX}, ${-transformData.centerY})`
-        : "";
-      const strokeColor = isSelected
-        ? "#c94028ff"
-        : theme.text === "#e0e0e0"
-        ? "#007bff"
-        : "#007bff";
+const PartElement = React.memo(forwardRef<SVGGElement, PartElementProps>(({
+  placed, isSelected, onMouseDown, onLabelDown, onDoubleClick, onContextMenu, onEntityContextMenu, partData, showDebug, strategy, transformData, theme
+}, ref) => {
+  if (!partData) return null;
+  const occupiedW = placed.rotation % 180 !== 0 ? partData.height : partData.width;
+  const occupiedH = placed.rotation % 180 !== 0 ? partData.width : partData.height;
+  const finalTransform = transformData ? `translate(${placed.x + transformData.occupiedW / 2}, ${placed.y + transformData.occupiedH / 2}) rotate(${placed.rotation}) translate(${-transformData.centerX}, ${-transformData.centerY})` : "";
+  const strokeColor = isSelected ? "#c94028ff" : theme.text === "#e0e0e0" ? "#007bff" : "#007bff";
 
-      return (
-        <g
-          ref={ref}
-          onMouseDown={(e) => onMouseDown(e, placed.partId)}
-          onDoubleClick={(e) => onDoubleClick(e, placed.partId)}
-          onContextMenu={(e) => onContextMenu(e, placed.partId)}
-          style={{
-            cursor:
-              strategy === "rect" ? "default" : isSelected ? "move" : "pointer",
-            opacity: isSelected ? 0.8 : 1,
-          }}
-        >
-          <rect
-            x={placed.x}
-            y={placed.y}
-            width={occupiedW}
-            height={occupiedH}
-            fill="transparent"
-            stroke={isSelected ? "#a3a3a0ff" : showDebug ? "red" : "none"}
-            strokeWidth={1}
-            vectorEffect="non-scaling-stroke"
-            pointerEvents="all"
-          />
-          <g transform={finalTransform} style={{ pointerEvents: "none" }}>
-            {partData.entities.map((ent, j) =>
-              renderEntityFunction(
-                ent,
-                j,
-                partData.blocks,
-                1,
-                strokeColor,
-                onLabelDown,
-                onEntityContextMenu
-              )
-            )}
-          </g>
-        </g>
-      );
-    }
-  )
-);
+  return (
+    <g ref={ref}
+      onMouseDown={(e) => onMouseDown(e, placed.partId)}
+      onDoubleClick={(e) => onDoubleClick(e, placed.partId)}
+      onContextMenu={(e) => onContextMenu(e, placed.partId)}
+      style={{ cursor: strategy === "rect" ? "default" : isSelected ? "move" : "pointer", opacity: isSelected ? 0.8 : 1 }}
+    >
+      <rect x={placed.x} y={placed.y} width={occupiedW} height={occupiedH} fill="transparent" stroke={isSelected ? "#a3a3a0ff" : showDebug ? "red" : "none"} strokeWidth={1} vectorEffect="non-scaling-stroke" pointerEvents="all" />
+      <g transform={finalTransform} style={{ pointerEvents: "none" }}>
+        {partData.entities.map((ent, j) => 
+            renderEntityFunction(ent, j, partData.blocks, 1, strokeColor, onLabelDown, onEntityContextMenu) 
+        )}
+      </g>
+    </g>
+  );
+}));
 PartElement.displayName = "PartElement";
 
 // --- MAIN CANVAS ---
 export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
-  parts,
-  placedParts,
-  binWidth,
-  binHeight,
-  margin,
-  showDebug,
-  strategy,
-  selectedPartIds,
-  onPartsMove,
-  onLabelDrag,
-  onPartSelect,
-  onContextMenu,
-  onEntityContextMenu,
-  theme,
+  parts, placedParts, binWidth, binHeight, margin, showDebug, strategy, selectedPartIds, onPartsMove, onLabelDrag, onPartSelect, onContextMenu, onEntityContextMenu, theme
 }) => {
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
-  const [dragMode, setDragMode] = useState<"none" | "pan" | "parts" | "label">(
-    "none"
-  );
-  const [draggingLabel, setDraggingLabel] = useState<{
-    partId: string;
-    type: "white" | "pink";
-  } | null>(null);
-  const [boundingBoxCache, setBoundingBoxCache] = useState<BoundingBoxCache>(
-    {}
-  );
-
+  const [dragMode, setDragMode] = useState<"none" | "pan" | "parts" | "label">("none");
+  const [draggingLabel, setDraggingLabel] = useState<{ partId: string, type: 'white'|'pink' } | null>(null);
+  const [boundingBoxCache, setBoundingBoxCache] = useState<BoundingBoxCache>({});
+  
   const svgContainerRef = useRef<HTMLDivElement>(null);
   const panGroupRef = useRef<SVGGElement>(null);
   const transformRef = useRef({ x: 0, y: 0, k: 1 });
   const rafRef = useRef<number | null>(null);
   const partRefs = useRef<{ [key: string]: SVGGElement | null }>({});
   const draggingIdsRef = useRef<string[]>([]);
-  const dragRef = useRef({
-    startX: 0,
-    startY: 0,
-    startSvgX: 0,
-    startSvgY: 0,
-    initialX: 0,
-    initialY: 0,
-  });
+  const dragRef = useRef({ startX: 0, startY: 0, startSvgX: 0, startSvgY: 0, initialX: 0, initialY: 0 });
 
   const getSVGPoint = useCallback((clientX: number, clientY: number) => {
     const svgElement = svgContainerRef.current?.querySelector("svg");
     if (!svgElement) return { x: 0, y: 0 };
     const point = svgElement.createSVGPoint();
-    point.x = clientX;
-    point.y = clientY;
+    point.x = clientX; point.y = clientY;
     return point.matrixTransform(svgElement.getScreenCTM()?.inverse());
   }, []);
 
-  const updateTransform = useCallback(
-    (newT: { x: number; y: number; k: number }) => {
-      transformRef.current = newT;
-      setTransform(newT);
-      if (panGroupRef.current)
-        panGroupRef.current.setAttribute(
-          "transform",
-          `translate(${newT.x}, ${newT.y}) scale(${newT.k})`
-        );
-    },
-    []
-  );
+  const updateTransform = useCallback((newT: { x: number; y: number; k: number }) => {
+    transformRef.current = newT; setTransform(newT);
+    if (panGroupRef.current) panGroupRef.current.setAttribute("transform", `translate(${newT.x}, ${newT.y}) scale(${newT.k})`);
+  }, []);
 
   useEffect(() => {
     const el = svgContainerRef.current;
     if (!el) return;
 
     const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+        e.preventDefault();
+        e.stopPropagation();
 
-      const svgElement = el.querySelector("svg");
-      if (!svgElement) return;
+        const svgElement = el.querySelector("svg");
+        if (!svgElement) return;
 
-      let mouseX = 0,
-        mouseY = 0;
-      try {
-        const point = svgElement.createSVGPoint();
-        point.x = e.clientX;
-        point.y = e.clientY;
-        const svgPoint = point.matrixTransform(
-          svgElement.getScreenCTM()?.inverse()
-        );
-        mouseX = svgPoint.x;
-        mouseY = svgPoint.y;
-      } catch {
-        const rect = el.getBoundingClientRect();
-        mouseX = e.clientX - rect.left;
-        mouseY = e.clientY - rect.top;
-      }
+        let mouseX = 0, mouseY = 0;
+        try {
+            const point = svgElement.createSVGPoint();
+            point.x = e.clientX; point.y = e.clientY;
+            const svgPoint = point.matrixTransform(svgElement.getScreenCTM()?.inverse());
+            mouseX = svgPoint.x; mouseY = svgPoint.y;
+        } catch {
+            const rect = el.getBoundingClientRect();
+            mouseX = e.clientX - rect.left; mouseY = e.clientY - rect.top;
+        }
 
-      const zoomIntensity = 0.15;
-      const wheelDirection = e.deltaY < 0 ? 1 : -1;
-      const scaleFactor = Math.exp(wheelDirection * zoomIntensity);
-      const currentT = transformRef.current;
-      let newScale = currentT.k * scaleFactor;
-      newScale = Math.max(0.1, Math.min(newScale, 50));
-      const scaleRatio = newScale / currentT.k;
-      const newX = mouseX - (mouseX - currentT.x) * scaleRatio;
-      const newY = mouseY - (mouseY - currentT.y) * scaleRatio;
-
-      updateTransform({ x: newX, y: newY, k: newScale });
+        const zoomIntensity = 0.15;
+        const wheelDirection = e.deltaY < 0 ? 1 : -1;
+        const scaleFactor = Math.exp(wheelDirection * zoomIntensity);
+        const currentT = transformRef.current;
+        let newScale = currentT.k * scaleFactor;
+        newScale = Math.max(0.1, Math.min(newScale, 50));
+        const scaleRatio = newScale / currentT.k;
+        const newX = mouseX - (mouseX - currentT.x) * scaleRatio;
+        const newY = mouseY - (mouseY - currentT.y) * scaleRatio;
+        
+        updateTransform({ x: newX, y: newY, k: newScale });
     };
 
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [updateTransform]);
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [updateTransform]); 
 
-  const resetZoom = useCallback(
-    () => updateTransform({ x: 0, y: 0, k: 1 }),
-    [updateTransform]
-  );
+  const resetZoom = useCallback(() => updateTransform({ x: 0, y: 0, k: 1 }), [updateTransform]);
 
   const handleMouseDownContainer = useCallback((e: React.MouseEvent) => {
     setDragMode("pan");
-    dragRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      startSvgX: 0,
-      startSvgY: 0,
-      initialX: transformRef.current.x,
-      initialY: transformRef.current.y,
-    };
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startSvgX: 0, startSvgY: 0, initialX: transformRef.current.x, initialY: transformRef.current.y };
   }, []);
 
-  const handleDoubleClickContainer = useCallback(
-    (e: React.MouseEvent) => {
+  const handleDoubleClickContainer = useCallback((e: React.MouseEvent) => {
       e.preventDefault();
       onPartSelect([], false);
-    },
-    [onPartSelect]
-  );
+  }, [onPartSelect]);
 
   const partTransforms = useMemo(() => {
     const transforms: Record<string, any> = {};
@@ -627,17 +368,12 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       if (!part) return;
       const cachedBox = boundingBoxCache[placed.partId];
       let box;
-      if (cachedBox) {
-        box = cachedBox;
-      } else {
+      if (cachedBox) { box = cachedBox; } 
+      else {
         box = calculateBoundingBox(part.entities, part.blocks);
-        const newBox = {
-          ...box,
-          centerX: box.minX + box.width / 2,
-          centerY: box.minY + box.height / 2,
-        };
+        const newBox = { ...box, centerX: box.minX + box.width / 2, centerY: box.minY + box.height / 2 };
         requestAnimationFrame(() => {
-          setBoundingBoxCache((prev) => ({ ...prev, [placed.partId]: newBox }));
+            setBoundingBoxCache((prev) => ({ ...prev, [placed.partId]: newBox }));
         });
         box = newBox;
       }
@@ -651,80 +387,55 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     return transforms;
   }, [placedParts, parts, boundingBoxCache]);
 
-  const handleDoubleClickPart = useCallback(
-    (e: React.MouseEvent, partId: string) => {
-      e.preventDefault();
-      e.stopPropagation();
+  const handleDoubleClickPart = useCallback((e: React.MouseEvent, partId: string) => {
+      e.preventDefault(); e.stopPropagation();
       const isCtrl = e.ctrlKey || e.metaKey;
       let newSelection = [...selectedPartIds];
       if (isCtrl) {
-        if (newSelection.includes(partId))
-          newSelection = newSelection.filter((id) => id !== partId);
+        if (newSelection.includes(partId)) newSelection = newSelection.filter((id) => id !== partId);
         else newSelection.push(partId);
         onPartSelect(newSelection, false);
       } else {
         onPartSelect([partId], false);
       }
-    },
-    [selectedPartIds, onPartSelect]
-  );
+  }, [selectedPartIds, onPartSelect]);
 
-  const handleMouseDownPart = useCallback(
-    (e: React.MouseEvent, partId: string) => {
-      e.stopPropagation();
-      if (!selectedPartIds.includes(partId)) return;
-      if (strategy !== "rect" && e.button === 0) {
-        e.preventDefault();
-        setDragMode("parts");
-        draggingIdsRef.current = selectedPartIds;
-        const svgPos = getSVGPoint(e.clientX, e.clientY);
-        dragRef.current = {
-          startX: e.clientX,
-          startY: e.clientY,
-          startSvgX: svgPos.x,
-          startSvgY: svgPos.y,
-          initialX: 0,
-          initialY: 0,
-        };
-      }
-    },
-    [strategy, selectedPartIds, getSVGPoint]
-  );
+  const handleMouseDownPart = useCallback((e: React.MouseEvent, partId: string) => {
+    e.stopPropagation();
+    if (!selectedPartIds.includes(partId)) return;    
+    if (strategy !== "rect" && e.button === 0) {
+      e.preventDefault();
+      setDragMode("parts");
+      draggingIdsRef.current = selectedPartIds;
+      const svgPos = getSVGPoint(e.clientX, e.clientY);
+      dragRef.current = { startX: e.clientX, startY: e.clientY, startSvgX: svgPos.x, startSvgY: svgPos.y, initialX: 0, initialY: 0 };
+    }
+  }, [strategy, selectedPartIds, getSVGPoint]);
 
   // HANDLER: Começa a arrastar a etiqueta
-  const handleLabelDown = useCallback(
-    (e: React.MouseEvent, partId: string, type: "white" | "pink") => {
+  const handleLabelDown = useCallback((e: React.MouseEvent, partId: string, type: 'white' | 'pink') => {
       setDragMode("label");
       setDraggingLabel({ partId, type });
-      const svgPos = getSVGPoint(e.clientX, e.clientY);
-      dragRef.current = {
-        startX: 0,
-        startY: 0,
-        startSvgX: svgPos.x,
-        startSvgY: svgPos.y,
-        initialX: 0,
-        initialY: 0,
-      };
-    },
-    [getSVGPoint]
-  );
+      const svgPos = getSVGPoint(e.clientX, e.clientY); 
+      dragRef.current = { startX: 0, startY: 0, startSvgX: svgPos.x, startSvgY: svgPos.y, initialX: 0, initialY: 0 };
+  }, [getSVGPoint]);
 
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (dragMode === "none") return;
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (dragMode === "none") return;
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    
+    rafRef.current = requestAnimationFrame(() => {
+      const currentSvgPos = getSVGPoint(e.clientX, e.clientY);
 
-      rafRef.current = requestAnimationFrame(() => {
-        const currentSvgPos = getSVGPoint(e.clientX, e.clientY);
-
-        if (dragMode === "label" && draggingLabel && onLabelDrag) {
+      if (dragMode === "label" && draggingLabel && onLabelDrag) {
           const dx = currentSvgPos.x - dragRef.current.startSvgX;
           const dy = currentSvgPos.y - dragRef.current.startSvgY;
           // IMPORTANTE: Invertendo Y
-          onLabelDrag(draggingLabel.partId, draggingLabel.type, dx, -dy);
+          onLabelDrag(draggingLabel.partId, draggingLabel.type, dx, -dy); 
           dragRef.current.startSvgX = currentSvgPos.x;
           dragRef.current.startSvgY = currentSvgPos.y;
-        } else if (dragMode === "pan" && panGroupRef.current) {
+      }
+      else if (dragMode === "pan" && panGroupRef.current) {
           const dx = e.clientX - dragRef.current.startX;
           const dy = e.clientY - dragRef.current.startY;
           const currentK = transformRef.current.k;
@@ -732,31 +443,24 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           const newY = dragRef.current.initialY + dy;
           transformRef.current.x = newX;
           transformRef.current.y = newY;
-          panGroupRef.current.setAttribute(
-            "transform",
-            `translate(${newX}, ${newY}) scale(${currentK})`
-          );
-        } else if (dragMode === "parts") {
+          panGroupRef.current.setAttribute("transform", `translate(${newX}, ${newY}) scale(${currentK})`);
+      } else if (dragMode === "parts") {
           const deltaX = currentSvgPos.x - dragRef.current.startSvgX;
           const deltaY = currentSvgPos.y - dragRef.current.startSvgY;
           const visualToCncY = -deltaY;
           draggingIdsRef.current.forEach((id) => {
             const el = partRefs.current[id];
-            if (el)
-              el.style.transform = `translate3d(${deltaX}px, ${visualToCncY}px, 0)`;
+            if (el) el.style.transform = `translate3d(${deltaX}px, ${visualToCncY}px, 0)`;
           });
-        }
-      });
-    },
-    [dragMode, getSVGPoint, draggingLabel, onLabelDrag]
-  );
+      }
+    });
+  }, [dragMode, getSVGPoint, draggingLabel, onLabelDrag]);
 
   const handleMouseUp = useCallback(() => {
     if (dragMode === "none") return;
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    if (dragMode === "pan") {
-      setTransform({ ...transformRef.current });
-    } else if (dragMode === "parts") {
+    if (dragMode === "pan") { setTransform({ ...transformRef.current }); }
+    else if (dragMode === "parts") {
       const moves: { partId: string; dx: number; dy: number }[] = [];
       draggingIdsRef.current.forEach((id) => {
         const el = partRefs.current[id];
@@ -764,9 +468,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           const style = window.getComputedStyle(el);
           const matrix = new DOMMatrixReadOnly(style.transform);
           moves.push({ partId: id, dx: matrix.m41, dy: matrix.m42 });
-          el.style.transform = "";
-          el.style.willChange = "";
-          el.style.cursor = "";
+          el.style.transform = ""; el.style.willChange = ""; el.style.cursor = "";
         }
       });
       if (moves.length > 0) onPartsMove(moves);
@@ -777,168 +479,62 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   }, [dragMode, onPartsMove]);
 
   const binViewBox = useMemo(() => {
-    const pX = binWidth * 0.05,
-      pY = binHeight * 0.05;
+    const pX = binWidth * 0.05, pY = binHeight * 0.05;
     return `${-pX} ${-pY} ${binWidth + pX * 2} ${binHeight + pY * 2}`;
   }, [binWidth, binHeight]);
 
   const btnStyle: React.CSSProperties = {
-    width: 30,
-    height: 30,
-    padding: 0,
-    lineHeight: 1,
-    cursor: "pointer",
-    background: theme.buttonBg,
-    border: `1px solid ${theme.buttonBorder}`,
-    color: theme.text,
-    borderRadius: "4px",
-    fontWeight: "bold",
-    fontSize: "16px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingBottom: "2px",
+    width: 30, height: 30, padding: 0, lineHeight: 1, cursor: "pointer",
+    background: theme.buttonBg, border: `1px solid ${theme.buttonBorder}`,
+    color: theme.text, borderRadius: "4px", fontWeight: "bold", fontSize: "16px",
+    display: "flex", alignItems: "center", justifyContent: "center", paddingBottom: "2px"
   };
 
   const cncTransform = `translate(0, ${binHeight}) scale(1, -1)`;
 
   return (
-    <div
-      ref={svgContainerRef}
-      style={{
-        flex: 2,
-        position: "relative",
-        background: "transparent",
-        display: "flex",
-        flexDirection: "column",
-        cursor:
-          dragMode === "label" || dragMode === "parts"
-            ? "grabbing"
-            : dragMode === "pan"
-            ? "grabbing"
-            : "grab",
-        overflow: "hidden",
-        width: "100%",
-        height: "100%",
-      }}
-      onMouseDown={handleMouseDownContainer}
-      onDoubleClick={handleDoubleClickContainer}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
-    >
-      <div
-        style={{
-          position: "absolute",
-          right: 20,
-          top: 20,
-          display: "flex",
-          flexDirection: "column",
-          gap: "5px",
-          zIndex: 10,
-        }}
-      >
-        <button
-          onClick={() =>
-            updateTransform({
-              ...transformRef.current,
-              k: transformRef.current.k * 1.2,
-            })
-          }
-          style={btnStyle}
-        >
-          ➕
-        </button>
-        <button
-          onClick={() =>
-            updateTransform({
-              ...transformRef.current,
-              k: transformRef.current.k / 1.2,
-            })
-          }
-          style={btnStyle}
-        >
-          ➖
-        </button>
-        <button onClick={resetZoom} style={{ ...btnStyle, fontSize: "12px" }}>
-          ⛶
-        </button>
-      </div>
-
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          padding: "20px",
-          overflow: "hidden",
-        }}
-      >
-        <svg
-          viewBox={binViewBox}
-          preserveAspectRatio="xMidYMid meet"
-          style={{ width: "100%", height: "100%" }}
-        >
-          <g
-            ref={panGroupRef}
-            transform={`translate(${transform.x}, ${transform.y}) scale(${transform.k})`}
-          >
-            <g transform={cncTransform}>
-              <rect
-                x="0"
-                y="0"
-                width={binWidth}
-                height={binHeight}
-                fill={showDebug ? "none" : "none"}
-                stroke="#4e4e4dff"
-                strokeWidth="2"
-                vectorEffect="non-scaling-stroke"
-              />
-              {showDebug && (
-                <rect
-                  x={margin}
-                  y={margin}
-                  width={binWidth - margin * 2}
-                  height={binHeight - margin * 2}
-                  fill="none"
-                  stroke="#999"
-                  strokeDasharray="5"
-                  strokeWidth="1"
-                  vectorEffect="non-scaling-stroke"
-                />
-              )}
-
-              {placedParts.map((placed) => {
-                const part = parts.find((p) => p.id === placed.partId);
-                if (!part) return null;
-                return (
-                  <PartElement
-                    key={placed.partId}
-                    ref={(el) => {
-                      partRefs.current[placed.partId] = el;
-                    }}
-                    placed={placed}
-                    isSelected={selectedPartIds.includes(placed.partId)}
-                    onMouseDown={handleMouseDownPart}
-                    onLabelDown={(e, type) =>
-                      handleLabelDown(e, placed.partId, type)
-                    }
-                    onDoubleClick={handleDoubleClickPart}
-                    onContextMenu={onContextMenu}
-                    onEntityContextMenu={onEntityContextMenu}
-                    partData={part}
-                    showDebug={showDebug}
-                    strategy={strategy}
-                    transformData={partTransforms[placed.partId] || {}}
-                    theme={theme}
-                  />
-                );
-              })}
+    <div ref={svgContainerRef} style={{flex: 2, position: "relative", background: "transparent", display: "flex", flexDirection: "column", cursor: dragMode === "label" || dragMode === "parts" ? "grabbing" : dragMode === "pan" ? "grabbing" : "grab", overflow: "hidden", width: "100%", height: "100%"}}
+      onMouseDown={handleMouseDownContainer} onDoubleClick={handleDoubleClickContainer} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
+        
+        <div style={{ position: "absolute", right: 20, top: 20, display: "flex", flexDirection: "column", gap: "5px", zIndex: 10 }}>
+            <button onClick={() => updateTransform({ ...transformRef.current, k: transformRef.current.k * 1.2 })} style={btnStyle}>➕</button>
+            <button onClick={() => updateTransform({ ...transformRef.current, k: transformRef.current.k / 1.2 })} style={btnStyle}>➖</button>
+            <button onClick={resetZoom} style={{ ...btnStyle, fontSize: "12px" }}>⛶</button>
+        </div>
+        
+        <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center", padding: "20px", overflow: "hidden" }}>
+            <svg viewBox={binViewBox} preserveAspectRatio="xMidYMid meet" style={{ width: "100%", height: "100%" }}>
+            <g ref={panGroupRef} transform={`translate(${transform.x}, ${transform.y}) scale(${transform.k})`}>
+                <g transform={cncTransform}>
+                <rect x="0" y="0" width={binWidth} height={binHeight} fill={showDebug ? "none" : "none"} stroke="#4e4e4dff" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+                {showDebug && <rect x={margin} y={margin} width={binWidth - margin * 2} height={binHeight - margin * 2} fill="none" stroke="#999" strokeDasharray="5" strokeWidth="1" vectorEffect="non-scaling-stroke" />}
+                
+                {placedParts.map((placed) => {
+                    const part = parts.find((p) => p.id === placed.partId);
+                    if (!part) return null;
+                    return (
+                    <PartElement
+                        key={placed.partId}
+                        ref={(el) => { partRefs.current[placed.partId] = el; }}
+                        placed={placed}
+                        isSelected={selectedPartIds.includes(placed.partId)}
+                        onMouseDown={handleMouseDownPart}
+                        onLabelDown={(e, type) => handleLabelDown(e, placed.partId, type)} 
+                        onDoubleClick={handleDoubleClickPart}
+                        onContextMenu={onContextMenu}
+                        onEntityContextMenu={onEntityContextMenu} 
+                        partData={part}
+                        showDebug={showDebug}
+                        strategy={strategy}
+                        transformData={partTransforms[placed.partId] || {}}
+                        theme={theme}
+                    />
+                    );
+                })}
+                </g>
             </g>
-          </g>
-        </svg>
-      </div>
+            </svg>
+        </div>
     </div>
   );
 };

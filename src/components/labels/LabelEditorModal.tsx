@@ -356,7 +356,19 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
             </div>
             <div style={{ flex: 1, minWidth: '300px', borderLeft: `1px solid ${theme.border}`, display: 'flex', flexDirection: 'column' }}>
                 <div style={{ padding: '15px', borderBottom: `1px solid ${theme.border}`, background: theme.headerBg }}><h3 style={{ margin: 0, fontSize: 16 }}>Editor</h3><div style={{fontSize: 12, opacity: 0.7, marginTop: 5}}>{part.name}</div></div>
-                <div style={{ display: 'flex', borderBottom: `1px solid ${theme.border}` }}><button onClick={() => setActiveTab('white')} style={{ flex: 1, padding: 10, cursor: 'pointer', border: 'none', background: activeTab === 'white' ? theme.panelBg : 'transparent', color: activeTab === 'white' ? theme.text : '#888', fontWeight: 'bold', borderBottom: activeTab === 'white' ? '2px solid white' : 'none' }}>⚪ ID</button><button onClick={() => setActiveTab('pink')} style={{ flex: 1, padding: 10, cursor: 'pointer', border: 'none', background: activeTab === 'pink' ? theme.panelBg : 'transparent', color: activeTab === 'pink' ? '#FF00FF' : '#888', fontWeight: 'bold', borderBottom: activeTab === 'pink' ? '2px solid #FF00FF' : 'none' }}>🌸 Gravação</button></div>
+                <div style={{ display: 'flex', borderBottom: `1px solid ${theme.border}` }}><button onClick={() => setActiveTab('white')} style={{ flex: 1, padding: 10, cursor: 'pointer', border: 'none', background: activeTab === 'white' ? theme.panelBg : 'transparent', color: activeTab === 'white' ? theme.text : '#888', fontWeight: 'bold', borderBottom: activeTab === 'white' ? '2px solid white' : 'none' }}>⚪ ID</button><button onClick={() => setActiveTab('pink')} style={{ flex: 1, padding: 10, cursor: 'pointer', border: 'none', background: activeTab === 'pink' ? theme.panelBg : 'transparent', color: activeTab === 'pink' ? '#FF00FF' : '#888', fontWeight: 'bold', borderBottom: activeTab === 'pink' ? '2px solid #FF00FF' : 'none' }}><svg 
+    width="14" 
+    height="14" 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="#FF00FF" 
+    strokeWidth="3" 
+    strokeLinecap="round" 
+    strokeLinejoin="round"
+    style={{ display: 'inline-block' }}
+>
+    <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+</svg> Gravação</button></div>
                 <div style={{ padding: 20, flex: 1, overflowY: 'auto', background: theme.panelBg }}>{renderControls()}</div>
                 <div style={{ padding: 15, borderTop: `1px solid ${theme.border}`, textAlign: 'right', background: theme.headerBg }}><button onClick={onClose} style={{padding: '10px 25px', background: '#28a745', color:'white', border:'none', borderRadius:4, cursor:'pointer', fontWeight:'bold', fontSize:14}}>Concluir</button></div>
             </div>
