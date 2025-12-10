@@ -16,11 +16,9 @@ import { getTheme } from "../styles/theme";
 import { PartFilter, type FilterState } from "./PartFilter";
 import NestingWorker from "../workers/nesting.worker?worker";
 
-// --- NOVOS IMPORTS DE ETIQUETAS ---
 import { useLabelManager } from "../hooks/useLabelManager";
-import { GlobalLabelPanel } from "./labels/LabelControls";
-import { ThumbnailFlags } from "./labels/LabelControls";
-import { LabelContextMenu } from "./labels/LabelContextMenu";
+import { GlobalLabelPanel, ThumbnailFlags } from "./labels/LabelControls";
+import { LabelEditorModal } from "./labels/LabelEditorModal"; 
 import type { LabelConfig } from "./labels/LabelTypes";
 import { textToVectorLines } from "../utils/vectorFont"; 
 
@@ -33,13 +31,75 @@ interface NestingBoardProps {
   onBack?: () => void;
 }
 
-// Helper para extrair apenas números e letras essenciais
-const cleanTextContent = (text: string): string => {
-    if (!text) return "";
-    return text.replace(/[^a-zA-Z0-9-]/g, '');
+const cleanTextContent = (text: string): string => text ? text.replace(/[^a-zA-Z0-9-]/g, '') : "";
+
+// --- MATEMÁTICA DE ARCOS (Para sincronia perfeita com o Modal) ---
+const bulgeToArc = (p1: {x: number, y: number}, p2: {x: number, y: number}, bulge: number) => {
+    const chordDx = p2.x - p1.x;
+    const chordDy = p2.y - p1.y;
+    const chordLen = Math.sqrt(chordDx * chordDx + chordDy * chordDy);
+    const radius = chordLen * (1 + bulge * bulge) / (4 * Math.abs(bulge));
+    const cx = (p1.x + p2.x) / 2 - (chordDy * (1 - bulge * bulge)) / (4 * bulge);
+    const cy = (p1.y + p2.y) / 2 + (chordDx * (1 - bulge * bulge)) / (4 * bulge);
+    return { radius, cx, cy };
 };
 
-// --- RENDER ENTITY ---
+// --- CÁLCULO DE BOUNDING BOX ROBUSTO (Idêntico ao Modal) ---
+const calculateBoundingBox = (entities: any[], blocks: any = {}): { minX: number, minY: number, maxX: number, maxY: number, width: number, height: number, cx: number, cy: number } => {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    
+    const update = (x: number, y: number) => {
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+    };
+
+    const checkArcBounds = (cx: number, cy: number, r: number, startAngle: number, endAngle: number) => {
+        let start = startAngle % (2 * Math.PI); if (start < 0) start += 2 * Math.PI;
+        let end = endAngle % (2 * Math.PI); if (end < 0) end += 2 * Math.PI;
+        if (end < start) end += 2 * Math.PI;
+        update(cx + r * Math.cos(startAngle), cy + r * Math.sin(startAngle));
+        update(cx + r * Math.cos(endAngle), cy + r * Math.sin(endAngle));
+        const cardinals = [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2, 2 * Math.PI, 5 * Math.PI / 2];
+        for (const ang of cardinals) { if (ang > start && ang < end) update(cx + r * Math.cos(ang), cy + r * Math.sin(ang)); }
+    };
+
+    const traverse = (ents: any[], ox = 0, oy = 0) => {
+        if(!ents) return;
+        ents.forEach(ent => {
+            if (ent.type === 'INSERT') {
+                const block = blocks[ent.name];
+                if (block && block.entities) traverse(block.entities, ox + (ent.position?.x||0), oy + (ent.position?.y||0));
+                else if (ent.position) update(ox + ent.position.x, oy + ent.position.y);
+            }
+            else if (ent.vertices) {
+                for (let i = 0; i < ent.vertices.length; i++) {
+                    const v1 = ent.vertices[i];
+                    update(ox + v1.x, oy + v1.y);
+                    if (v1.bulge && v1.bulge !== 0) {
+                        const v2 = ent.vertices[(i + 1) % ent.vertices.length];
+                        if (i === ent.vertices.length - 1 && !ent.shape) continue;
+                        const { cx, cy, radius } = bulgeToArc(v1, v2, v1.bulge);
+                        const startAngle = Math.atan2(v1.y - cy, v1.x - cx);
+                        let endAngle = Math.atan2(v2.y - cy, v2.x - cx);
+                        if (v1.bulge > 0 && endAngle < startAngle) endAngle += 2 * Math.PI;
+                        if (v1.bulge < 0 && endAngle > startAngle) endAngle -= 2 * Math.PI;
+                        if (v1.bulge < 0) checkArcBounds(ox + cx, oy + cy, radius, endAngle, startAngle);
+                        else checkArcBounds(ox + cx, oy + cy, radius, startAngle, endAngle);
+                    }
+                }
+            } 
+            else if (ent.center && ent.radius) { 
+                if (ent.type === 'ARC') checkArcBounds(ox + ent.center.x, oy + ent.center.y, ent.radius, ent.startAngle, ent.endAngle);
+                else { update(ox + ent.center.x - ent.radius, oy + ent.center.y - ent.radius); update(ox + ent.center.x + ent.radius, oy + ent.center.y + ent.radius); }
+            }
+        });
+    };
+    traverse(entities);
+    if (minX === Infinity) return { minX: 0, minY: 0, maxX: 100, maxY: 100, width: 100, height: 100, cx: 50, cy: 50 };
+    return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
+};
+
+// --- RENDER ENTITY (Versão robusta para Miniaturas) ---
 const renderEntityFunction = (
   entity: any,
   index: number,
@@ -52,19 +112,11 @@ const renderEntityFunction = (
       const block = blocks[entity.name];
       if (!block || !block.entities) return null;
       return (
-        <g
-          key={index}
-          transform={`translate(${(entity.position?.x || 0) * scale}, ${
-            (entity.position?.y || 0) * scale
-          }) scale(${scale})`}
-        >
-          {block.entities.map((s: any, i: number) =>
-            renderEntityFunction(s, i, blocks, 1, color)
-          )}
+        <g key={index} transform={`translate(${(entity.position?.x || 0) * scale}, ${(entity.position?.y || 0) * scale}) scale(${scale})`}>
+          {block.entities.map((s: any, i: number) => renderEntityFunction(s, i, blocks, 1, color))}
         </g>
       );
     }
-    // --- CORREÇÃO AQUI: Chaves { } adicionadas para isolar o escopo da variável 'lineColor'
     case "LINE": {
       const lineColor = entity.isLabel ? (entity.color || color) : color;
       return <line key={index} x1={entity.vertices[0].x * scale} y1={entity.vertices[0].y * scale} x2={entity.vertices[1].x * scale} y2={entity.vertices[1].y * scale} stroke={lineColor} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />;
@@ -72,8 +124,24 @@ const renderEntityFunction = (
     case "LWPOLYLINE":
     case "POLYLINE": {
       if (!entity.vertices) return null;
-      const d = entity.vertices.map((v: any, i: number) => `${i === 0 ? "M" : "L"} ${v.x * scale} ${v.y * scale}`).join(" ");
-      return <path key={index} d={entity.shape ? d + " Z" : d} fill="none" stroke={color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />;
+      let d = `M ${entity.vertices[0].x * scale} ${entity.vertices[0].y * scale}`;
+      for (let i = 0; i < entity.vertices.length; i++) {
+          const v1 = entity.vertices[i];
+          const v2 = entity.vertices[(i + 1) % entity.vertices.length];
+          if (i === entity.vertices.length - 1 && !entity.shape) break;
+          if (v1.bulge && v1.bulge !== 0) {
+              const { radius } = bulgeToArc(v1, v2, v1.bulge);
+              const rx = radius * scale;
+              const ry = radius * scale;
+              const largeArc = Math.abs(v1.bulge) > 1 ? 1 : 0;
+              const sweep = v1.bulge > 0 ? 1 : 0;
+              const x = v2.x * scale;
+              const y = v2.y * scale;
+              d += ` A ${rx} ${ry} 0 ${largeArc} ${sweep} ${x} ${y}`;
+          } else { d += ` L ${v2.x * scale} ${v2.y * scale}`; }
+      }
+      if (entity.shape) d += " Z";
+      return <path key={index} d={d} fill="none" stroke={color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />;
     }
     case "CIRCLE":
       return <circle key={index} cx={entity.center.x * scale} cy={entity.center.y * scale} r={entity.radius * scale} fill="none" stroke={color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />;
@@ -84,12 +152,11 @@ const renderEntityFunction = (
       const y1 = center.y * scale + r * Math.sin(startAngle);
       const x2 = center.x * scale + r * Math.cos(endAngle);
       const y2 = center.y * scale + r * Math.sin(endAngle);
-      let da = endAngle - startAngle;
-      if (da < 0) da += 2 * Math.PI;
-      const d = `M ${x1} ${y1} A ${r} ${r} 0 ${da > Math.PI ? 1 : 0} 1 ${x2} ${y2}`;
+      let da = endAngle - startAngle; if (da < 0) da += 2 * Math.PI;
+      const largeArc = da > Math.PI ? 1 : 0;
+      const d = `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`;
       return <path key={index} d={d} fill="none" stroke={color} strokeWidth={2 * scale} vectorEffect="non-scaling-stroke" />;
     }
-    // Caso ainda exista algum TEXT residual
     case "TEXT": {
         const textColor = entity.color || color;
         const finalColor = entity.isLabel ? (entity.labelType === 'white' ? '#999' : '#FF00FF') : textColor;
@@ -114,39 +181,6 @@ const renderEntityFunction = (
   }
 };
 
-const calculateBoundingBox = (entities: any[], blocksData: any) => {
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  const update = (x: number, y: number) => {
-    if (x < minX) minX = x; if (x > maxX) maxX = x;
-    if (y < minY) minY = y; if (y > maxY) maxY = y;
-  };
-  const traverse = (ents: any[], ox = 0, oy = 0) => {
-    if (!ents) return;
-    ents.forEach((ent) => {
-      if (ent.type === "INSERT") {
-        const b = blocksData[ent.name];
-        if (b && b.entities) traverse(b.entities, (ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
-        else update((ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
-      } else if (ent.vertices) {
-        ent.vertices.forEach((v: any) => update(v.x + ox, v.y + oy));
-      } else if (ent.center && ent.radius && ent.type === "CIRCLE") {
-        update(ent.center.x + ox - ent.radius, ent.center.y + oy - ent.radius);
-        update(ent.center.x + ox + ent.radius, ent.center.y + oy + ent.radius);
-      } else if (ent.type === "ARC") {
-        const cx = ent.center.x + ox; const cy = ent.center.y + oy; const r = ent.radius;
-        const startAngle = ent.startAngle; let endAngle = ent.endAngle;
-        if (endAngle < startAngle) endAngle += 2 * Math.PI;
-        update(cx + r * Math.cos(startAngle), cy + r * Math.sin(startAngle));
-        update(cx + r * Math.cos(endAngle), cy + r * Math.sin(endAngle));
-      }
-    });
-  };
-  traverse(entities);
-  if (minX === Infinity) return { minX: 0, minY: 0, width: 0, height: 0 };
-  return { minX, minY, width: maxX - minX, height: maxY - minY };
-};
-
-// --- COMPONENTE PRINCIPAL ---
 export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => {
   const [isDarkMode, setIsDarkMode] = useState(true);
   const theme = getTheme(isDarkMode);
@@ -159,21 +193,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
   const [iterations] = useState(50);
   const [rotationStep, setRotationStep] = useState(90);
 
-  const { 
-      labelStates, 
-      globalWhiteEnabled, 
-      globalPinkEnabled, 
-      toggleGlobal, 
-      togglePartFlag, 
-      updateLabelConfig 
-  } = useLabelManager(parts);
-
-  const [labelMenu, setLabelMenu] = useState<{ 
-      x: number; 
-      y: number; 
-      partId: string; 
-      type: 'white' | 'pink' 
-  } | null>(null);
+  const { labelStates, globalWhiteEnabled, globalPinkEnabled, toggleGlobal, togglePartFlag, updateLabelConfig } = useLabelManager(parts);
+  const [editingPartId, setEditingPartId] = useState<string | null>(null);
 
   const [quantities, setQuantities] = useState<{ [key: string]: number }>(() => {
     const initialQ: { [key: string]: number } = {};
@@ -181,16 +202,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
     return initialQ;
   });
 
-  const [filters, setFilters] = useState<FilterState>({ 
-      pedido: [], 
-      op: [], 
-      material: '', 
-      espessura: '' 
-  });
+  const [filters, setFilters] = useState<FilterState>({ pedido: [], op: [], material: '', espessura: '' });
 
-  // --- LÓGICA DE FILTRO + INJEÇÃO DE TEXTO VETORIAL ---
+  // --- LÓGICA DE FILTRO + INJEÇÃO DE TEXTO ---
   const displayedParts = useMemo(() => {
-    // A. Filtra Primeiro
     const filtered = parts.filter(p => {
         const matchPedido = filters.pedido.length === 0 || filters.pedido.includes(p.pedido);
         const matchOp = filters.op.length === 0 || filters.op.includes(p.op);
@@ -199,101 +214,66 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
         return matchPedido && matchOp && matchMaterial && matchEspessura;
     });
 
-    // B. Injeta as Etiquetas (LINHAS VETORIAIS)
     return filtered.map(part => {
         const state = labelStates[part.id];
         if (!state) return part;
 
+        // USA O CÁLCULO ROBUSTO PARA ACHAR O CENTRO (Sincronizado com o Modal)
+        const bounds = calculateBoundingBox(part.entities, part.blocks);
+        
         const newEntities = [...part.entities];
-
-        // PRIORIDADE: PEDIDO > OP > NOME
         const rawText = part.pedido || part.op || part.name;
         const finalText = cleanTextContent(rawText);
 
-        // Função auxiliar para criar linhas vetoriais
         const addLabelVector = (config: LabelConfig, color: string, type: 'white' | 'pink') => {
             if (config.active && finalText) {
-                const posX = (part.width / 2) + config.offsetX;
-                const posY = (part.height / 2) + config.offsetY;
+                // USA bounds.cx e bounds.cy 
+                const posX = bounds.cx + config.offsetX;
+                const posY = bounds.cy + config.offsetY;
 
-                // 1. Gera as linhas usando sua função vectorFonts
-                const vectorLines = textToVectorLines(
-                    finalText, 
-                    posX, 
-                    posY, 
-                    config.fontSize, 
-                    color
-                );
+                const vectorLines = textToVectorLines(finalText, posX, posY, config.fontSize, color);
 
-                // 2. Aplica Rotação se necessário
                 const rotatedLines = vectorLines.map((line: any) => {
                     if(config.rotation === 0) return line;
-                    
-                    // Rotaciona ponto ao redor de (posX, posY)
                     const rotatePoint = (x: number, y: number) => {
                          const rad = (config.rotation * Math.PI) / 180;
                          const dx = x - posX;
                          const dy = y - posY;
-                         return {
-                             x: posX + dx * Math.cos(rad) - dy * Math.sin(rad),
-                             y: posY + dx * Math.sin(rad) + dy * Math.cos(rad)
-                         };
+                         return { x: posX + dx * Math.cos(rad) - dy * Math.sin(rad), y: posY + dx * Math.sin(rad) + dy * Math.cos(rad) };
                     };
-                    
-                    const p1 = rotatePoint(line.vertices[0].x, line.vertices[0].y);
-                    const p2 = rotatePoint(line.vertices[1].x, line.vertices[1].y);
-                    
-                    return { ...line, vertices: [p1, p2] };
+                    return { ...line, vertices: [rotatePoint(line.vertices[0].x, line.vertices[0].y), rotatePoint(line.vertices[1].x, line.vertices[1].y)] };
                 });
 
-                // 3. Adiciona metadados para interação
                 const taggedLines = rotatedLines.map((line: any) => ({
-                    ...line,
-                    isLabel: true,
-                    labelType: type,
-                    partId: part.id,
-                    color: color
+                    ...line, isLabel: true, labelType: type, partId: part.id, color: color
                 }));
-
                 newEntities.push(...taggedLines);
             }
         };
 
-        // Adiciona texto Branco
         addLabelVector(state.white, '#FFFFFF', 'white');
-        
-        // Adiciona texto Rosa
         addLabelVector(state.pink, '#FF00FF', 'pink');
 
-        return {
-            ...part,
-            entities: newEntities
-        };
+        return { ...part, entities: newEntities };
     });
   }, [parts, filters, labelStates]);
 
+  // (Restante do componente mantido igual)
   const [activeTab, setActiveTab] = useState<"grid" | "list">("grid");
   const [showDebug, setShowDebug] = useState(true);
-
-  // Undo/Redo Hook
   const [nestingResult, setNestingResult, undo, redo, resetNestingResult, canUndo, canRedo] = useUndoRedo<PlacedPart[]>([]);
-
   const [isComputing, setIsComputing] = useState(false);
   const [failedCount, setFailedCount] = useState(0);
   const [totalBins, setTotalBins] = useState(1);
   const [currentBinIndex, setCurrentBinIndex] = useState(0);
   const [selectedPartIds, setSelectedPartIds] = useState<string[]>([]);
   const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number; } | null>(null);
-
   const workerRef = useRef<Worker | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        if (e.shiftKey) redo(); else undo();
-      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -305,11 +285,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
     setQuantities((prev) => {
       const currentIds = new Set(Object.keys(prev));
       const missingParts = parts.filter((p) => !currentIds.has(p.id));
-      if (missingParts.length > 0) {
-        const newQ = { ...prev };
-        missingParts.forEach((p) => { newQ[p.id] = 1; });
-        return newQ;
-      }
+      if (missingParts.length > 0) { const newQ = { ...prev }; missingParts.forEach((p) => { newQ[p.id] = 1; }); return newQ; }
       return prev;
     });
   }, [parts]);
@@ -328,10 +304,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
       if (moves.length === 0) return;
       setNestingResult((prev) => {
         const moveMap = new Map(moves.map(m => [m.partId, m]));
-        return prev.map((p) => {
-          const move = moveMap.get(p.partId);
-          return move ? { ...p, x: p.x + move.dx, y: p.y + move.dy } : p;
-        });
+        return prev.map((p) => { const move = moveMap.get(p.partId); return move ? { ...p, x: p.x + move.dx, y: p.y + move.dy } : p; });
       });
   }, [setNestingResult]);
 
@@ -345,25 +318,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
       setContextMenu({ visible: true, x: e.clientX, y: e.clientY });
   }, [selectedPartIds]);
 
-  // Handler para Menu de Contexto do Texto (Linhas Vetoriais)
-  const handleEntityContextMenu = useCallback((e: React.MouseEvent, entity: any) => {
-      if (entity && entity.isLabel) {
-          e.preventDefault();
-          e.stopPropagation();
-          setLabelMenu({
-              x: e.clientX,
-              y: e.clientY,
-              partId: entity.partId,
-              type: entity.labelType
-          });
-      }
-  }, [setLabelMenu]);
+  const handleThumbnailContextMenu = (e: React.MouseEvent, partId: string) => {
+      e.preventDefault(); e.stopPropagation();
+      setEditingPartId(partId);
+  };
 
   const handleCalculate = useCallback(() => {
-    if (displayedParts.length === 0) {
-        alert("Nenhuma peça disponível no filtro atual!");
-        return;
-    }
+    if (displayedParts.length === 0) { alert("Nenhuma peça disponível no filtro atual!"); return; }
     setIsComputing(true);
     resetNestingResult([]); setCurrentBinIndex(0); setTotalBins(1); setSelectedPartIds([]);
     if (workerRef.current) workerRef.current.terminate();
@@ -381,10 +342,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
 
   const handleClearTable = useCallback(() => {
       if (window.confirm("Deseja limpar todos os arranjos da mesa?")) {
-          resetNestingResult([]);
-          setFailedCount(0);
-          setTotalBins(1);
-          setCurrentBinIndex(0);
+          resetNestingResult([]); setFailedCount(0); setTotalBins(1); setCurrentBinIndex(0);
       }
   }, [resetNestingResult]);
 
@@ -403,13 +361,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
   const formatArea = useCallback((mm2: number) => mm2 > 100000 ? (mm2 / 1000000).toFixed(3) + " m²" : mm2.toFixed(0) + " mm²", []);
   
   const currentPlacedParts = useMemo(() => nestingResult.filter(p => p.binId === currentBinIndex), [nestingResult, currentBinIndex]);
+  
   const getThumbnailViewBox = useCallback((part: ImportedPart) => {
       const box = calculateBoundingBox(part.entities, part.blocks);
-      const p = Math.max(box.width, box.height) * 0.1;
-      return `${box.minX - p} ${box.minY - p} ${box.width + p * 2} ${box.height + p * 2}`;
+      const w = box.width || 100;
+      const h = box.height || 100;
+      const p = Math.max(w, h) * 0.1;
+      return `${box.minX - p} ${box.minY - p} ${w + p * 2} ${h + p * 2}`;
   }, []);
 
-  // --- ESTILOS ---
   const containerStyle: React.CSSProperties = { display: "flex", flexDirection: "column", height: "100%", width: "100%", background: theme.bg, color: theme.text };
   const topBarStyle: React.CSSProperties = { padding: "10px 20px", borderBottom: `1px solid ${theme.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: theme.headerBg };
   const toolbarStyle: React.CSSProperties = { padding: "10px 20px", borderBottom: `1px solid ${theme.border}`, display: "flex", gap: "15px", alignItems: "center", backgroundColor: theme.panelBg, flexWrap: "wrap" };
@@ -425,201 +385,50 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
 
       <div style={topBarStyle}>
           <div style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
-            {onBack && (
-                <button onClick={onBack} title="Voltar" style={{background: 'transparent', border: 'none', color: theme.text, cursor: 'pointer', fontSize: '24px', display: 'flex', alignItems: 'center', padding: 0}}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-                </button>
-            )}
+            {onBack && (<button onClick={onBack} title="Voltar" style={{background: 'transparent', border: 'none', color: theme.text, cursor: 'pointer', fontSize: '24px', display: 'flex', alignItems: 'center', padding: 0}}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg></button>)}
             <h2 style={{margin: 0, fontSize: '18px', color: '#28a745', whiteSpace: 'nowrap'}}>Planejamento de Corte</h2>
           </div>
           <div style={{ marginLeft: 'auto', paddingRight: '10px' }}>
-              <button onClick={() => setIsDarkMode(!isDarkMode)} title="Alternar Tema" style={{background: 'transparent', border: `1px solid ${theme.border}`, color: theme.text, padding: '6px 12px', borderRadius: '20px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
-                 {isDarkMode ? '☀️' : '🌙'}
-              </button>
+              <button onClick={() => setIsDarkMode(!isDarkMode)} title="Alternar Tema" style={{background: 'transparent', border: `1px solid ${theme.border}`, color: theme.text, padding: '6px 12px', borderRadius: '20px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>{isDarkMode ? '☀️' : '🌙'}</button>
           </div>
       </div>
 
       <div style={toolbarStyle}>
-        <div style={{ display: "flex", alignItems: "center", borderRight: `1px solid ${theme.border}`, paddingRight: "15px" }}>
-          <span style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}>Motor:</span>
-          <select value={strategy} onChange={(e) => setStrategy(e.target.value as any)} style={inputStyle}>
-            <option value="rect">🔳 Retangular</option>
-            <option value="true-shape">🧩 True Shape</option>
-          </select>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", borderRight: `1px solid ${theme.border}`, paddingRight: "15px" }}>
-          <span style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}>Dir:</span>
-          <div style={{ display: "flex", gap: "2px", background: theme.inputBg, borderRadius: "4px", padding: "2px" }}>
-            <button title="Auto" onClick={() => setDirection("auto")} style={btnStyle(direction === 'auto')}>Auto</button>
-            <button title="Vertical" onClick={() => setDirection("vertical")} style={btnStyle(direction === 'vertical')}>⬇️</button>
-            <button title="Horizontal" onClick={() => setDirection("horizontal")} style={btnStyle(direction === 'horizontal')}>➡️</button>
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", background: theme.hoverRow, padding: "5px", borderRadius: "4px", gap: "5px" }}>
-            <label style={{ fontSize: 12 }}>L:</label><input type="number" value={binSize.width} onChange={e => setBinSize(p => ({...p, width: Number(e.target.value)}))} style={{...inputStyle, width: 50}} />
-            <label style={{ fontSize: 12 }}>A:</label><input type="number" value={binSize.height} onChange={e => setBinSize(p => ({...p, height: Number(e.target.value)}))} style={{...inputStyle, width: 50}} />
-        </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <label style={{ fontSize: 12 }}>Gap:</label><input type="number" value={gap} onChange={e => setGap(Number(e.target.value))} style={{...inputStyle, width: 40}} />
-            <label style={{ fontSize: 12 }}>Margem:</label><input type="number" value={margin} onChange={e => setMargin(Number(e.target.value))} style={{...inputStyle, width: 40}} />
-        </div>
-        
-        {strategy === 'true-shape' && (
-            <div style={{ display: "flex", alignItems: "center" }}>
-                <label style={{ fontSize: 12, marginRight: 5 }}>Rot:</label>
-                <select value={rotationStep} onChange={e => setRotationStep(Number(e.target.value))} style={inputStyle}>
-                    <option value="90">90°</option><option value="45">45°</option><option value="10">10°</option>
-                </select>
-            </div>
-        )}
-        <label style={{ fontSize: "12px", display: "flex", alignItems: "center", cursor: "pointer", userSelect: "none" }}>
-          <input type="checkbox" checked={showDebug} onChange={(e) => setShowDebug(e.target.checked)} style={{ marginRight: "5px" }} />
-          Ver Box
-        </label>
-
-        <div style={{ marginLeft: "auto", display: "flex", gap: "10px", alignItems: "center" }}>
-          <button style={{ background: isComputing ? "#666" : "#28a745", color: "white", border: "none", padding: "8px 20px", cursor: isComputing ? "wait" : "pointer", borderRadius: "4px", fontWeight: "bold" }} onClick={handleCalculate} disabled={isComputing}>{isComputing ? "..." : "▶ Calcular"}</button>
-          <button onClick={handleDownload} disabled={nestingResult.length === 0} style={{ background: "#007bff", color: "white", border: "none", padding: "8px 20px", cursor: nestingResult.length === 0 ? "not-allowed" : "pointer", borderRadius: "4px", opacity: nestingResult.length === 0 ? 0.5 : 1 }}>💾 DXF</button>
-          <button onClick={handleClearTable} title="Limpar Mesa" style={{ background: 'transparent', color: '#dc3545', border: `1px solid #dc3545`, padding: '8px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>🗑️</button>
-        </div>
+        <div style={{ display: "flex", alignItems: "center", borderRight: `1px solid ${theme.border}`, paddingRight: "15px" }}><span style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}>Motor:</span><select value={strategy} onChange={(e) => setStrategy(e.target.value as any)} style={inputStyle}><option value="rect">🔳 Retangular</option><option value="true-shape">🧩 True Shape</option></select></div>
+        <div style={{ display: "flex", alignItems: "center", borderRight: `1px solid ${theme.border}`, paddingRight: "15px" }}><span style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}>Dir:</span><div style={{ display: "flex", gap: "2px", background: theme.inputBg, borderRadius: "4px", padding: "2px" }}><button title="Auto" onClick={() => setDirection("auto")} style={btnStyle(direction === 'auto')}>Auto</button><button title="Vertical" onClick={() => setDirection("vertical")} style={btnStyle(direction === 'vertical')}>⬇️</button><button title="Horizontal" onClick={() => setDirection("horizontal")} style={btnStyle(direction === 'horizontal')}>➡️</button></div></div>
+        <div style={{ display: "flex", alignItems: "center", background: theme.hoverRow, padding: "5px", borderRadius: "4px", gap: "5px" }}><label style={{ fontSize: 12 }}>L:</label><input type="number" value={binSize.width} onChange={e => setBinSize(p => ({...p, width: Number(e.target.value)}))} style={{...inputStyle, width: 50}} /><label style={{ fontSize: 12 }}>A:</label><input type="number" value={binSize.height} onChange={e => setBinSize(p => ({...p, height: Number(e.target.value)}))} style={{...inputStyle, width: 50}} /></div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}><label style={{ fontSize: 12 }}>Gap:</label><input type="number" value={gap} onChange={e => setGap(Number(e.target.value))} style={{...inputStyle, width: 40}} /><label style={{ fontSize: 12 }}>Margem:</label><input type="number" value={margin} onChange={e => setMargin(Number(e.target.value))} style={{...inputStyle, width: 40}} /></div>
+        {strategy === 'true-shape' && (<div style={{ display: "flex", alignItems: "center" }}><label style={{ fontSize: 12, marginRight: 5 }}>Rot:</label><select value={rotationStep} onChange={e => setRotationStep(Number(e.target.value))} style={inputStyle}><option value="90">90°</option><option value="45">45°</option><option value="10">10°</option></select></div>)}
+        <label style={{ fontSize: "12px", display: "flex", alignItems: "center", cursor: "pointer", userSelect: "none" }}><input type="checkbox" checked={showDebug} onChange={(e) => setShowDebug(e.target.checked)} style={{ marginRight: "5px" }} />Ver Box</label>
+        <div style={{ marginLeft: "auto", display: "flex", gap: "10px", alignItems: "center" }}><button style={{ background: isComputing ? "#666" : "#28a745", color: "white", border: "none", padding: "8px 20px", cursor: isComputing ? "wait" : "pointer", borderRadius: "4px", fontWeight: "bold" }} onClick={handleCalculate} disabled={isComputing}>{isComputing ? "..." : "▶ Calcular"}</button><button onClick={handleDownload} disabled={nestingResult.length === 0} style={{ background: "#007bff", color: "white", border: "none", padding: "8px 20px", cursor: nestingResult.length === 0 ? "not-allowed" : "pointer", borderRadius: "4px", opacity: nestingResult.length === 0 ? 0.5 : 1 }}>💾 DXF</button><button onClick={handleClearTable} title="Limpar Mesa" style={{ background: 'transparent', color: '#dc3545', border: `1px solid #dc3545`, padding: '8px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>🗑️</button></div>
       </div>
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         <div style={{ flex: 2, position: "relative", background: theme.canvasBg, display: "flex", flexDirection: "column", overflow: "hidden" }} onMouseDown={() => setContextMenu(null)}>
-          
-          <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 10, zIndex: 20 }}>
-            <button onClick={undo} disabled={!canUndo} style={{ padding: "8px 15px", borderRadius: "20px", border: `1px solid ${theme.buttonBorder}`, background: theme.buttonBg, color: canUndo ? theme.buttonText : "#888", cursor: canUndo ? "pointer" : "default", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", fontWeight: "bold", fontSize: "12px" }}>↩ Desfazer</button>
-            <button onClick={redo} disabled={!canRedo} style={{ padding: "8px 15px", borderRadius: "20px", border: `1px solid ${theme.buttonBorder}`, background: theme.buttonBg, color: canRedo ? theme.buttonText : "#888", cursor: canRedo ? "pointer" : "default", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", fontWeight: "bold", fontSize: "12px" }}>↪ Refazer</button>
-          </div>
-
-          {totalBins > 1 && (
-            <div style={{ position: "absolute", bottom: 20, right: 20, zIndex: 20, display: "flex", alignItems: "center", gap: "10px", background: theme.buttonBg, padding: "5px 15px", borderRadius: "20px", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", color: theme.text, border: `1px solid ${theme.buttonBorder}` }}>
-              <button onClick={() => setCurrentBinIndex(Math.max(0, currentBinIndex - 1))} disabled={currentBinIndex === 0} style={{ cursor: "pointer", border: "none", background: "transparent", fontWeight: "bold", color: theme.text }}>◀</button>
-              <span style={{ fontWeight: "bold", fontSize: "13px" }}>Chapa {currentBinIndex + 1} de {totalBins}</span>
-              <button onClick={() => setCurrentBinIndex(Math.min(totalBins - 1, currentBinIndex + 1))} disabled={currentBinIndex === totalBins - 1} style={{ cursor: "pointer", border: "none", background: "transparent", fontWeight: "bold", color: theme.text }}>▶</button>
-            </div>
-          )}
-
-          <InteractiveCanvas 
-             parts={displayedParts} 
-             placedParts={currentPlacedParts}
-             binWidth={binSize.width} binHeight={binSize.height} margin={margin}
-             showDebug={showDebug} strategy={strategy} theme={theme}
-             selectedPartIds={selectedPartIds} onPartsMove={handlePartsMove} onPartSelect={handlePartSelect} onContextMenu={handlePartContextMenu}
-             
-             onEntityContextMenu={handleEntityContextMenu}
-          />
-
-          <div style={{ padding: "10px 20px", display: "flex", gap: "20px", borderTop: `1px solid ${theme.border}`, background: theme.panelBg, zIndex: 5, color: theme.text }}>
-            <span style={{ opacity: 0.6, fontSize: "12px" }}>{nestingResult.length > 0 ? `Total: ${nestingResult.length} Peças` : `Área: ${binSize.width}x${binSize.height}mm`}</span>
-            {failedCount > 0 && <span style={{ color: "#dc3545", fontWeight: "bold", fontSize: "12px", background: "rgba(255,0,0,0.1)", padding: "2px 8px", borderRadius: "4px" }}>⚠️ {failedCount} NÃO COUBERAM</span>}
-          </div>
+          <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 10, zIndex: 20 }}><button onClick={undo} disabled={!canUndo} style={{ padding: "8px 15px", borderRadius: "20px", border: `1px solid ${theme.buttonBorder}`, background: theme.buttonBg, color: canUndo ? theme.buttonText : "#888", cursor: canUndo ? "pointer" : "default", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", fontWeight: "bold", fontSize: "12px" }}>↩ Desfazer</button><button onClick={redo} disabled={!canRedo} style={{ padding: "8px 15px", borderRadius: "20px", border: `1px solid ${theme.buttonBorder}`, background: theme.buttonBg, color: canRedo ? theme.buttonText : "#888", cursor: canRedo ? "pointer" : "default", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", fontWeight: "bold", fontSize: "12px" }}>↪ Refazer</button></div>
+          {totalBins > 1 && (<div style={{ position: "absolute", bottom: 20, right: 20, zIndex: 20, display: "flex", alignItems: "center", gap: "10px", background: theme.buttonBg, padding: "5px 15px", borderRadius: "20px", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", color: theme.text, border: `1px solid ${theme.buttonBorder}` }}><button onClick={() => setCurrentBinIndex(Math.max(0, currentBinIndex - 1))} disabled={currentBinIndex === 0} style={{ cursor: "pointer", border: "none", background: "transparent", fontWeight: "bold", color: theme.text }}>◀</button><span style={{ fontWeight: "bold", fontSize: "13px" }}>Chapa {currentBinIndex + 1} de {totalBins}</span><button onClick={() => setCurrentBinIndex(Math.min(totalBins - 1, currentBinIndex + 1))} disabled={currentBinIndex === totalBins - 1} style={{ cursor: "pointer", border: "none", background: "transparent", fontWeight: "bold", color: theme.text }}>▶</button></div>)}
+          <InteractiveCanvas parts={displayedParts} placedParts={currentPlacedParts} binWidth={binSize.width} binHeight={binSize.height} margin={margin} showDebug={showDebug} strategy={strategy} theme={theme} selectedPartIds={selectedPartIds} onPartsMove={handlePartsMove} onPartSelect={handlePartSelect} onContextMenu={handlePartContextMenu} />
+          <div style={{ padding: "10px 20px", display: "flex", gap: "20px", borderTop: `1px solid ${theme.border}`, background: theme.panelBg, zIndex: 5, color: theme.text }}><span style={{ opacity: 0.6, fontSize: "12px" }}>{nestingResult.length > 0 ? `Total: ${nestingResult.length} Peças` : `Área: ${binSize.width}x${binSize.height}mm`}</span>{failedCount > 0 && <span style={{ color: "#dc3545", fontWeight: "bold", fontSize: "12px", background: "rgba(255,0,0,0.1)", padding: "2px 8px", borderRadius: "4px" }}>⚠️ {failedCount} NÃO COUBERAM</span>}</div>
         </div>
 
         <div style={{ width: "500px", borderLeft: `1px solid ${theme.border}`, display: "flex", flexDirection: "column", backgroundColor: theme.panelBg, zIndex: 5, color: theme.text }}>
-          {/* BARRA DE FILTROS */}
-          <PartFilter 
-             allParts={parts} 
-             filters={filters} 
-             onFilterChange={setFilters} 
-             theme={theme} 
-          />
-          
-          {/* --- PAINEL GLOBAL DE ETIQUETAS (ESTILIZADO) --- */}
-          <GlobalLabelPanel 
-              showWhite={globalWhiteEnabled}
-              showPink={globalPinkEnabled}
-              onToggleWhite={() => toggleGlobal('white')}
-              onTogglePink={() => toggleGlobal('pink')}
-              theme={theme}
-          />
-
-          <div style={{ display: "flex", borderBottom: `1px solid ${theme.border}`, background: theme.headerBg }}>
-            <button style={tabStyle(activeTab === "grid")} onClick={() => setActiveTab("grid")}>🔳 Banco de Peças</button>
-            <button style={tabStyle(activeTab === "list")} onClick={() => setActiveTab("list")}>📄 Lista Técnica</button>
-          </div>
-          
+          <PartFilter allParts={parts} filters={filters} onFilterChange={setFilters} theme={theme} />
+          <GlobalLabelPanel showWhite={globalWhiteEnabled} showPink={globalPinkEnabled} onToggleWhite={() => toggleGlobal('white')} onTogglePink={() => toggleGlobal('pink')} theme={theme} />
+          <div style={{ display: "flex", borderBottom: `1px solid ${theme.border}`, background: theme.headerBg }}><button style={tabStyle(activeTab === "grid")} onClick={() => setActiveTab("grid")}>🔳 Banco de Peças</button><button style={tabStyle(activeTab === "list")} onClick={() => setActiveTab("list")}>📄 Lista Técnica</button></div>
           <div style={{ flex: 1, overflowY: "auto", padding: activeTab === "grid" ? "15px" : "0" }}>
-            {activeTab === "grid" && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "15px", alignContent: "start" }}>
-                {displayedParts.map((part) => (
-                  <div key={part.id} style={{ display: "flex", flexDirection: "column", alignItems: "center", position: 'relative' }}>
-                    
-                    {/* --- FLAGS NA MINIATURA (SEM MOLDURA) --- */}
-                    <ThumbnailFlags 
-                        partId={part.id} 
-                        labelState={labelStates} 
-                        onTogglePartFlag={togglePartFlag} 
-                    />
-
-                    <div style={{ width: "100%", aspectRatio: "1/1", background: theme.cardBg, border: `1px solid ${theme.border}`, borderRadius: "8px", marginBottom: "8px", padding: "10px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <svg viewBox={getThumbnailViewBox(part)} style={{ width: "100%", height: "100%", overflow: "visible", color: theme.text }} transform="scale(1, -1)" preserveAspectRatio="xMidYMid meet">
-                        {part.entities.map((ent, i) => renderEntityFunction(ent, i, part.blocks, 1, theme.text))}
-                      </svg>
-                    </div>
-                    <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px" }}>
-                      <span title={part.name} style={{ fontWeight: "bold", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70px" }}>{part.name}</span>
-                      <div style={{ display: "flex", alignItems: "center", background: theme.hoverRow, borderRadius: "4px" }}>
-                        <span style={{ padding: "0 4px", fontSize: 10, opacity: 0.7 }}>Qtd:</span>
-                        <input type="number" min="1" value={quantities[part.id] || 1} onChange={(e) => updateQty(part.id, Number(e.target.value))} style={{ width: 35, border: "none", background: "transparent", textAlign: "center", color: theme.text, fontWeight: "bold", padding: "4px 0" }} />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            
-            {activeTab === "list" && (
-              <div style={{ overflowX: 'auto', transform: 'rotateX(180deg)', borderBottom: `1px solid ${theme.border}` }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", borderSpacing: 0, minWidth: '600px', transform: 'rotateX(180deg)' }}>
-                  <thead style={{ background: theme.panelBg }}>
-                    <tr>
-                      <th style={thStyle}>#</th>
-                      <th style={thStyle}>Peça</th>
-                      <th style={thStyle}>Pedido</th>
-                      <th style={thStyle}>OP</th>
-                      <th style={thStyle}>Material</th>
-                      <th style={thStyle}>Espessura</th>
-                      <th style={thStyle}>Dimensões</th>
-                      <th style={thStyle}>Área</th>
-                      <th style={thStyle}>Qtd.</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {displayedParts.map((part, index) => (
-                      <tr key={part.id} style={{ borderBottom: `1px solid ${theme.border}` }}>
-                        <td style={tdStyle}>{index + 1}</td>
-                        <td style={{...tdStyle, fontWeight: 'bold'}} title={part.name}>{part.name}</td>
-                        <td style={tdStyle}>{part.pedido || '-'}</td>
-                        <td style={tdStyle}>{part.op || '-'}</td>
-                        <td style={tdStyle}>{part.material}</td>
-                        <td style={tdStyle}>{part.espessura || '-'}</td>
-                        <td style={tdStyle}>{part.width.toFixed(0)}x{part.height.toFixed(0)}</td>
-                        <td style={tdStyle}>{formatArea(part.grossArea)}</td>
-                        <td style={tdStyle}>
-                          <input type="number" min="1" value={quantities[part.id] || 1} onChange={(e) => updateQty(part.id, Number(e.target.value))} style={{ width: 40, textAlign: "center", background: theme.inputBg, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 4 }} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            {activeTab === "grid" && (<div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "15px", alignContent: "start" }}>{displayedParts.map((part) => (<div key={part.id} style={{ display: "flex", flexDirection: "column", alignItems: "center", position: 'relative' }} onContextMenu={(e) => handleThumbnailContextMenu(e, part.id)}><ThumbnailFlags partId={part.id} labelState={labelStates} onTogglePartFlag={togglePartFlag} /><div style={{ width: "100%", aspectRatio: "1/1", background: theme.cardBg, border: `1px solid ${theme.border}`, borderRadius: "8px", marginBottom: "8px", padding: "10px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" }}><svg viewBox={getThumbnailViewBox(part)} style={{ width: "100%", height: "100%", overflow: "visible", color: theme.text }} transform="scale(1, -1)" preserveAspectRatio="xMidYMid meet">{part.entities.map((ent, i) => renderEntityFunction(ent, i, part.blocks, 1, theme.text))}</svg></div><div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px" }}><span title={part.name} style={{ fontWeight: "bold", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70px" }}>{part.name}</span><div style={{ display: "flex", alignItems: "center", background: theme.hoverRow, borderRadius: "4px" }}><span style={{ padding: "0 4px", fontSize: 10, opacity: 0.7 }}>Qtd:</span><input type="number" min="1" value={quantities[part.id] || 1} onChange={(e) => updateQty(part.id, Number(e.target.value))} style={{ width: 35, border: "none", background: "transparent", textAlign: "center", color: theme.text, fontWeight: "bold", padding: "4px 0" }} /></div></div></div>))}</div>)}
+            {activeTab === "list" && (<div style={{ overflowX: 'auto', transform: 'rotateX(180deg)', borderBottom: `1px solid ${theme.border}` }}><table style={{ width: "100%", borderCollapse: "collapse", borderSpacing: 0, minWidth: '600px', transform: 'rotateX(180deg)' }}><thead style={{ background: theme.panelBg }}><tr><th style={thStyle}>#</th><th style={thStyle}>Peça</th><th style={thStyle}>Pedido</th><th style={thStyle}>OP</th><th style={thStyle}>Material</th><th style={thStyle}>Espessura</th><th style={thStyle}>Dimensões</th><th style={thStyle}>Área</th><th style={thStyle}>Qtd.</th></tr></thead><tbody>{displayedParts.map((part, index) => (<tr key={part.id} style={{ borderBottom: `1px solid ${theme.border}` }}><td style={tdStyle}>{index + 1}</td><td style={{...tdStyle, fontWeight: 'bold'}} title={part.name}>{part.name}</td><td style={tdStyle}>{part.pedido || '-'}</td><td style={tdStyle}>{part.op || '-'}</td><td style={tdStyle}>{part.material}</td><td style={tdStyle}>{part.espessura || '-'}</td><td style={tdStyle}>{part.width.toFixed(0)}x{part.height.toFixed(0)}</td><td style={tdStyle}>{formatArea(part.grossArea)}</td><td style={tdStyle}><input type="number" min="1" value={quantities[part.id] || 1} onChange={(e) => updateQty(part.id, Number(e.target.value))} style={{ width: 40, textAlign: "center", background: theme.inputBg, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 4 }} /></td></tr>))}</tbody></table></div>)}
           </div>
         </div>
       </div>
 
-      {labelMenu && labelStates[labelMenu.partId] && (
-        <LabelContextMenu
-            visible={true}
-            x={labelMenu.x}
-            y={labelMenu.y}
-            type={labelMenu.type}
-            partId={labelMenu.partId}
-            currentConfig={labelStates[labelMenu.partId][labelMenu.type]}
-            onClose={() => setLabelMenu(null)}
-            onUpdate={(updates) => updateLabelConfig(labelMenu.partId, labelMenu.type, updates)}
-            onToggleFlag={() => togglePartFlag(labelMenu.partId, labelMenu.type)}
+      {editingPartId && labelStates[editingPartId] && parts.find(p => p.id === editingPartId) && (
+        <LabelEditorModal
+            part={parts.find(p => p.id === editingPartId)!}
+            labelState={labelStates[editingPartId]}
+            onUpdate={(type, changes) => updateLabelConfig(editingPartId, type, changes)}
+            onClose={() => setEditingPartId(null)}
+            theme={theme}
         />
       )}
     </div>
