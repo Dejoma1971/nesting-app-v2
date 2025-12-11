@@ -16,7 +16,11 @@ interface EntityBox { minX: number; minY: number; maxX: number; maxY: number; ar
 // --- PROPS ATUALIZADAS ---
 interface EngineeringScreenProps {
     onBack: () => void;
-    onSendToNesting: (parts: ImportedPart[]) => void; // Nova prop
+    onSendToNesting: (parts: ImportedPart[]) => void;
+    
+    // Novas props para persistência
+    parts: ImportedPart[]; 
+    setParts: React.Dispatch<React.SetStateAction<ImportedPart[]>>;
 }
 
 // --- 1. FUNÇÕES AUXILIARES (MATEMÁTICA E GEOMETRIA) - MANTIDAS INTACTAS ---
@@ -326,11 +330,18 @@ const processFileToParts = (flatEntities: any[], fileName: string, defaults: any
 
 // --- 2. COMPONENTE PRINCIPAL ---
 
-export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack, onSendToNesting }) => {
-  const [parts, setParts] = useState<ImportedPart[]>([]);
+// 2. Atualize a declaração do componente
+export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ 
+    onBack, 
+    onSendToNesting, 
+    parts,     // Recebido via prop
+    setParts   // Recebido via prop
+}) => {
+  // REMOVA ESTA LINHA: const [parts, setParts] = useState<ImportedPart[]>([]);
+  
+  // O restante dos estados locais (interface visual) continua aqui, pois não precisam persistir
   const [loading, setLoading] = useState(false);
   const [processingMsg, setProcessingMsg] = useState('');
-  
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
   const [viewingPartId, setViewingPartId] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -709,7 +720,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack, on
                         <th style={tableHeaderStyle}>Autor</th>
                         <th style={tableHeaderStyle}>Dimensões</th>
                         <th style={tableHeaderStyle}>Área (m²)</th>
-                        <th style={tableHeaderStyle}>Qtd.</th>
+                        <th style={tableHeaderStyle}>Entidades</th>
                         <th style={tableHeaderStyle}>Ações</th>
                     </tr>
                 </thead>
