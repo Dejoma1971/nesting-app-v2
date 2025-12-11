@@ -317,6 +317,7 @@ const processFileToParts = (flatEntities: any[], fileName: string, defaults: any
             height: finalH,
             grossArea,
             netArea,
+            quantity: 1,
             pedido: defaults.pedido,
             op: defaults.op,
             material: defaults.material,
@@ -721,6 +722,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
                         <th style={tableHeaderStyle}>Dimensões</th>
                         <th style={tableHeaderStyle}>Área (m²)</th>
                         <th style={tableHeaderStyle}>Entidades</th>
+                        <th style={{...tableHeaderStyle, width: '60px', color: '#007bff'}}>Qtd. Peças</th>
                         <th style={tableHeaderStyle}>Ações</th>
                     </tr>
                 </thead>
@@ -732,28 +734,43 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
                         const entColor = entCount === 1 ? '#28a745' : (entCount > 10 ? '#ff4d4d' : theme.label);
 
                         return (
-                            <tr key={part.id} style={{background: rowBackground, cursor: 'pointer'}} onClick={() => setSelectedPartId(part.id)}>
-                                <td style={{...tableCellStyle, fontSize:'11px', opacity:0.5}}>{i + 1}</td>
-                                <td style={tableCellStyle}><input style={cellInputStyle} value={part.name} onChange={(e) => handleRowChange(part.id, 'name', e.target.value)} /></td>
-                                <td style={tableCellStyle}><input style={cellInputStyle} value={part.pedido || ''} onChange={(e) => handleRowChange(part.id, 'pedido', e.target.value)} /></td>
-                                <td style={tableCellStyle}><input style={cellInputStyle} value={part.op || ''} onChange={(e) => handleRowChange(part.id, 'op', e.target.value)} /></td>
-                                <td style={tableCellStyle}><select style={{...cellInputStyle, width:'100%', border: 'none', background:'transparent', color: 'inherit'}} value={part.material} onChange={(e) => handleRowChange(part.id, 'material', e.target.value)}><option value="Inox 304">Inox 304</option><option value="Inox 430">Inox 430</option><option value="Aço Carbono">Aço Carbono</option><option value="Galvanizado">Galvanizado</option><option value="Alumínio">Alumínio</option></select></td>
-                                <td style={tableCellStyle}>
-                                    <select style={cellInputStyle} value={part.espessura} onChange={(e) => handleRowChange(part.id, 'espessura', e.target.value)}>
-                                        {THICKNESS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                                    </select>
-                                </td>
-                                <td style={tableCellStyle}><input style={cellInputStyle} value={part.autor || ''} onChange={(e) => handleRowChange(part.id, 'autor', e.target.value)} /></td>
-                                <td style={{...tableCellStyle, fontSize:'11px', opacity:0.7}}>{part.width.toFixed(0)} x {part.height.toFixed(0)}</td>
-                                <td style={{...tableCellStyle, fontSize:'11px', opacity:0.7}}>{(part.grossArea / 1000000).toFixed(4)}</td>
-                                <td style={{...tableCellStyle, color: entColor, fontWeight: 'bold', textAlign:'center'}}>{entCount}</td>
-                                <td style={tableCellStyle}>
-                                    <div style={{display:'flex', gap:'10px'}}>
-                                        {entCount > 1 && <button style={blockBtnStyle} onClick={(e) => handleConvertToBlock(part.id, e)} title="Converter para Bloco Único">📦</button>}
-                                        <button style={deleteBtnStyle} onClick={(e) => handleDeletePart(part.id, e)} title="Excluir peça">🗑️</button>
-                                    </div>
-                                </td>
-                            </tr>
+                           <tr key={part.id} style={{background: rowBackground, cursor: 'pointer'}} onClick={() => setSelectedPartId(part.id)}>
+    <td style={{...tableCellStyle, fontSize:'11px', opacity:0.5}}>{i + 1}</td>
+    <td style={tableCellStyle}><input style={cellInputStyle} value={part.name} onChange={(e) => handleRowChange(part.id, 'name', e.target.value)} /></td>
+    <td style={tableCellStyle}><input style={cellInputStyle} value={part.pedido || ''} onChange={(e) => handleRowChange(part.id, 'pedido', e.target.value)} /></td>
+    <td style={tableCellStyle}><input style={cellInputStyle} value={part.op || ''} onChange={(e) => handleRowChange(part.id, 'op', e.target.value)} /></td>
+    <td style={tableCellStyle}><select style={{...cellInputStyle, width:'100%', border: 'none', background:'transparent', color: 'inherit'}} value={part.material} onChange={(e) => handleRowChange(part.id, 'material', e.target.value)}><option value="Inox 304">Inox 304</option><option value="Inox 430">Inox 430</option><option value="Aço Carbono">Aço Carbono</option><option value="Galvanizado">Galvanizado</option><option value="Alumínio">Alumínio</option></select></td>
+    <td style={tableCellStyle}>
+        <select style={cellInputStyle} value={part.espessura} onChange={(e) => handleRowChange(part.id, 'espessura', e.target.value)}>
+            {THICKNESS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+        </select>
+    </td>
+    <td style={tableCellStyle}><input style={cellInputStyle} value={part.autor || ''} onChange={(e) => handleRowChange(part.id, 'autor', e.target.value)} /></td>
+    <td style={{...tableCellStyle, fontSize:'11px', opacity:0.7}}>{part.width.toFixed(0)} x {part.height.toFixed(0)}</td>
+    <td style={{...tableCellStyle, fontSize:'11px', opacity:0.7}}>{(part.grossArea / 1000000).toFixed(4)}</td>
+    
+    {/* Coluna de Entidades (Complexidade) */}
+    <td style={{...tableCellStyle, color: entColor, fontWeight: 'bold', textAlign:'center'}}>{entCount}</td>
+
+    {/* --- NOVA COLUNA: QUANTIDADE DE PEÇAS --- */}
+    <td style={tableCellStyle}>
+        <input 
+            type="number" 
+            min="1" 
+            value={part.quantity || 1} 
+            onChange={(e) => handleRowChange(part.id, 'quantity', Number(e.target.value))}
+            style={{...cellInputStyle, textAlign: 'center', fontWeight: 'bold', color: '#007bff'}} 
+        />
+    </td>
+    {/* ---------------------------------------- */}
+
+    <td style={tableCellStyle}>
+        <div style={{display:'flex', gap:'10px'}}>
+            {entCount > 1 && <button style={blockBtnStyle} onClick={(e) => handleConvertToBlock(part.id, e)} title="Converter para Bloco Único">📦</button>}
+            <button style={deleteBtnStyle} onClick={(e) => handleDeletePart(part.id, e)} title="Excluir peça">🗑️</button>
+        </div>
+    </td>
+</tr>
                         );
                     })}
                 </tbody>

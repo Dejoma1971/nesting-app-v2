@@ -184,11 +184,35 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
   // Guardamos o elemento DOM de cada miniatura aqui
   const thumbnailRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
+  // 1. Inicialização do Estado (Carrega a qtd da engenharia)
   const [quantities, setQuantities] = useState<{ [key: string]: number }>(() => {
     const initialQ: { [key: string]: number } = {};
-    parts.forEach((p) => { initialQ[p.id] = 1; });
+    parts.forEach((p) => { 
+        // AQUI ESTÁ A MUDANÇA:
+        // Usa a quantidade vinda da engenharia. Se não houver, usa 1.
+        initialQ[p.id] = p.quantity || 1; 
+    });
     return initialQ;
   });
+
+  // 2. Sincronização (Caso novas peças sejam adicionadas dinamicamente)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setQuantities((prev) => {
+      const currentIds = new Set(Object.keys(prev));
+      const missingParts = parts.filter((p) => !currentIds.has(p.id));
+      
+      if (missingParts.length > 0) { 
+          const newQ = { ...prev }; 
+          missingParts.forEach((p) => { 
+              // AQUI TAMBÉM: Usa a qtd da engenharia para novas peças
+              newQ[p.id] = p.quantity || 1; 
+          }); 
+          return newQ; 
+      }
+      return prev;
+    });
+  }, [parts]);
 
   const [filters, setFilters] = useState<FilterState>({ pedido: [], op: [], material: '', espessura: '' });
 
