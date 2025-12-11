@@ -1,73 +1,157 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import { useState, useEffect, useCallback } from "react";
 import type { ImportedPart } from "../components/types";
-import { textToVectorLines } from "./vectorFont";
+// CORREÇÃO: Removido 'PartLabelState' que não estava sendo usado diretamente
+import type {
+  LabelStateMap,
+  LabelConfig,
+} from "../components/labels/LabelTypes";
 
-export type LabelMode = 'none' | 'visual' | 'marking';
-
-// Cores
-const COLOR_VISUAL = "#FFFFFF"; // Branco
-const COLOR_MARKING = "#FF00FF"; // Magenta (Gravação)
-const TEXT_HEIGHT = 20; // Tamanho da letra em mm (Ajuste conforme necessidade da máquina)
-
-/**
- * Remove etiquetas anteriores (busca pela flag isLabel)
- */
-const removeLabels = (entities: any[]): any[] => {
-    return entities.filter(ent => !ent.isLabel);
-};
+// Configurações Padrão
+const DEFAULT_FONT_SIZE_WHITE = 20; // mm (Identificação Visual - Maior)
+const DEFAULT_FONT_SIZE_PINK = 8; // mm (Gravação Técnica - Menor)
 
 /**
- * Extrai apenas números de uma string
- * Ex: "PED-1234-A" -> "1234"
+ * Helper para extrair texto numérico inicial da peça
+ * Ex: "PECA-1234-A" -> "1234"
  */
-const extractNumbers = (str: string): string => {
-    if (!str) return "";
-    // Mantém apenas dígitos e hífens. Remove letras e espaços.
-    return str.replace(/[^0-9-]/g, '');
+const extractInitialText = (part: ImportedPart): string => {
+  // Prioridade: Pedido > OP > Nome
+  const raw = part.pedido || part.op || part.name;
+  if (!raw) return "???";
+  // Extrai apenas números e hífens
+  const numbers = raw.replace(/[^0-9-]/g, "");
+  return numbers || raw; // Se não tiver números, devolve o nome original
 };
 
-/**
- * Gera as linhas do texto
- */
-const createVectorLabel = (part: ImportedPart, mode: 'visual' | 'marking'): any[] => {
-    const centerX = part.width / 2;
-    const centerY = part.height / 2;
+export const useLabelManager = (parts: ImportedPart[]) => {
+  // Estado Principal: Mapa de ID -> Configuração
+  const [labelStates, setLabelStates] = useState<LabelStateMap>({});
 
-    // Lógica de Prioridade: Pedido > OP > Nome
-    let rawText = "";
-    if (part.pedido) rawText = part.pedido;
-    else if (part.op) rawText = part.op;
-    else rawText = part.name;
+  // Estados dos Checkboxes Globais (Visualmente apenas)
+  const [globalWhiteEnabled, setGlobalWhiteEnabled] = useState(false);
+  const [globalPinkEnabled, setGlobalPinkEnabled] = useState(false);
 
-    // Limpa o texto (Só números)
-    const cleanText = extractNumbers(rawText);
+  // 1. Inicializa ou Sincroniza o estado quando novas peças chegam
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLabelStates((prev) => {
+      const nextState = { ...prev };
+      let hasChanges = false;
 
-    if (!cleanText) return [];
+      parts.forEach((part) => {
+        // Se essa peça ainda não tem configuração, cria a padrão
+        if (!nextState[part.id]) {
+          const defaultText = extractInitialText(part);
 
-    const color = mode === 'visual' ? COLOR_VISUAL : COLOR_MARKING;
+          nextState[part.id] = {
+            white: {
+              active: false, // Começa desligado até o usuário ativar o global
+              text: defaultText,
+              rotation: 0,
+              fontSize: DEFAULT_FONT_SIZE_WHITE,
+              offsetX: 0,
+              offsetY: 0,
+            },
+            pink: {
+              active: false,
+              text: defaultText,
+              rotation: 0,
+              fontSize: DEFAULT_FONT_SIZE_PINK,
+              offsetX: 0,
+              offsetY: 0,
+            },
+          };
+          hasChanges = true;
+        }
+      });
 
-    // Gera as linhas vetoriais
-    return textToVectorLines(cleanText, centerX, centerY, TEXT_HEIGHT, color);
-};
-
-export const applyLabelsToParts = (
-    parts: ImportedPart[], 
-    mode: LabelMode
-): ImportedPart[] => {
-    if (mode === 'none') {
-        return parts.map(part => ({
-            ...part,
-            entities: removeLabels(part.entities)
-        }));
-    }
-
-    return parts.map(part => {
-        const cleanEntities = removeLabels(part.entities);
-        const labelLines = createVectorLabel(part, mode);
-        
-        return {
-            ...part,
-            entities: [...cleanEntities, ...labelLines] // Adiciona as linhas do texto
-        };
+      return hasChanges ? nextState : prev;
     });
+  }, [parts]);
+
+  // 2. Ação: Checkbox Global (Ligar/Desligar Tudo)
+  const toggleGlobal = useCallback(
+    (type: "white" | "pink", forceValue?: boolean) => {
+      setLabelStates((prev) => {
+        const next = { ...prev };
+        // Determina o novo valor (se não passado forceValue, inverte o estado atual do botão)
+        const isWhite = type === "white";
+        const currentGlobal = isWhite ? globalWhiteEnabled : globalPinkEnabled;
+        const newValue = forceValue !== undefined ? forceValue : !currentGlobal;
+
+        // Atualiza os estados locais dos botões globais
+        if (isWhite) setGlobalWhiteEnabled(newValue);
+        else setGlobalPinkEnabled(newValue);
+
+        // Aplica a TODAS as peças
+        Object.keys(next).forEach((partId) => {
+          if (next[partId][type]) {
+            next[partId] = {
+              ...next[partId],
+              [type]: {
+                ...next[partId][type],
+                active: newValue,
+              },
+            };
+          }
+        });
+
+        return next;
+      });
+    },
+    [globalWhiteEnabled, globalPinkEnabled]
+  );
+
+  // 3. Ação: Toggle Individual (Click na Miniatura)
+  const togglePartFlag = useCallback(
+    (partId: string, type: "white" | "pink") => {
+      setLabelStates((prev) => {
+        const currentPartState = prev[partId];
+        if (!currentPartState) return prev;
+
+        return {
+          ...prev,
+          [partId]: {
+            ...currentPartState,
+            [type]: {
+              ...currentPartState[type],
+              active: !currentPartState[type].active, // Inverte só este
+            },
+          },
+        };
+      });
+    },
+    []
+  );
+
+  // 4. Ação: Atualização Fina (Menu de Contexto: Rotação, Tamanho, Texto)
+  const updateLabelConfig = useCallback(
+    (partId: string, type: "white" | "pink", changes: Partial<LabelConfig>) => {
+      setLabelStates((prev) => {
+        const currentPartState = prev[partId];
+        if (!currentPartState) return prev;
+
+        return {
+          ...prev,
+          [partId]: {
+            ...currentPartState,
+            [type]: {
+              ...currentPartState[type],
+              ...changes, // Aplica as mudanças (ex: { rotation: 90 })
+            },
+          },
+        };
+      });
+    },
+    []
+  );
+
+  return {
+    labelStates,
+    globalWhiteEnabled,
+    globalPinkEnabled,
+    toggleGlobal,
+    togglePartFlag,
+    updateLabelConfig,
+  };
 };

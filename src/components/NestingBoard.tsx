@@ -31,7 +31,11 @@ interface NestingBoardProps {
   onBack?: () => void;
 }
 
-const cleanTextContent = (text: string): string => text ? text.replace(/[^a-zA-Z0-9-]/g, '') : "";
+const cleanTextContent = (text: string): string => {
+    if (!text) return "";
+    // Mantém letras, números e hífens. Remove o resto.
+    return text.replace(/[^a-zA-Z0-9-]/g, '');
+};
 
 // --- MATEMÁTICA DE ARCOS ---
 const bulgeToArc = (p1: {x: number, y: number}, p2: {x: number, y: number}, bulge: number) => {
@@ -206,7 +210,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({ parts, onBack }) => 
         
         const newEntities = [...part.entities];
         const rawText = part.pedido || part.op || part.name;
-        const finalText = cleanTextContent(rawText);
+        // Remove caracteres especiais se a função cleanTextContent existir
+        const finalText = typeof cleanTextContent === 'function' ? cleanTextContent(rawText) : rawText;
 
         const addLabelVector = (config: LabelConfig, color: string, type: 'white' | 'pink') => {
             if (config.active && finalText) {
