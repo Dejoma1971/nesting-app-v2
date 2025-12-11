@@ -17,7 +17,7 @@ interface PartFilterProps {
   theme: AppTheme;
 }
 
-// --- SUBCOMPONENTE: MULTI-SELECT (COM CHECKBOX) ---
+// --- SUBCOMPONENTE: MULTI-SELECT (MANTIDO IGUAL) ---
 const MultiSelect = ({ 
   label, 
   options, 
@@ -34,7 +34,6 @@ const MultiSelect = ({
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Fecha ao clicar fora
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
@@ -105,36 +104,66 @@ const MultiSelect = ({
   );
 };
 
-// --- COMPONENTE PRINCIPAL ---
+// --- COMPONENTE PRINCIPAL (ATUALIZADO COM CASCATA) ---
 export const PartFilter: React.FC<PartFilterProps> = ({ allParts, filters, onFilterChange, theme }) => {
   
+  // --- LÓGICA DE CASCATA (DEPENDENT DROPDOWNS) ---
   const options = useMemo(() => {
-    const getOptions = (key: keyof ImportedPart) => 
-      Array.from(new Set(allParts.map(p => String(p[key] || '').trim()).filter(Boolean))).sort();
+    // Helper para extrair valores únicos
+    const getUnique = (parts: ImportedPart[], key: keyof ImportedPart) => 
+      Array.from(new Set(parts.map(p => String(p[key] || '').trim()).filter(Boolean))).sort();
 
-    return {
-      pedidos: getOptions('pedido'),
-      ops: getOptions('op'),
-      materiais: getOptions('material'),
-      espessuras: getOptions('espessura'),
-    };
-  }, [allParts]);
+    // 1. Materiais: Sempre baseados em TUDO
+    const materiais = getUnique(allParts, 'material');
 
-  const handleChangeSingle = (field: 'material' | 'espessura', value: string) => {
-    onFilterChange({ ...filters, [field]: value });
+    // 2. Espessuras: Baseadas no MATERIAL selecionado (ou tudo se não houver material)
+    const partsByMaterial = filters.material 
+        ? allParts.filter(p => p.material === filters.material)
+        : allParts;
+    const espessuras = getUnique(partsByMaterial, 'espessura');
+
+    // 3. Pedidos e OPs: Baseados em MATERIAL E ESPESSURA selecionados
+    const partsByMatAndThick = partsByMaterial.filter(p => 
+        !filters.espessura || p.espessura === filters.espessura
+    );
+    const pedidos = getUnique(partsByMatAndThick, 'pedido');
+    const ops = getUnique(partsByMatAndThick, 'op');
+
+    return { materiais, espessuras, pedidos, ops };
+  }, [allParts, filters.material, filters.espessura]);
+
+  // --- HANDLERS COM RESET DE CASCATA ---
+
+  // Alterar Material -> Reseta Espessura, Pedido e OP
+  const handleMaterialChange = (val: string) => {
+    onFilterChange({ 
+        material: val, 
+        espessura: '', 
+        pedido: [], 
+        op: [] 
+    });
   };
 
-  const handleChangeMulti = (field: 'pedido' | 'op', values: string[]) => {
+  // Alterar Espessura -> Reseta Pedido e OP
+  const handleThicknessChange = (val: string) => {
+    onFilterChange({ 
+        ...filters, 
+        espessura: val, 
+        pedido: [], 
+        op: [] 
+    });
+  };
+
+  const handleMultiChange = (field: 'pedido' | 'op', values: string[]) => {
     onFilterChange({ ...filters, [field]: values });
   };
 
-  // Contagem dinâmica
+  // Contagem dinâmica final
   const filteredCount = allParts.filter(p => {
     const matchPedido = filters.pedido.length === 0 || filters.pedido.includes(p.pedido);
     const matchOp = filters.op.length === 0 || filters.op.includes(p.op);
     const matchMaterial = !filters.material || p.material === filters.material;
     const matchEspessura = !filters.espessura || p.espessura === filters.espessura;
-
     return matchPedido && matchOp && matchMaterial && matchEspessura;
   }).length;
 
@@ -159,41 +188,45 @@ export const PartFilter: React.FC<PartFilterProps> = ({ allParts, filters, onFil
 
       <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
         
-        {/* 1. PEDIDO (Múltiplo) */}
-        <MultiSelect 
-            label="PEDIDOS" 
-            options={options.pedidos} 
-            selectedValues={filters.pedido} 
-            onChange={(vals) => handleChangeMulti('pedido', vals)} 
-            theme={theme}
-        />
-
-        {/* 2. OP (Múltiplo) */}
-        <MultiSelect 
-            label="ORDENS (OP)" 
-            options={options.ops} 
-            selectedValues={filters.op} 
-            onChange={(vals) => handleChangeMulti('op', vals)} 
-            theme={theme}
-        />
-
-        {/* 3. MATERIAL (Único) */}
-        <div style={{ flex: 1, minWidth: '110px' }}>
-          <label style={labelStyle}>MATERIAL</label>
-          <select value={filters.material} onChange={e => handleChangeSingle('material', e.target.value)} style={selectStyle}>
-            <option value="">Todos</option>
+        {/* NÍVEL 1: MATERIAL (Pai) */}
+        <div style={{ flex: 1.5, minWidth: '110px' }}>
+          <label style={{...labelStyle, color: '#007bff'}}>1. MATERIAL</label>
+          <select value={filters.material} onChange={e => handleMaterialChange(e.target.value)} style={{...selectStyle, borderLeft: '3px solid #007bff'}}>
+            <option value="">-- Todos --</option>
             {options.materiais.map(opt => <option key={opt} value={opt}>{opt}</option>)}
           </select>
         </div>
 
-        {/* 4. ESPESSURA (Único) */}
+        {/* NÍVEL 2: ESPESSURA (Filho) */}
         <div style={{ flex: 1, minWidth: '80px' }}>
-          <label style={labelStyle}>ESPESSURA</label>
-          <select value={filters.espessura} onChange={e => handleChangeSingle('espessura', e.target.value)} style={selectStyle}>
-            <option value="">Todas</option>
+          <label style={{...labelStyle, color: filters.material ? '#28a745' : theme.label}}>2. ESPESSURA</label>
+          <select 
+            value={filters.espessura} 
+            onChange={e => handleThicknessChange(e.target.value)} 
+            style={{...selectStyle, borderLeft: filters.material ? '3px solid #28a745' : `1px solid ${theme.border}`}}
+            disabled={!filters.material && options.espessuras.length > 10} // Opcional: só para guiar o usuário
+          >
+            <option value="">-- Todas --</option>
             {options.espessuras.map(opt => <option key={opt} value={opt}>{opt}</option>)}
           </select>
         </div>
+
+        {/* NÍVEL 3: REFINAMENTO */}
+        <MultiSelect 
+            label="3. PEDIDOS" 
+            options={options.pedidos} 
+            selectedValues={filters.pedido} 
+            onChange={(vals) => handleMultiChange('pedido', vals)} 
+            theme={theme}
+        />
+
+        <MultiSelect 
+            label="4. ORDENS (OP)" 
+            options={options.ops} 
+            selectedValues={filters.op} 
+            onChange={(vals) => handleMultiChange('op', vals)} 
+            theme={theme}
+        />
 
       </div>
       
