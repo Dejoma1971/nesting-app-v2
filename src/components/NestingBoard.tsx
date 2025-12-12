@@ -1003,359 +1003,89 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             Planejamento de Corte
           </h2>
         </div>
-        <div style={{ marginLeft: "auto", paddingRight: "10px" }}>
-          <button
-            onClick={() => setIsDarkMode(!isDarkMode)}
-            title="Alternar Tema"
-            style={{
-              background: "transparent",
-              border: `1px solid ${theme.border}`,
-              color: theme.text,
-              padding: "6px 12px",
-              borderRadius: "20px",
-              cursor: "pointer",
-              fontSize: "16px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            {isDarkMode ? "☀️" : "🌙"}
-          </button>
+        
+        {/* Lado Direito: Ações + Tema */}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "10px" }}>
+            
+            {/* BOTÕES DE AÇÃO (MOVIDOS PARA CÁ) */}
+            <button onClick={() => setIsSearchModalOpen(true)} style={{ background: "#6f42c1", color: "white", border: "none", padding: "6px 12px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "5px", fontSize: "13px" }}>
+                🔍 Buscar Pedido
+            </button>
+            <button style={{ background: isComputing ? "#666" : "#28a745", color: "white", border: "none", padding: "6px 12px", cursor: isComputing ? "wait" : "pointer", borderRadius: "4px", fontWeight: "bold", fontSize: "13px" }} onClick={handleCalculate} disabled={isComputing}>
+                {isComputing ? "..." : "▶ Calcular"}
+            </button>
+            <button onClick={handleDownload} disabled={nestingResult.length === 0} style={{ background: "#007bff", color: "white", border: "none", padding: "6px 12px", cursor: nestingResult.length === 0 ? "not-allowed" : "pointer", borderRadius: "4px", opacity: nestingResult.length === 0 ? 0.5 : 1, fontSize: "13px" }}>
+                💾 DXF
+            </button>
+            <button onClick={handleClearTable} title="Limpar Mesa" style={{ background: "transparent", color: "#dc3545", border: `1px solid #dc3545`, padding: "5px 10px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>
+                🗑️
+            </button>
+
+            {/* Divisor Visual */}
+            <div style={{ width: 1, height: 24, background: theme.border, margin: '0 5px' }}></div>
+
+            {/* Botão de Tema */}
+            <button onClick={() => setIsDarkMode(!isDarkMode)} title="Alternar Tema" style={{ background: "transparent", border: `1px solid ${theme.border}`, color: theme.text, padding: "6px 12px", borderRadius: "20px", cursor: "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {isDarkMode ? "☀️" : "🌙"}
+            </button>
         </div>
       </div>
 
       <div style={toolbarStyle}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            borderRight: `1px solid ${theme.border}`,
-            paddingRight: "15px",
-          }}
-        >
-          <span
-            style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}
-          >
-            Motor:
-          </span>
-          <select
-            value={strategy}
-            onChange={(e) => setStrategy(e.target.value as any)}
-            style={inputStyle}
-          >
+        <div style={{ display: "flex", alignItems: "center", borderRight: `1px solid ${theme.border}`, paddingRight: "15px" }}>
+          <span style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}>Motor:</span>
+          <select value={strategy} onChange={(e) => setStrategy(e.target.value as any)} style={inputStyle}>
             <option value="rect">🔳 Retangular</option>
             <option value="true-shape">🧩 True Shape</option>
           </select>
         </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            borderRight: `1px solid ${theme.border}`,
-            paddingRight: "15px",
-          }}
-        >
-          <span
-            style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}
-          >
-            Dir:
-          </span>
-          <div
-            style={{
-              display: "flex",
-              gap: "2px",
-              background: theme.inputBg,
-              borderRadius: "4px",
-              padding: "2px",
-            }}
-          >
-            <button
-              title="Auto"
-              onClick={() => setDirection("auto")}
-              style={btnStyle(direction === "auto")}
-            >
-              Auto
-            </button>
-            <button
-              title="Vertical"
-              onClick={() => setDirection("vertical")}
-              style={btnStyle(direction === "vertical")}
-            >
-              ⬇️
-            </button>
-            <button
-              title="Horizontal"
-              onClick={() => setDirection("horizontal")}
-              style={btnStyle(direction === "horizontal")}
-            >
-              ➡️
-            </button>
+        <div style={{ display: "flex", alignItems: "center", borderRight: `1px solid ${theme.border}`, paddingRight: "15px" }}>
+          <span style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}>Dir:</span>
+          <div style={{ display: "flex", gap: "2px", background: theme.inputBg, borderRadius: "4px", padding: "2px" }}>
+            <button title="Auto" onClick={() => setDirection("auto")} style={btnStyle(direction === "auto")}>Auto</button>
+            <button title="Vertical" onClick={() => setDirection("vertical")} style={btnStyle(direction === "vertical")}>⬇️</button>
+            <button title="Horizontal" onClick={() => setDirection("horizontal")} style={btnStyle(direction === "horizontal")}>➡️</button>
           </div>
         </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            background: theme.hoverRow,
-            padding: "5px",
-            borderRadius: "4px",
-            gap: "5px",
-          }}
-        >
+        <div style={{ display: "flex", alignItems: "center", background: theme.hoverRow, padding: "5px", borderRadius: "4px", gap: "5px" }}>
           <label style={{ fontSize: 12 }}>L:</label>
-          <input
-            type="number"
-            value={binSize.width}
-            onChange={(e) =>
-              setBinSize((p) => ({ ...p, width: Number(e.target.value) }))
-            }
-            style={{ ...inputStyle, width: 50 }}
-          />
+          <input type="number" value={binSize.width} onChange={(e) => setBinSize((p) => ({ ...p, width: Number(e.target.value) }))} style={{ ...inputStyle, width: 50 }} />
           <label style={{ fontSize: 12 }}>A:</label>
-          <input
-            type="number"
-            value={binSize.height}
-            onChange={(e) =>
-              setBinSize((p) => ({ ...p, height: Number(e.target.value) }))
-            }
-            style={{ ...inputStyle, width: 50 }}
-          />
+          <input type="number" value={binSize.height} onChange={(e) => setBinSize((p) => ({ ...p, height: Number(e.target.value) }))} style={{ ...inputStyle, width: 50 }} />
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <label style={{ fontSize: 12 }}>Gap:</label>
-          <input
-            type="number"
-            value={gap}
-            onChange={(e) => setGap(Number(e.target.value))}
-            style={{ ...inputStyle, width: 40 }}
-          />
+          <input type="number" value={gap} onChange={(e) => setGap(Number(e.target.value))} style={{ ...inputStyle, width: 40 }} />
           <label style={{ fontSize: 12 }}>Margem:</label>
-          <input
-            type="number"
-            value={margin}
-            onChange={(e) => setMargin(Number(e.target.value))}
-            style={{ ...inputStyle, width: 40 }}
-          />
+          <input type="number" value={margin} onChange={(e) => setMargin(Number(e.target.value))} style={{ ...inputStyle, width: 40 }} />
         </div>
         {strategy === "true-shape" && (
           <div style={{ display: "flex", alignItems: "center" }}>
             <label style={{ fontSize: 12, marginRight: 5 }}>Rot:</label>
-            <select
-              value={rotationStep}
-              onChange={(e) => setRotationStep(Number(e.target.value))}
-              style={inputStyle}
-            >
+            <select value={rotationStep} onChange={(e) => setRotationStep(Number(e.target.value))} style={inputStyle}>
               <option value="90">90°</option>
               <option value="45">45°</option>
               <option value="10">10°</option>
             </select>
           </div>
         )}
-        <label
-          style={{
-            fontSize: "12px",
-            display: "flex",
-            alignItems: "center",
-            cursor: "pointer",
-            userSelect: "none",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={showDebug}
-            onChange={(e) => setShowDebug(e.target.checked)}
-            style={{ marginRight: "5px" }}
-          />
+        <label style={{ fontSize: "12px", display: "flex", alignItems: "center", cursor: "pointer", userSelect: "none" }}>
+          <input type="checkbox" checked={showDebug} onChange={(e) => setShowDebug(e.target.checked)} style={{ marginRight: "5px" }} />
           Ver Box
         </label>
-        <div
-          style={{
-            marginLeft: "auto",
-            display: "flex",
-            gap: "10px",
-            alignItems: "center",
-          }}
-        >
-          {/* BOTÃO DE BUSCA */}
-          <button
-            onClick={() => setIsSearchModalOpen(true)}
-            style={{
-              background: "#6f42c1",
-              color: "white",
-              border: "none",
-              padding: "8px 15px",
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontWeight: "bold",
-              display: "flex",
-              alignItems: "center",
-              gap: "5px",
-            }}
-          >
-            🔍 Buscar Pedido
-          </button>
-
-          <button
-            style={{
-              background: isComputing ? "#666" : "#28a745",
-              color: "white",
-              border: "none",
-              padding: "8px 20px",
-              cursor: isComputing ? "wait" : "pointer",
-              borderRadius: "4px",
-              fontWeight: "bold",
-            }}
-            onClick={handleCalculate}
-            disabled={isComputing}
-          >
-            {isComputing ? "..." : "▶ Calcular"}
-          </button>
-          <button
-            onClick={handleDownload}
-            disabled={nestingResult.length === 0}
-            style={{
-              background: "#007bff",
-              color: "white",
-              border: "none",
-              padding: "8px 20px",
-              cursor: nestingResult.length === 0 ? "not-allowed" : "pointer",
-              borderRadius: "4px",
-              opacity: nestingResult.length === 0 ? 0.5 : 1,
-            }}
-          >
-            💾 DXF
-          </button>
-          <button
-            onClick={handleClearTable}
-            title="Limpar Mesa"
-            style={{
-              background: "transparent",
-              color: "#dc3545",
-              border: `1px solid #dc3545`,
-              padding: "8px 12px",
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontWeight: "bold",
-              fontSize: "13px",
-            }}
-          >
-            🗑️
-          </button>
-        </div>
       </div>
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        <div
-          style={{
-            flex: 2,
-            position: "relative",
-            background: theme.canvasBg,
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-          }}
-          onMouseDown={() => setContextMenu(null)}
-        >
-          <div
-            style={{
-              position: "absolute",
-              bottom: 20,
-              left: "50%",
-              transform: "translateX(-50%)",
-              display: "flex",
-              gap: 10,
-              zIndex: 20,
-            }}
-          >
-            <button
-              onClick={undo}
-              disabled={!canUndo}
-              style={{
-                padding: "8px 15px",
-                borderRadius: "20px",
-                border: `1px solid ${theme.buttonBorder}`,
-                background: theme.buttonBg,
-                color: canUndo ? theme.buttonText : "#888",
-                cursor: canUndo ? "pointer" : "default",
-                boxShadow: "0 2px 5px rgba(0,0,0,0.2)",
-                fontWeight: "bold",
-                fontSize: "12px",
-              }}
-            >
-              ↩ Desfazer
-            </button>
-            <button
-              onClick={redo}
-              disabled={!canRedo}
-              style={{
-                padding: "8px 15px",
-                borderRadius: "20px",
-                border: `1px solid ${theme.buttonBorder}`,
-                background: theme.buttonBg,
-                color: canRedo ? theme.buttonText : "#888",
-                cursor: canRedo ? "pointer" : "default",
-                boxShadow: "0 2px 5px rgba(0,0,0,0.2)",
-                fontWeight: "bold",
-                fontSize: "12px",
-              }}
-            >
-              ↪ Refazer
-            </button>
+        <div style={{ flex: 2, position: "relative", background: theme.canvasBg, display: "flex", flexDirection: "column", overflow: "hidden" }} onMouseDown={() => setContextMenu(null)}>
+          <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 10, zIndex: 20 }}>
+            <button onClick={undo} disabled={!canUndo} style={{ padding: "8px 15px", borderRadius: "20px", border: `1px solid ${theme.buttonBorder}`, background: theme.buttonBg, color: canUndo ? theme.buttonText : "#888", cursor: canUndo ? "pointer" : "default", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", fontWeight: "bold", fontSize: "12px" }}>↩ Desfazer</button>
+            <button onClick={redo} disabled={!canRedo} style={{ padding: "8px 15px", borderRadius: "20px", border: `1px solid ${theme.buttonBorder}`, background: theme.buttonBg, color: canRedo ? theme.buttonText : "#888", cursor: canRedo ? "pointer" : "default", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", fontWeight: "bold", fontSize: "12px" }}>↪ Refazer</button>
           </div>
           {totalBins > 1 && (
-            <div
-              style={{
-                position: "absolute",
-                bottom: 20,
-                right: 20,
-                zIndex: 20,
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                background: theme.buttonBg,
-                padding: "5px 15px",
-                borderRadius: "20px",
-                boxShadow: "0 2px 5px rgba(0,0,0,0.2)",
-                color: theme.text,
-                border: `1px solid ${theme.buttonBorder}`,
-              }}
-            >
-              <button
-                onClick={() =>
-                  setCurrentBinIndex(Math.max(0, currentBinIndex - 1))
-                }
-                disabled={currentBinIndex === 0}
-                style={{
-                  cursor: "pointer",
-                  border: "none",
-                  background: "transparent",
-                  fontWeight: "bold",
-                  color: theme.text,
-                }}
-              >
-                ◀
-              </button>
-              <span style={{ fontWeight: "bold", fontSize: "13px" }}>
-                Chapa {currentBinIndex + 1} de {totalBins}
-              </span>
-              <button
-                onClick={() =>
-                  setCurrentBinIndex(
-                    Math.min(totalBins - 1, currentBinIndex + 1)
-                  )
-                }
-                disabled={currentBinIndex === totalBins - 1}
-                style={{
-                  cursor: "pointer",
-                  border: "none",
-                  background: "transparent",
-                  fontWeight: "bold",
-                  color: theme.text,
-                }}
-              >
-                ▶
-              </button>
+            <div style={{ position: "absolute", bottom: 20, right: 20, zIndex: 20, display: "flex", alignItems: "center", gap: "10px", background: theme.buttonBg, padding: "5px 15px", borderRadius: "20px", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", color: theme.text, border: `1px solid ${theme.buttonBorder}` }}>
+              <button onClick={() => setCurrentBinIndex(Math.max(0, currentBinIndex - 1))} disabled={currentBinIndex === 0} style={{ cursor: "pointer", border: "none", background: "transparent", fontWeight: "bold", color: theme.text }}>◀</button>
+              <span style={{ fontWeight: "bold", fontSize: "13px" }}>Chapa {currentBinIndex + 1} de {totalBins}</span>
+              <button onClick={() => setCurrentBinIndex(Math.min(totalBins - 1, currentBinIndex + 1))} disabled={currentBinIndex === totalBins - 1} style={{ cursor: "pointer", border: "none", background: "transparent", fontWeight: "bold", color: theme.text }}>▶</button>
             </div>
           )}
           <InteractiveCanvas
@@ -1372,219 +1102,35 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             onPartSelect={handlePartSelect}
             onContextMenu={handlePartContextMenu}
           />
-          <div
-            style={{
-              padding: "10px 20px",
-              display: "flex",
-              gap: "20px",
-              borderTop: `1px solid ${theme.border}`,
-              background: theme.panelBg,
-              zIndex: 5,
-              color: theme.text,
-            }}
-          >
-            <span style={{ opacity: 0.6, fontSize: "12px" }}>
-              {nestingResult.length > 0
-                ? `Total: ${nestingResult.length} Peças`
-                : `Área: ${binSize.width}x${binSize.height}mm`}
-            </span>
-            {failedCount > 0 && (
-              <span
-                style={{
-                  color: "#dc3545",
-                  fontWeight: "bold",
-                  fontSize: "12px",
-                  background: "rgba(255,0,0,0.1)",
-                  padding: "2px 8px",
-                  borderRadius: "4px",
-                }}
-              >
-                ⚠️ {failedCount} NÃO COUBERAM
-              </span>
-            )}
+          <div style={{ padding: "10px 20px", display: "flex", gap: "20px", borderTop: `1px solid ${theme.border}`, background: theme.panelBg, zIndex: 5, color: theme.text }}>
+            <span style={{ opacity: 0.6, fontSize: "12px" }}>{nestingResult.length > 0 ? `Total: ${nestingResult.length} Peças` : `Área: ${binSize.width}x${binSize.height}mm`}</span>
+            {failedCount > 0 && <span style={{ color: "#dc3545", fontWeight: "bold", fontSize: "12px", background: "rgba(255,0,0,0.1)", padding: "2px 8px", borderRadius: "4px" }}>⚠️ {failedCount} NÃO COUBERAM</span>}
           </div>
         </div>
 
-        <div
-          style={{
-            width: "500px",
-            borderLeft: `1px solid ${theme.border}`,
-            display: "flex",
-            flexDirection: "column",
-            backgroundColor: theme.panelBg,
-            zIndex: 5,
-            color: theme.text,
-          }}
-        >
-          <PartFilter
-            allParts={parts}
-            filters={filters}
-            onFilterChange={setFilters}
-            theme={theme}
-          />
-          <GlobalLabelPanel
-            showWhite={globalWhiteEnabled}
-            showPink={globalPinkEnabled}
-            onToggleWhite={() => toggleGlobal("white")}
-            onTogglePink={() => toggleGlobal("pink")}
-            theme={theme}
-          />
-          <div
-            style={{
-              display: "flex",
-              borderBottom: `1px solid ${theme.border}`,
-              background: theme.headerBg,
-            }}
-          >
-            <button
-              style={tabStyle(activeTab === "grid")}
-              onClick={() => setActiveTab("grid")}
-            >
-              🔳 Banco de Peças
-            </button>
-            <button
-              style={tabStyle(activeTab === "list")}
-              onClick={() => setActiveTab("list")}
-            >
-              📄 Lista Técnica
-            </button>
+        <div style={{ width: "500px", borderLeft: `1px solid ${theme.border}`, display: "flex", flexDirection: "column", backgroundColor: theme.panelBg, zIndex: 5, color: theme.text }}>
+          <PartFilter allParts={parts} filters={filters} onFilterChange={setFilters} theme={theme} />
+          <GlobalLabelPanel showWhite={globalWhiteEnabled} showPink={globalPinkEnabled} onToggleWhite={() => toggleGlobal("white")} onTogglePink={() => toggleGlobal("pink")} theme={theme} />
+          <div style={{ display: "flex", borderBottom: `1px solid ${theme.border}`, background: theme.headerBg }}>
+            <button style={tabStyle(activeTab === "grid")} onClick={() => setActiveTab("grid")}>🔳 Banco de Peças</button>
+            <button style={tabStyle(activeTab === "list")} onClick={() => setActiveTab("list")}>📄 Lista Técnica</button>
           </div>
-          <div
-            style={{
-              flex: 1,
-              overflowY: "auto",
-              padding: activeTab === "grid" ? "15px" : "0",
-            }}
-          >
+          <div style={{ flex: 1, overflowY: "auto", padding: activeTab === "grid" ? "15px" : "0" }}>
             {activeTab === "grid" && (
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))",
-                  gap: "15px",
-                  alignContent: "start",
-                }}
-              >
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "15px", alignContent: "start" }}>
                 {displayedParts.map((part) => (
-                  <div
-                    key={part.id}
-                    ref={(el) => {
-                      thumbnailRefs.current[part.id] = el;
-                    }}
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      position: "relative",
-                    }}
-                    onContextMenu={(e) =>
-                      handleThumbnailContextMenu(e, part.id)
-                    }
-                  >
-                    <ThumbnailFlags
-                      partId={part.id}
-                      labelState={labelStates}
-                      onTogglePartFlag={togglePartFlag}
-                    />
-                    <div
-                      style={{
-                        width: "100%",
-                        aspectRatio: "1/1",
-                        background: theme.cardBg,
-                        border: `1px solid ${
-                          selectedPartIds.includes(part.id)
-                            ? "#007bff"
-                            : theme.border
-                        }`,
-                        borderRadius: "8px",
-                        marginBottom: "8px",
-                        padding: "10px",
-                        boxSizing: "border-box",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        boxShadow: selectedPartIds.includes(part.id)
-                          ? "0 0 5px rgba(0,123,255,0.5)"
-                          : "none",
-                      }}
-                    >
-                      <svg
-                        viewBox={getThumbnailViewBox(part)}
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          overflow: "visible",
-                          color: theme.text,
-                        }}
-                        transform="scale(1, -1)"
-                        preserveAspectRatio="xMidYMid meet"
-                      >
-                        {part.entities.map((ent, i) =>
-                          renderEntityFunction(
-                            ent,
-                            i,
-                            part.blocks,
-                            1,
-                            theme.text
-                          )
-                        )}
+                  <div key={part.id} ref={(el) => { thumbnailRefs.current[part.id] = el; }} style={{ display: "flex", flexDirection: "column", alignItems: "center", position: "relative" }} onContextMenu={(e) => handleThumbnailContextMenu(e, part.id)}>
+                    <ThumbnailFlags partId={part.id} labelState={labelStates} onTogglePartFlag={togglePartFlag} />
+                    <div style={{ width: "100%", aspectRatio: "1/1", background: theme.cardBg, border: `1px solid ${selectedPartIds.includes(part.id) ? "#007bff" : theme.border}`, borderRadius: "8px", marginBottom: "8px", padding: "10px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: selectedPartIds.includes(part.id) ? "0 0 5px rgba(0,123,255,0.5)" : "none" }}>
+                      <svg viewBox={getThumbnailViewBox(part)} style={{ width: "100%", height: "100%", overflow: "visible", color: theme.text }} transform="scale(1, -1)" preserveAspectRatio="xMidYMid meet">
+                        {part.entities.map((ent, i) => renderEntityFunction(ent, i, part.blocks, 1, theme.text))}
                       </svg>
                     </div>
-                    <div
-                      style={{
-                        width: "100%",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        fontSize: "12px",
-                      }}
-                    >
-                      <span
-                        title={part.name}
-                        style={{
-                          fontWeight: "bold",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          maxWidth: "70px",
-                        }}
-                      >
-                        {part.name}
-                      </span>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          background: theme.hoverRow,
-                          borderRadius: "4px",
-                        }}
-                      >
-                        <span
-                          style={{
-                            padding: "0 4px",
-                            fontSize: 10,
-                            opacity: 0.7,
-                          }}
-                        >
-                          Qtd:
-                        </span>
-                        <input
-                          type="number"
-                          min="1"
-                          value={quantities[part.id] || 1}
-                          onChange={(e) =>
-                            updateQty(part.id, Number(e.target.value))
-                          }
-                          style={{
-                            width: 35,
-                            border: "none",
-                            background: "transparent",
-                            textAlign: "center",
-                            color: theme.text,
-                            fontWeight: "bold",
-                            padding: "4px 0",
-                          }}
-                        />
+                    <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px" }}>
+                      <span title={part.name} style={{ fontWeight: "bold", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70px" }}>{part.name}</span>
+                      <div style={{ display: "flex", alignItems: "center", background: theme.hoverRow, borderRadius: "4px" }}>
+                        <span style={{ padding: "0 4px", fontSize: 10, opacity: 0.7 }}>Qtd:</span>
+                        <input type="number" min="1" value={quantities[part.id] || 1} onChange={(e) => updateQty(part.id, Number(e.target.value))} style={{ width: 35, border: "none", background: "transparent", textAlign: "center", color: theme.text, fontWeight: "bold", padding: "4px 0" }} />
                       </div>
                     </div>
                   </div>
@@ -1592,22 +1138,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               </div>
             )}
             {activeTab === "list" && (
-              <div
-                style={{
-                  overflowX: "auto",
-                  transform: "rotateX(180deg)",
-                  borderBottom: `1px solid ${theme.border}`,
-                }}
-              >
-                <table
-                  style={{
-                    width: "100%",
-                    borderCollapse: "collapse",
-                    borderSpacing: 0,
-                    minWidth: "600px",
-                    transform: "rotateX(180deg)",
-                  }}
-                >
+              <div style={{ overflowX: "auto", transform: "rotateX(180deg)", borderBottom: `1px solid ${theme.border}` }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", borderSpacing: 0, minWidth: "600px", transform: "rotateX(180deg)" }}>
                   <thead style={{ background: theme.panelBg }}>
                     <tr>
                       <th style={thStyle}>#</th>
@@ -1623,43 +1155,16 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   </thead>
                   <tbody>
                     {displayedParts.map((part, index) => (
-                      <tr
-                        key={part.id}
-                        style={{ borderBottom: `1px solid ${theme.border}` }}
-                      >
+                      <tr key={part.id} style={{ borderBottom: `1px solid ${theme.border}` }}>
                         <td style={tdStyle}>{index + 1}</td>
-                        <td
-                          style={{ ...tdStyle, fontWeight: "bold" }}
-                          title={part.name}
-                        >
-                          {part.name}
-                        </td>
+                        <td style={{ ...tdStyle, fontWeight: "bold" }} title={part.name}>{part.name}</td>
                         <td style={tdStyle}>{part.pedido || "-"}</td>
                         <td style={tdStyle}>{part.op || "-"}</td>
                         <td style={tdStyle}>{part.material}</td>
                         <td style={tdStyle}>{part.espessura || "-"}</td>
-                        <td style={tdStyle}>
-                          {part.width.toFixed(0)}x{part.height.toFixed(0)}
-                        </td>
+                        <td style={tdStyle}>{part.width.toFixed(0)}x{part.height.toFixed(0)}</td>
                         <td style={tdStyle}>{formatArea(part.grossArea)}</td>
-                        <td style={tdStyle}>
-                          <input
-                            type="number"
-                            min="1"
-                            value={quantities[part.id] || 1}
-                            onChange={(e) =>
-                              updateQty(part.id, Number(e.target.value))
-                            }
-                            style={{
-                              width: 40,
-                              textAlign: "center",
-                              background: theme.inputBg,
-                              color: theme.text,
-                              border: `1px solid ${theme.border}`,
-                              borderRadius: 4,
-                            }}
-                          />
-                        </td>
+                        <td style={tdStyle}><input type="number" min="1" value={quantities[part.id] || 1} onChange={(e) => updateQty(part.id, Number(e.target.value))} style={{ width: 40, textAlign: "center", background: theme.inputBg, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 4 }} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -1670,19 +1175,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         </div>
       </div>
 
-      {editingPartId &&
-        labelStates[editingPartId] &&
-        parts.find((p) => p.id === editingPartId) && (
-          <LabelEditorModal
-            part={parts.find((p) => p.id === editingPartId)!}
-            labelState={labelStates[editingPartId]}
-            onUpdate={(type, changes) =>
-              updateLabelConfig(editingPartId, type, changes)
-            }
-            onClose={() => setEditingPartId(null)}
-            theme={theme}
-          />
-        )}
+      {editingPartId && labelStates[editingPartId] && parts.find((p) => p.id === editingPartId) && (
+        <LabelEditorModal part={parts.find((p) => p.id === editingPartId)!} labelState={labelStates[editingPartId]} onUpdate={(type, changes) => updateLabelConfig(editingPartId, type, changes)} onClose={() => setEditingPartId(null)} theme={theme} />
+      )}
     </div>
   );
 };

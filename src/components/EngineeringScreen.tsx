@@ -521,6 +521,17 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
       }
   };
 
+  // --- NOVO: NAVEGAÇÃO DIRETA PARA O NESTING ---
+  const handleGoToNestingEmpty = () => {
+      if (parts.length > 0) {
+          if (!window.confirm("Você tem peças na lista de engenharia. Ir para o Nesting diretamente NÃO levará estas peças (use 'Cortar Agora' para isso).\n\nDeseja ir para o Nesting vazio (para buscar do banco)?")) {
+              return;
+          }
+      }
+      // Envia array vazio e string vazia. O Nesting abrirá vazio.
+      onSendToNesting([], '');
+  };
+
   const handleRotatePart = (direction: 'cw' | 'ccw') => {
       if (!viewingPartId) return;
       const angle = direction === 'cw' ? -90 : 90;
@@ -631,6 +642,33 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
             {loading && <span style={{fontSize:'12px', color:'#ffd700'}}>⏳ {processingMsg}</span>}
         </div>
         <div style={{display:'flex', gap:'15px', alignItems:'center'}}>
+
+             {/* --- NOVO BOTÃO: IR PARA NESTING --- */}
+             <button 
+                onClick={handleGoToNestingEmpty} 
+                title="Ir para a Mesa de Nesting (Buscar peças lá)"
+                style={{
+                    background: 'transparent', 
+                    color: theme.text, 
+                    border: `1px solid ${theme.border}`, 
+                    padding: '8px 12px', 
+                    borderRadius: '4px', 
+                    cursor: 'pointer', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '5px',
+                    marginRight: '10px'
+                }}
+             >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="14" width="7" height="7"></rect>
+                    <rect x="3" y="14" width="7" height="7"></rect>
+                </svg>
+                <span style={{fontSize: '13px'}}>Mesa de Corte</span>
+             </button>
+             {/* ----------------------------------- */}
              
              <button onClick={handleReset} style={{background: 'transparent', color: theme.text, border: `1px solid ${theme.border}`, padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px'}}>
                 ✨ Nova Lista
