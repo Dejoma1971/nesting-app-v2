@@ -15,7 +15,8 @@ export const ContextControl: React.FC<ContextControlProps> = ({
   onMove,
   onRotate,
 }) => {
-  const [step, setStep] = useState(1); // Passo padrão de 1mm
+  const [step, setStep] = useState(1); // Passo de deslocamento (mm)
+  const [rotationStep, setRotationStep] = useState(90); // Novo: Passo de rotação (graus)
 
   // Estado local para a posição do menu (permite arrastar)
   const [position, setPosition] = useState({ x, y });
@@ -24,13 +25,13 @@ export const ContextControl: React.FC<ContextControlProps> = ({
   // Refs para cálculo de arraste
   const dragStartRef = useRef({ mouseX: 0, mouseY: 0, menuX: 0, menuY: 0 });
 
-  // Sincroniza se o pai mandar novas coordenadas (ex: clicou com direito em outra peça)
+  // Sincroniza se o pai mandar novas coordenadas
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPosition({ x, y });
   }, [x, y]);
 
-  // Efeito global para o arraste (funciona mesmo se o mouse sair rápido do menu)
+  // Efeito global para o arraste
   useEffect(() => {
     const handleGlobalMove = (e: MouseEvent) => {
       if (!isDragging) return;
@@ -62,7 +63,6 @@ export const ContextControl: React.FC<ContextControlProps> = ({
 
   // Inicia o arraste
   const handleMouseDownHeader = (e: React.MouseEvent) => {
-    // Apenas botão esquerdo
     if (e.button !== 0) return;
 
     e.preventDefault();
@@ -75,7 +75,7 @@ export const ContextControl: React.FC<ContextControlProps> = ({
     };
   };
 
-  // Estilo do Painel Flutuante
+  // Estilos
   const style: React.CSSProperties = {
     position: "fixed",
     top: position.y,
@@ -91,7 +91,7 @@ export const ContextControl: React.FC<ContextControlProps> = ({
     flexDirection: "column",
     gap: "10px",
     minWidth: "160px",
-    userSelect: "none", // Evita selecionar texto ao arrastar
+    userSelect: "none",
   };
 
   const btnStyle: React.CSSProperties = {
@@ -105,6 +105,8 @@ export const ContextControl: React.FC<ContextControlProps> = ({
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
+    fontWeight: "bold",
+    fontSize: "14px",
   };
 
   const headerStyle: React.CSSProperties = {
@@ -114,7 +116,17 @@ export const ContextControl: React.FC<ContextControlProps> = ({
     borderBottom: "1px solid #555",
     paddingBottom: "5px",
     marginBottom: "5px",
-    cursor: isDragging ? "grabbing" : "move", // Cursor indica que pode mover
+    cursor: isDragging ? "grabbing" : "move",
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: "50px",
+    background: "#222",
+    border: "1px solid #555",
+    color: "#fff",
+    padding: "2px 5px",
+    borderRadius: "3px",
+    textAlign: "center",
   };
 
   return (
@@ -132,7 +144,6 @@ export const ContextControl: React.FC<ContextControlProps> = ({
         >
           <span style={{ fontSize: "14px" }}>✥</span> Ajuste Fino
         </span>
-        {/* Botão fechar (não propaga o arraste) */}
         <button
           onMouseDown={(e) => e.stopPropagation()}
           onClick={onClose}
@@ -149,7 +160,7 @@ export const ContextControl: React.FC<ContextControlProps> = ({
         </button>
       </div>
 
-      {/* Passo de Movimento */}
+      {/* --- SEÇÃO DE MOVIMENTO --- */}
       <div
         style={{
           display: "flex",
@@ -161,20 +172,13 @@ export const ContextControl: React.FC<ContextControlProps> = ({
         <span>Passo (mm):</span>
         <input
           type="number"
+          min="0.1"
           value={step}
           onChange={(e) => setStep(Number(e.target.value))}
-          style={{
-            width: "50px",
-            background: "#222",
-            border: "1px solid #555",
-            color: "#fff",
-            padding: "2px 5px",
-            borderRadius: "3px",
-          }}
+          style={inputStyle}
         />
       </div>
 
-      {/* Direcionais */}
       <div
         style={{
           display: "grid",
@@ -185,8 +189,7 @@ export const ContextControl: React.FC<ContextControlProps> = ({
         <div />
         <button style={btnStyle} onClick={() => onMove(0, -step)} title="Cima">
           ▲
-        </button>{" "}
-        {/* Y negativo sobe */}
+        </button>
         <div />
         <button
           style={btnStyle}
@@ -197,8 +200,7 @@ export const ContextControl: React.FC<ContextControlProps> = ({
         </button>
         <button style={btnStyle} onClick={() => onMove(0, step)} title="Baixo">
           ▼
-        </button>{" "}
-        {/* Y positivo desce */}
+        </button>
         <button
           style={btnStyle}
           onClick={() => onMove(step, 0)}
@@ -208,29 +210,71 @@ export const ContextControl: React.FC<ContextControlProps> = ({
         </button>
       </div>
 
-      {/* Rotação */}
+      {/* --- SEÇÃO DE ROTAÇÃO (MODIFICADA) --- */}
       <div
         style={{
           borderTop: "1px solid #555",
           paddingTop: "10px",
           display: "flex",
+          flexDirection: "column",
           gap: "5px",
         }}
       >
-        <button style={btnStyle} onClick={() => onRotate(90)}>
-          ↺ 90°
-        </button>
-        <button style={btnStyle} onClick={() => onRotate(-90)}>
-          ↻ 90°
-        </button>
-      </div>
-      <div style={{ display: "flex", gap: "5px" }}>
-        <button style={btnStyle} onClick={() => onRotate(1)}>
-          ↺ 1°
-        </button>
-        <button style={btnStyle} onClick={() => onRotate(-1)}>
-          ↻ 1°
-        </button>
+        {/* Input de Giro Personalizado */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+            fontSize: "12px",
+          }}
+        >
+          <span>Giro (°):</span>
+          <input
+            type="number"
+            min="1"
+            max="90"
+            value={rotationStep}
+            onChange={(e) => setRotationStep(Number(e.target.value))}
+            style={inputStyle}
+          />
+        </div>
+
+        {/* Botões de Rotação Personalizada (Usam o valor do input) */}
+        <div style={{ display: "flex", gap: "5px" }}>
+          <button
+            style={btnStyle}
+            onClick={() => onRotate(rotationStep)}
+            title={`Girar ${rotationStep}° Anti-horário`}
+          >
+            ↺
+          </button>
+          <button
+            style={btnStyle}
+            onClick={() => onRotate(-rotationStep)}
+            title={`Girar ${rotationStep}° Horário`}
+          >
+            ↻
+          </button>
+        </div>
+
+        {/* Botões de Rotação Fina (Fixos em 1°) */}
+        <div style={{ display: "flex", gap: "5px" }}>
+          <button
+            style={{ ...btnStyle, fontSize: "11px", fontWeight: "normal" }}
+            onClick={() => onRotate(1)}
+            title="Ajuste Fino 1° Anti-horário"
+          >
+            ↺ 1°
+          </button>
+          <button
+            style={{ ...btnStyle, fontSize: "11px", fontWeight: "normal" }}
+            onClick={() => onRotate(-1)}
+            title="Ajuste Fino 1° Horário"
+          >
+            ↻ 1°
+          </button>
+        </div>
       </div>
     </div>
   );

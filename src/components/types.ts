@@ -20,4 +20,5 @@ export interface ImportedPart {
   autor: string;
   dataCadastro: string; // ISO String
   cliente?: string;     // Opcional, mas útil
+  quantity: number;
 }

@@ -1,8 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { ImportedPart } from '../components/types';
 
+// --- INTERFACE ATUALIZADA ---
 export interface PlacedPart {
-    partId: string;
+    uuid: string;   // <--- NOVO: Identificador único da instância (ex: "id_original_0")
+    partId: string; // ID da peça original (para buscar geometria)
     x: number;
     y: number;
     rotation: number;
@@ -16,7 +18,6 @@ export interface NestingResult {
     totalBins: number;
 }
 
-// Interface interna para auxiliar a lógica
 interface StrategyResult {
     placed: PlacedPart[];
     failed: string[];
@@ -25,7 +26,7 @@ interface StrategyResult {
 }
 
 const solveNesting = (
-    parts: any[], // Lista de "boxes" já preparados
+    parts: any[], 
     binWidth: number,
     binHeight: number,
     margin: number,
@@ -34,7 +35,7 @@ const solveNesting = (
     const usableWidth = binWidth - (margin * 2);
     const usableHeight = binHeight - (margin * 2);
     
-    // Ordenação por Altura Descrescente (Padrão Best Fit)
+    // Ordenação por Altura (Best Fit Decreasing Height)
     const sortedBoxes = [...parts].sort((a, b) => b.h - a.h);
 
     const placed: PlacedPart[] = [];
@@ -43,18 +44,17 @@ const solveNesting = (
     let binId = 0;
     let currentX = 0;
     let currentY = 0;
-    
-    // Variável de controle da "Tira" (Strip)
     let currentStripSize = 0; 
 
     sortedBoxes.forEach(box => {
+        // Verifica se cabe na chapa (sem rotação adicional, pois box já vem dimensionado)
         if (box.w > usableWidth || box.h > usableHeight) {
             failed.push(box.partId);
             return;
         }
 
         if (direction === 'vertical') {
-            // --- ESTRATÉGIA VERTICAL (Preenche Y, depois avança X) ---
+            // ESTRATÉGIA VERTICAL
             if (currentY + box.h > usableHeight) {
                 currentX += currentStripSize;
                 currentY = 0;
@@ -69,6 +69,7 @@ const solveNesting = (
             }
 
             placed.push({
+                uuid: box.uuid, // <--- Repassa o ID único
                 partId: box.partId,
                 x: currentX + margin,
                 y: currentY + margin,
@@ -80,7 +81,7 @@ const solveNesting = (
             if (box.w > currentStripSize) currentStripSize = box.w;
 
         } else {
-            // --- ESTRATÉGIA HORIZONTAL (Preenche X, depois avança Y) ---
+            // ESTRATÉGIA HORIZONTAL
             if (currentX + box.w > usableWidth) {
                 currentX = 0;
                 currentY += currentStripSize;
@@ -95,6 +96,7 @@ const solveNesting = (
             }
 
             placed.push({
+                uuid: box.uuid, // <--- Repassa o ID único
                 partId: box.partId,
                 x: currentX + margin,
                 y: currentY + margin,
@@ -109,7 +111,7 @@ const solveNesting = (
 
     let usedArea = 0;
     placed.forEach(p => {
-        const originalBox = parts.find(b => b.partId === p.partId);
+        const originalBox = parts.find(b => b.partId === p.partId); // Busca pela ref original
         if (originalBox) usedArea += (originalBox.originalPart.width * originalBox.originalPart.height);
     });
 
@@ -129,7 +131,7 @@ export const runRectangularNesting = (
     binWidth: number,
     binHeight: number,
     useRotation: boolean = true,
-    direction: 'auto' | 'vertical' | 'horizontal' = 'auto' // <--- NOVO PARÂMETRO
+    direction: 'auto' | 'vertical' | 'horizontal' = 'auto'
 ): NestingResult => {
     
     const numGap = Number(gap);
@@ -137,31 +139,36 @@ export const runRectangularNesting = (
     const usableWidth = binWidth - (numMargin * 2);
     const usableHeight = binHeight - (numMargin * 2);
 
-    // 1. Preparação das Caixas
+    // 1. Preparação das Caixas (Explosão das Quantidades)
     const boxes: any[] = [];
+    
     parts.forEach(part => {
-        const qty = quantities[part.id] || 0;
+        // Prioridade: 1. Quantidade definida no Nesting > 2. Quantidade padrão da peça > 3. Mínimo 1
+        const qty = quantities[part.id] ?? part.quantity ?? 1;
+        
         for (let i = 0; i < qty; i++) {
             
             let dims = { w: part.width, h: part.height };
             let rotation = 0;
 
             if (useRotation) {
-                // Rotação Inteligente (Mantida)
                 const fitsNormally = part.width <= usableWidth && part.height <= usableHeight;
                 const fitsRotated = part.height <= usableWidth && part.width <= usableHeight;
 
+                // Rotaciona se não couber normal, ou se for melhor para a proporção da chapa
                 if (!fitsNormally && fitsRotated) {
                     rotation = 90;
                     dims = { w: part.height, h: part.width };
                 }
                 else if (usableWidth < usableHeight && part.width > part.height) {
+                    // Se a chapa é vertical e a peça é horizontal -> vira
                     rotation = 90;
                     dims = { w: part.height, h: part.width };
                 }
             }
 
             boxes.push({
+                uuid: `${part.id}_copy_${i}`, // <--- CRIAÇÃO DO ID ÚNICO
                 w: dims.w + numGap,  
                 h: dims.h + numGap, 
                 partId: part.id,
@@ -175,12 +182,10 @@ export const runRectangularNesting = (
     let resVertical: StrategyResult | null = null;
     let resHorizontal: StrategyResult | null = null;
 
-    // Se for Auto ou Vertical, calcula Vertical
     if (direction === 'auto' || direction === 'vertical') {
         resVertical = solveNesting(boxes, binWidth, binHeight, numMargin, 'vertical');
     }
 
-    // Se for Auto ou Horizontal, calcula Horizontal
     if (direction === 'auto' || direction === 'horizontal') {
         resHorizontal = solveNesting(boxes, binWidth, binHeight, numMargin, 'horizontal');
     }
@@ -193,18 +198,18 @@ export const runRectangularNesting = (
     } else if (direction === 'horizontal' && resHorizontal) {
         winner = resHorizontal;
     } else {
-        // MODO AUTO: Competição (Quem colocou mais peças? Quem usou menos chapas?)
-        // (Garantimos que resVertical e resHorizontal existem aqui pois direction é auto)
         const v = resVertical!;
         const h = resHorizontal!;
 
+        // Critério: Quem coloca mais peças -> Quem usa menos chapas -> Quem gasta menos Y
         if (h.placed.length > v.placed.length) {
             winner = h;
-        } else if (h.placed.length === v.placed.length) {
+        } else if (v.placed.length > h.placed.length) {
+            winner = v;
+        } else {
+            // Empate na quantidade de peças, vence quem usar menos chapas
             if (h.binCount < v.binCount) winner = h;
             else winner = v;
-        } else {
-            winner = v;
         }
     }
 

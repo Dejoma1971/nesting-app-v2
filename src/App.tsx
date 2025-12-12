@@ -9,51 +9,47 @@ type ScreenType = 'home' | 'engineering' | 'nesting';
 function App() {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('home');
   
-  // Estado para transferir peças da Engenharia para o Nesting
+  // Lista global de peças (Engenharia)
+  const [engineeringParts, setEngineeringParts] = useState<ImportedPart[]>([]);
+  
+  // --- NOVOS ESTADOS PARA O NESTING ---
   const [partsForNesting, setPartsForNesting] = useState<ImportedPart[]>([]);
+  const [initialSearchQuery, setInitialSearchQuery] = useState<string>(''); // <--- NOVO
 
   const goHome = () => {
     setCurrentScreen('home');
-    setPartsForNesting([]); // Limpa a memória ao voltar para o menu
+    setPartsForNesting([]);
+    setInitialSearchQuery('');
   };
 
-  // Função chamada pela Engenharia para ir direto ao corte
-  const handleSendToNesting = (parts: ImportedPart[]) => {
-    setPartsForNesting(parts); // Guarda as peças processadas
-    setCurrentScreen('nesting'); // Troca a tela
+  // Atualizado para aceitar query de busca
+  const handleSendToNesting = (parts: ImportedPart[], searchQuery?: string) => {
+    setPartsForNesting(parts);
+    setInitialSearchQuery(searchQuery || ''); // Salva o pedido para busca automática
+    setCurrentScreen('nesting');
   };
 
   return (
     <>
-      {currentScreen === 'nesting' && (
-        <button 
-          onClick={goHome}
-          title="Voltar ao Menu Principal"
-          style={{
-            position: 'fixed', top: '15px', left: '15px', zIndex: 1000,
-            background: '#333', color: 'white', border: '1px solid #555',
-            borderRadius: '50%', width: '40px', height: '40px', fontSize: '20px',
-            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
-          }}
-        >
-          🏠
-        </button>
-      )}
-
       {currentScreen === 'home' && (
         <Home onNavigate={(screen) => setCurrentScreen(screen)} />
       )}
 
       {currentScreen === 'engineering' && (
         <EngineeringScreen 
+            parts={engineeringParts}
+            setParts={setEngineeringParts}
             onBack={goHome} 
-            onSendToNesting={handleSendToNesting} // Passamos a nova função
+            onSendToNesting={handleSendToNesting} 
         />
       )}
 
       {currentScreen === 'nesting' && (
-        // Passamos as peças recebidas para o leitor
-        <DxfReader preLoadedParts={partsForNesting} />
+        <DxfReader 
+            preLoadedParts={partsForNesting}
+            autoSearchQuery={initialSearchQuery} // <--- Passando a query
+            onBack={() => setCurrentScreen('engineering')}
+        />
       )}
     </>
   );

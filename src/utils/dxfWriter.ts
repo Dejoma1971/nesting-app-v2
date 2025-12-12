@@ -2,171 +2,340 @@
 import type { PlacedPart } from "./nestingCore";
 import type { ImportedPart } from "../components/types";
 
-// Função auxiliar para rotacionar um ponto (x, y) em torno de um centro (cx, cy)
-const rotatePoint = (
-  x: number,
-  y: number,
-  cx: number,
-  cy: number,
-  angleDeg: number
-) => {
-  const rad = (angleDeg * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
-  const nx = cos * (x - cx) - sin * (y - cy) + cx;
-  const ny = sin * (x - cx) + cos * (y - cy) + cy;
-  return { x: nx, y: ny };
+// --- HELPERS MATEMÁTICOS ---
+const rotatePointBasic = (x: number, y: number, angleRad: number) => {
+    const cos = Math.cos(angleRad);
+    const sin = Math.sin(angleRad);
+    return {
+        x: x * cos - y * sin,
+        y: x * sin + y * cos
+    };
 };
 
-// Removi o 'binHeight' que não estava sendo usado
+const bulgeToArc = (
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  bulge: number
+) => {
+  const chordDx = p2.x - p1.x;
+  const chordDy = p2.y - p1.y;
+  const chordLen = Math.sqrt(chordDx * chordDx + chordDy * chordDy);
+  const radius = (chordLen * (1 + bulge * bulge)) / (4 * Math.abs(bulge));
+  const cx = (p1.x + p2.x) / 2 - (chordDy * (1 - bulge * bulge)) / (4 * bulge);
+  const cy = (p1.y + p2.y) / 2 + (chordDx * (1 - bulge * bulge)) / (4 * bulge);
+  return { radius, cx, cy };
+};
+
+// --- HANDLES ---
+let handleCount = 1;
+const nextHandle = () => {
+  handleCount++;
+  return handleCount.toString(16).toUpperCase();
+};
+
+// --- ATTRIBUTES ---
+const getEntityAttributes = (ent: any) => {
+  if (ent.isLabel) {
+    if (ent.labelType === "pink") return { layer: "GRAVACAO", color: 6 }; // Magenta
+    return { layer: "ETIQUETAS", color: 7 }; // Branco/Preto
+  }
+  return { layer: "CORTE", color: 3 }; // Verde Limão
+};
+
+// --- FLATTEN GEOMETRY ---
+const flattenGeometry = (
+  entities: any[],
+  blocks: any = {},
+  currentTransform = { x: 0, y: 0, rot: 0, scale: 1 }
+) => {
+  let flat: any[] = [];
+  entities.forEach((ent) => {
+    if (ent.type === "INSERT") {
+      const block = blocks[ent.name];
+      if (block && block.entities) {
+        const bPos = ent.position || { x: 0, y: 0 };
+        const bRot = ent.rotation || 0;
+        const bScale = ent.scale?.x || 1;
+        
+        const rad = (currentTransform.rot * Math.PI) / 180;
+        const rx = Math.cos(rad) * bPos.x - Math.sin(rad) * bPos.y;
+        const ry = Math.sin(rad) * bPos.x + Math.cos(rad) * bPos.y;
+
+        const newTransform = {
+          x: currentTransform.x + rx * currentTransform.scale,
+          y: currentTransform.y + ry * currentTransform.scale,
+          rot: currentTransform.rot + bRot,
+          scale: currentTransform.scale * bScale,
+        };
+        flat = flat.concat(
+          flattenGeometry(block.entities, blocks, newTransform)
+        );
+      }
+    } else {
+      const clone = JSON.parse(JSON.stringify(ent));
+      const rad = (currentTransform.rot * Math.PI) / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+
+      const apply = (px: number, py: number) => {
+        const rx = cos * px - sin * py;
+        const ry = sin * px + cos * py;
+        return {
+          x: currentTransform.x + rx * currentTransform.scale,
+          y: currentTransform.y + ry * currentTransform.scale,
+        };
+      };
+
+      if (clone.vertices) {
+        clone.vertices = clone.vertices.map((v: any) => {
+          const p = apply(v.x, v.y);
+          return { ...v, x: p.x, y: p.y };
+        });
+      } else if (clone.center) {
+        const p = apply(clone.center.x, clone.center.y);
+        clone.center = { x: p.x, y: p.y };
+        if (clone.radius) clone.radius *= currentTransform.scale;
+        if (clone.type === "ARC") {
+          clone.startAngle += rad;
+          clone.endAngle += rad;
+        }
+      }
+      flat.push(clone);
+    }
+  });
+  return flat;
+};
+
+// --- CÁLCULO DE CENTRO GEOMÉTRICO ---
+const calculateTrueCenter = (entities: any[]) => {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  
+  const update = (x: number, y: number) => {
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  };
+
+  const checkArcBounds = (cx: number, cy: number, r: number, startAngle: number, endAngle: number) => {
+    let start = startAngle % (2 * Math.PI); if (start < 0) start += 2 * Math.PI;
+    let end = endAngle % (2 * Math.PI); if (end < 0) end += 2 * Math.PI;
+    if (end < start) end += 2 * Math.PI;
+    update(cx + r * Math.cos(startAngle), cy + r * Math.sin(startAngle));
+    update(cx + r * Math.cos(endAngle), cy + r * Math.sin(endAngle));
+    const cardinals = [0, Math.PI/2, Math.PI, 3*Math.PI/2, 2*Math.PI, 5*Math.PI/2];
+    for (const ang of cardinals) {
+      if (ang > start && ang < end) update(cx + r * Math.cos(ang), cy + r * Math.sin(ang));
+    }
+  };
+
+  entities.forEach((ent) => {
+    if (ent.type === "LINE") {
+      ent.vertices.forEach((v: any) => update(v.x, v.y));
+    } else if (ent.type === "LWPOLYLINE" || ent.type === "POLYLINE") {
+      for (let i = 0; i < ent.vertices.length; i++) {
+        const v1 = ent.vertices[i];
+        update(v1.x, v1.y);
+        if (v1.bulge && v1.bulge !== 0) {
+          const v2 = ent.vertices[(i + 1) % ent.vertices.length];
+          if (i === ent.vertices.length - 1 && !ent.shape) continue;
+          const { cx, cy, radius } = bulgeToArc(v1, v2, v1.bulge);
+          const startAngle = Math.atan2(v1.y - cy, v1.x - cx);
+          let endAngle = Math.atan2(v2.y - cy, v2.x - cx);
+          if (v1.bulge > 0 && endAngle < startAngle) endAngle += 2 * Math.PI;
+          if (v1.bulge < 0 && endAngle > startAngle) endAngle -= 2 * Math.PI;
+          if (v1.bulge < 0) checkArcBounds(cx, cy, radius, endAngle, startAngle);
+          else checkArcBounds(cx, cy, radius, startAngle, endAngle);
+        }
+      }
+    } else if (ent.center && ent.radius) {
+      if (ent.type === "ARC") checkArcBounds(ent.center.x, ent.center.y, ent.radius, ent.startAngle, ent.endAngle);
+      else { update(ent.center.x - ent.radius, ent.center.y - ent.radius); update(ent.center.x + ent.radius, ent.center.y + ent.radius); }
+    }
+  });
+
+  if (minX === Infinity) return { minX:0, minY:0, cx: 0, cy: 0, width: 0, height: 0 };
+  return {
+    minX, minY,
+    cx: minX + (maxX - minX) / 2,
+    cy: minY + (maxY - minY) / 2,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
+};
+
+// --- WRITER GENÉRICO PARA DENTRO DE BLOCOS ---
+const writeEntitiesToDxf = (entities: any[], dx = 0, dy = 0): string => {
+    let output = "";
+    entities.forEach((ent) => {
+        const { layer, color } = getEntityAttributes(ent);
+        const common = `5\n${nextHandle()}\n100\nAcDbEntity\n8\n${layer}\n62\n${color}\n`;
+
+        if (ent.type === "LINE") {
+            output += `0\nLINE\n${common}100\nAcDbLine\n`;
+            output += `10\n${(ent.vertices[0].x + dx).toFixed(4)}\n20\n${(ent.vertices[0].y + dy).toFixed(4)}\n30\n0.0\n`;
+            output += `11\n${(ent.vertices[1].x + dx).toFixed(4)}\n21\n${(ent.vertices[1].y + dy).toFixed(4)}\n31\n0.0\n`;
+        } else if (ent.type === "LWPOLYLINE" || ent.type === "POLYLINE") {
+            output += `0\nLWPOLYLINE\n${common}100\nAcDbPolyline\n90\n${ent.vertices.length}\n70\n${ent.shape ? 1 : 0}\n`;
+            ent.vertices.forEach((v: any) => {
+                output += `10\n${(v.x + dx).toFixed(4)}\n20\n${(v.y + dy).toFixed(4)}\n`;
+                if (v.bulge) output += `42\n${v.bulge}\n`;
+            });
+        } else if (ent.type === "CIRCLE") {
+            output += `0\nCIRCLE\n${common}100\nAcDbCircle\n`;
+            output += `10\n${(ent.center.x + dx).toFixed(4)}\n20\n${(ent.center.y + dy).toFixed(4)}\n30\n0.0\n40\n${ent.radius.toFixed(4)}\n`;
+        } else if (ent.type === "ARC") {
+            const startDeg = (ent.startAngle * 180) / Math.PI;
+            const endDeg = (ent.endAngle * 180) / Math.PI;
+            output += `0\nARC\n${common}100\nAcDbCircle\n`;
+            output += `10\n${(ent.center.x + dx).toFixed(4)}\n20\n${(ent.center.y + dy).toFixed(4)}\n30\n0.0\n40\n${ent.radius.toFixed(4)}\n`;
+            output += `100\nAcDbArc\n50\n${startDeg.toFixed(4)}\n51\n${endDeg.toFixed(4)}\n`;
+        }
+    });
+    return output;
+};
+
+// --- GERAÇÃO FINAL DO DXF ---
 export const generateDxfContent = (
   placedParts: PlacedPart[],
-  allParts: ImportedPart[]
+  allParts: ImportedPart[],
+  binSize?: { width: number; height: number }
 ): string => {
+  handleCount = 1;
   let dxf = "";
 
-  // Cabeçalho básico DXF
-  dxf += "0\nSECTION\n2\nHEADER\n0\nENDSEC\n";
+  const rawW = binSize?.width || 1200;
+  const rawH = binSize?.height || 3000;
+  const shouldRotate = rawW > rawH;
+  const W = shouldRotate ? rawH : rawW;
+  const H = shouldRotate ? rawW : rawH;
+
+  // 1. HEADER & TABLES
+  dxf += "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n";
+  dxf += `9\n$EXTMAX\n10\n${W.toFixed(4)}\n20\n${H.toFixed(4)}\n30\n0.0\n0\nENDSEC\n`;
+  
+  dxf += "0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n";
+  const layers = [
+    { name: "0", color: 7 },
+    { name: "CORTE", color: 3 },
+    { name: "GRAVACAO", color: 6 },
+    { name: "ETIQUETAS", color: 7 },
+    { name: "CHAPA", color: 7 },
+  ];
+  layers.forEach((l) => {
+    dxf += `0\nLAYER\n5\n${nextHandle()}\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n${l.name}\n70\n0\n62\n${l.color}\n6\nCONTINUOUS\n`;
+  });
+  dxf += "0\nENDTAB\n0\nENDSEC\n";
+
+  // 2. BLOCKS SECTION
+  dxf += "0\nSECTION\n2\nBLOCKS\n";
+
+  // A. Bloco MESA
+  const mesaBlockName = "MESA_CONTORNO";
+  dxf += `0\nBLOCK\n5\n${nextHandle()}\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n${mesaBlockName}\n70\n0\n10\n0.0\n20\n0.0\n30\n0.0\n3\n${mesaBlockName}\n1\n\n`;
+  dxf += `0\nLINE\n5\n${nextHandle()}\n100\nAcDbEntity\n8\nCHAPA\n62\n7\n100\nAcDbLine\n10\n0.0\n20\n0.0\n30\n0.0\n11\n${W.toFixed(4)}\n21\n0.0\n31\n0.0\n`;
+  dxf += `0\nLINE\n5\n${nextHandle()}\n100\nAcDbEntity\n8\nCHAPA\n62\n7\n100\nAcDbLine\n10\n${W.toFixed(4)}\n20\n0.0\n30\n0.0\n11\n${W.toFixed(4)}\n21\n${H.toFixed(4)}\n31\n0.0\n`;
+  dxf += `0\nLINE\n5\n${nextHandle()}\n100\nAcDbEntity\n8\nCHAPA\n62\n7\n100\nAcDbLine\n10\n${W.toFixed(4)}\n20\n${H.toFixed(4)}\n30\n0.0\n11\n0.0\n21\n${H.toFixed(4)}\n31\n0.0\n`;
+  dxf += `0\nLINE\n5\n${nextHandle()}\n100\nAcDbEntity\n8\nCHAPA\n62\n7\n100\nAcDbLine\n10\n0.0\n20\n${H.toFixed(4)}\n30\n0.0\n11\n0.0\n21\n0.0\n31\n0.0\n`;
+  dxf += "0\nENDBLK\n";
+
+  // B. Blocos das PEÇAS (Apenas CORTE)
+  const usedPartIds = Array.from(new Set(placedParts.map(p => p.partId)));
+  const blockOffsets: { [partId: string]: { cx: number, cy: number } } = {};
+
+  usedPartIds.forEach(partId => {
+      const originalPart = allParts.find(p => p.id === partId);
+      if (!originalPart) return;
+
+      const blockName = `PART_${partId.substring(0, 8).toUpperCase()}`;
+      const flatEntities = flattenGeometry(originalPart.entities, originalPart.blocks);
+      
+      // Filtra APENAS geometria de corte para dentro do bloco
+      const cutEntities = flatEntities.filter(e => !e.isLabel);
+      
+      // Calcula centro baseado na geometria (corte)
+      const centerData = calculateTrueCenter(cutEntities);
+      blockOffsets[partId] = { cx: centerData.cx, cy: centerData.cy };
+
+      dxf += `0\nBLOCK\n5\n${nextHandle()}\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n${blockName}\n70\n0\n10\n0.0\n20\n0.0\n30\n0.0\n3\n${blockName}\n1\n\n`;
+      // Escreve apenas as entidades de corte dentro do bloco
+      dxf += writeEntitiesToDxf(cutEntities, -centerData.cx, -centerData.cy);
+      dxf += "0\nENDBLK\n";
+  });
+  dxf += "0\nENDSEC\n";
+
+  // 3. ENTITIES SECTION
   dxf += "0\nSECTION\n2\nENTITIES\n";
 
+  // A. Mesa
+  dxf += `0\nINSERT\n5\n${nextHandle()}\n100\nAcDbEntity\n8\nCHAPA\n100\nAcDbBlockReference\n2\n${mesaBlockName}\n10\n0.0\n20\n0.0\n30\n0.0\n`;
+
+  // B. Peças + Etiquetas Soltas
   placedParts.forEach((placed) => {
     const originalPart = allParts.find((p) => p.id === placed.partId);
     if (!originalPart) return;
 
-    // 1. Calcular o centro original da peça para ser o pivô da rotação
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
+    const blockName = `PART_${placed.partId.substring(0, 8).toUpperCase()}`;
+    const offset = blockOffsets[placed.partId];
+    if (!offset) return;
 
-    const checkBounds = (ents: any[], ox = 0, oy = 0) => {
-      ents.forEach((ent) => {
-        if (ent.vertices) {
-          ent.vertices.forEach((v: any) => {
-            const x = v.x + ox;
-            const y = v.y + oy;
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
-          });
-        } else if (ent.center && ent.radius) {
-          const cx = ent.center.x + ox;
-          const cy = ent.center.y + oy;
-          if (cx - ent.radius < minX) minX = cx - ent.radius;
-          if (cx + ent.radius > maxX) maxX = cx + ent.radius;
-          if (cy - ent.radius < minY) minY = cy - ent.radius;
-          if (cy + ent.radius > maxY) maxY = cy + ent.radius;
+    // --- CÁLCULO DE POSIÇÃO ---
+    // Recalcula geometria para saber dimensões (usando apenas corte para consistência)
+    const flatAll = flattenGeometry(originalPart.entities, originalPart.blocks);
+    const flatCut = flatAll.filter(e => !e.isLabel);
+    const flatLabels = flatAll.filter(e => e.isLabel);
+
+    const dims = calculateTrueCenter(flatCut);
+    
+    // Dimensões ocupadas na mesa (já rotacionada)
+    const occupiedW = placed.rotation % 180 !== 0 ? dims.height : dims.width;
+    const occupiedH = placed.rotation % 180 !== 0 ? dims.width : dims.height;
+
+    const centerX = placed.x + occupiedW / 2;
+    const centerY = placed.y + occupiedH / 2;
+
+    let insertX = centerX;
+    let insertY = centerY;
+    let insertRotation = placed.rotation;
+
+    if (shouldRotate) {
+        insertX = centerY;
+        insertY = centerX;
+        insertRotation = placed.rotation - 90;
+    }
+
+    // 1. INSERE O BLOCO (CORTE)
+    dxf += `0\nINSERT\n5\n${nextHandle()}\n100\nAcDbEntity\n8\nCORTE\n100\nAcDbBlockReference\n2\n${blockName}\n`;
+    dxf += `10\n${insertX.toFixed(4)}\n20\n${insertY.toFixed(4)}\n30\n0.0\n`;
+    dxf += `41\n1.0\n42\n1.0\n43\n1.0\n`;
+    dxf += `50\n${insertRotation.toFixed(4)}\n`;
+
+    // 2. DESENHA ETIQUETAS "SOLTAS" (ACOMPANHANDO A PEÇA)
+    const rad = (insertRotation * Math.PI) / 180;
+    
+    // As etiquetas precisam ser transformadas manualmente:
+    // Posição Original -> Move p/ Centro Relativo (offset) -> Rotaciona -> Move p/ Posição Final (insertX/Y)
+    flatLabels.forEach(lbl => {
+        const transformPoint = (px: number, py: number) => {
+            // 1. Centraliza relativo ao bloco
+            const relX = px - offset.cx;
+            const relY = py - offset.cy;
+            // 2. Rotaciona
+            const rot = rotatePointBasic(relX, relY, rad);
+            // 3. Translada para posição final
+            return { x: rot.x + insertX, y: rot.y + insertY };
+        };
+
+        const { layer, color } = getEntityAttributes(lbl);
+        const common = `5\n${nextHandle()}\n100\nAcDbEntity\n8\n${layer}\n62\n${color}\n`;
+
+        if (lbl.type === "LINE") {
+            const p1 = transformPoint(lbl.vertices[0].x, lbl.vertices[0].y);
+            const p2 = transformPoint(lbl.vertices[1].x, lbl.vertices[1].y);
+            dxf += `0\nLINE\n${common}100\nAcDbLine\n`;
+            dxf += `10\n${p1.x.toFixed(4)}\n20\n${p1.y.toFixed(4)}\n30\n0.0\n`;
+            dxf += `11\n${p2.x.toFixed(4)}\n21\n${p2.y.toFixed(4)}\n31\n0.0\n`;
         }
-      });
-    };
-    checkBounds(originalPart.entities);
-
-    const originalCenterX = minX + originalPart.width / 2;
-    const originalCenterY = minY + originalPart.height / 2;
-
-    // Dimensões ocupadas (se rotacionou 90, inverte W e H)
-    const occupiedW =
-      placed.rotation === 90 ? originalPart.height : originalPart.width;
-    const occupiedH =
-      placed.rotation === 90 ? originalPart.width : originalPart.height;
-
-    // O centro final deve ser:
-    const finalCenterX = placed.x + occupiedW / 2;
-    const finalCenterY = placed.y + occupiedH / 2;
-
-    const processEntities = (entities: any[], offsetX = 0, offsetY = 0) => {
-      entities.forEach((ent) => {
-        // Tratamento para LINHAS
-        if (ent.type === "LINE") {
-          const p1 = {
-            x: ent.vertices[0].x + offsetX,
-            y: ent.vertices[0].y + offsetY,
-          };
-          const p2 = {
-            x: ent.vertices[1].x + offsetX,
-            y: ent.vertices[1].y + offsetY,
-          };
-
-          // CORREÇÃO 1: Usei 'const' ao invés de 'let'
-          const r1 = rotatePoint(
-            p1.x,
-            p1.y,
-            originalCenterX,
-            originalCenterY,
-            placed.rotation
-          );
-          const r2 = rotatePoint(
-            p2.x,
-            p2.y,
-            originalCenterX,
-            originalCenterY,
-            placed.rotation
-          );
-
-          const dx = finalCenterX - originalCenterX;
-          const dy = finalCenterY - originalCenterY;
-
-          dxf += "0\nLINE\n8\nCORTE\n";
-          // CORREÇÃO 2 (A mais importante):
-          // Antes estava (r1.y + dx), agora corrigi para (r1.y + dy)
-          dxf += `10\n${(r1.x + dx).toFixed(4)}\n20\n${(r1.y + dy).toFixed(
-            4
-          )}\n`;
-          dxf += `11\n${(r2.x + dx).toFixed(4)}\n21\n${(r2.y + dy).toFixed(
-            4
-          )}\n`;
-        }
-
-        // Tratamento para POLILINHAS
-        else if (ent.type === "LWPOLYLINE" || ent.type === "POLYLINE") {
-          dxf += "0\nLWPOLYLINE\n8\nCORTE\n";
-          dxf += `90\n${ent.vertices.length}\n`;
-          dxf += `70\n${ent.shape ? 1 : 0}\n`;
-
-          const dx = finalCenterX - originalCenterX;
-          const dy = finalCenterY - originalCenterY;
-
-          ent.vertices.forEach((v: any) => {
-            const vx = v.x + offsetX;
-            const vy = v.y + offsetY;
-            const rv = rotatePoint(
-              vx,
-              vy,
-              originalCenterX,
-              originalCenterY,
-              placed.rotation
-            );
-
-            dxf += `10\n${(rv.x + dx).toFixed(4)}\n`;
-            dxf += `20\n${(rv.y + dy).toFixed(4)}\n`;
-          });
-        }
-
-        // Tratamento para CÍRCULOS
-        else if (ent.type === "CIRCLE") {
-          const cx = ent.center.x + offsetX;
-          const cy = ent.center.y + offsetY;
-          const rc = rotatePoint(
-            cx,
-            cy,
-            originalCenterX,
-            originalCenterY,
-            placed.rotation
-          );
-
-          const dx = finalCenterX - originalCenterX;
-          const dy = finalCenterY - originalCenterY;
-
-          dxf += "0\nCIRCLE\n8\nCORTE\n";
-          dxf += `10\n${(rc.x + dx).toFixed(4)}\n`;
-          dxf += `20\n${(rc.y + dy).toFixed(4)}\n`;
-          dxf += `40\n${ent.radius.toFixed(4)}\n`;
-        }
-      });
-    };
-
-    processEntities(originalPart.entities);
+        // Adicione aqui outros tipos se suas etiquetas usarem (ex: TEXT, ARC), mas vetores de texto viram LINE.
+    });
   });
 
   dxf += "0\nENDSEC\n0\nEOF\n";

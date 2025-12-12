@@ -11,14 +11,17 @@ interface WorkerMessage {
     iterations: number;
     strategy: 'rect' | 'true-shape';
     rotationStep: number;
-    direction: 'auto' | 'vertical' | 'horizontal'; // <--- NOVO PARÂMETRO
+    direction: 'auto' | 'vertical' | 'horizontal';
 }
 
 self.onmessage = async (e: MessageEvent) => {
     const params = e.data as WorkerMessage;
     const { iterations, parts, direction } = params;
 
-    console.log(`Worker: Calculando... Direção: ${direction}`);
+    // Garante que quantities existe, mesmo se vier null
+    const safeQuantities = params.quantities || {};
+
+    // console.log(`Worker: Calculando... Direção: ${direction}`);
 
     let bestResult: any = null;
     let bestScore = -1;
@@ -27,19 +30,23 @@ self.onmessage = async (e: MessageEvent) => {
     
     for (let i = 0; i < loops; i++) {
         const currentParts = [...parts];
+        
+        // No primeiro loop mantém a ordem original (geralmente por tamanho), 
+        // nos seguintes embaralha para tentar achar encaixes melhores
         if (i > 0) currentParts.sort(() => Math.random() - 0.5);
 
         const result = runRectangularNesting(
             currentParts, 
-            params.quantities, 
+            safeQuantities, // Usa a versão segura
             params.gap, 
             params.margin, 
             params.binWidth, 
             params.binHeight, 
-            true, // Rotação 90 graus
-            direction // <--- REPASSANDO A DIREÇÃO
+            true, 
+            direction 
         );
 
+        // Pontuação: Prioriza colocar todas as peças, depois a eficiência
         const score = (result.placed.length * 1000000) + result.efficiency;
         
         if (score > bestScore) {

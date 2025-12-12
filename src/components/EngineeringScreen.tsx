@@ -16,10 +16,13 @@ interface EntityBox { minX: number; minY: number; maxX: number; maxY: number; ar
 // --- PROPS ATUALIZADAS ---
 interface EngineeringScreenProps {
     onBack: () => void;
-    onSendToNesting: (parts: ImportedPart[]) => void; // Nova prop
+    // Aceita peças e opcionalmente uma string de busca (pedidos)
+    onSendToNesting: (parts: ImportedPart[], searchQuery?: string) => void;
+    parts: ImportedPart[];
+    setParts: React.Dispatch<React.SetStateAction<ImportedPart[]>>;
 }
 
-// --- 1. FUNÇÕES AUXILIARES (MATEMÁTICA E GEOMETRIA) - MANTIDAS INTACTAS ---
+// --- 1. FUNÇÕES AUXILIARES (MATEMÁTICA E GEOMETRIA) ---
 
 class UnionFind {
   parent: number[];
@@ -313,6 +316,7 @@ const processFileToParts = (flatEntities: any[], fileName: string, defaults: any
             height: finalH,
             grossArea,
             netArea,
+            quantity: 1, // Padrão
             pedido: defaults.pedido,
             op: defaults.op,
             material: defaults.material,
@@ -326,8 +330,12 @@ const processFileToParts = (flatEntities: any[], fileName: string, defaults: any
 
 // --- 2. COMPONENTE PRINCIPAL ---
 
-export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack, onSendToNesting }) => {
-  const [parts, setParts] = useState<ImportedPart[]>([]);
+export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ 
+    onBack, 
+    onSendToNesting, 
+    parts, 
+    setParts 
+}) => {
   const [loading, setLoading] = useState(false);
   const [processingMsg, setProcessingMsg] = useState('');
   
@@ -445,20 +453,21 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack, on
       }));
   };
 
-  // VALIDAÇÃO E ENVIO PARA BANCO
-  const handleStorageDB = async () => {
+  // --- FUNÇÃO DE SALVAR NO BANCO (Centralizada) ---
+  const savePartsToDB = async (silent: boolean = false): Promise<boolean> => {
       if (parts.length === 0) {
-          alert("A lista está vazia. Importe peças primeiro.");
-          return;
+          if (!silent) alert("A lista está vazia. Importe peças primeiro.");
+          return false;
       }
+      
       const nonBlocks = parts.filter(p => p.entities.length > 1);
       if (nonBlocks.length > 0) {
           alert(`ATENÇÃO: Existem ${nonBlocks.length} peças que ainda não são Blocos.\n\nPor favor, clique em "📦 Insert/Block" antes de enviar.`);
-          return;
+          return false;
       }
 
       setLoading(true);
-      setProcessingMsg("Conectando ao Banco de Dados...");
+      if (!silent) setProcessingMsg("Salvando no Banco de Dados...");
 
       try {
           const response = await fetch('http://localhost:3001/api/pecas', {
@@ -466,36 +475,61 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack, on
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(parts)
           });
+          
           const data = await response.json();
+          
           if (response.ok) {
               console.log("Resposta do Servidor:", data);
-              alert(`✅ SUCESSO!\n\n${data.count} peças foram gravadas no banco de dados.`);
+              if (!silent) alert(`✅ SUCESSO!\n\n${data.count || parts.length} peças foram gravadas.`);
+              return true;
           } else {
               throw new Error(data.error || "Erro desconhecido no servidor");
           }
       } catch (error: any) {
           console.error("Erro de conexão:", error);
           alert(`❌ ERRO DE CONEXÃO\n\nNão foi possível salvar.\nDetalhes: ${error.message}`);
+          return false;
       } finally {
           setLoading(false);
           setProcessingMsg("");
       }
   };
 
-  // NOVA FUNÇÃO: ENVIAR DIRETO PARA NESTING
-  const handleDirectNesting = () => {
-      if (parts.length === 0) {
-          alert("A lista está vazia.");
-          return;
-      }
-      const nonBlocks = parts.filter(p => p.entities.length > 1);
-      if (nonBlocks.length > 0) {
-          alert(`ATENÇÃO: Existem ${nonBlocks.length} peças que ainda não são Blocos.\n\nClique em "📦 Insert/Block" para otimizar o Nesting.`);
-          return;
-      }
+  // BOTÃO: Storage DB (Salva e avisa)
+  const handleStorageDB = () => {
+      savePartsToDB(false);
+  };
 
-      // Chama a função do App.tsx para trocar de tela
-      onSendToNesting(parts);
+  // BOTÃO: Cortar Agora (Salva silencioso e vai para Nesting)
+  const handleDirectNesting = async () => {
+      // 1. Tenta salvar
+      const saved = await savePartsToDB(true);
+
+      // 2. Se salvou, extrai os pedidos para busca automática
+      if (saved) {
+          const uniqueOrders = Array.from(new Set(parts.map(p => p.pedido).filter(Boolean)));
+          const searchString = uniqueOrders.join(', ');
+          
+          // Vai para o Nesting enviando as peças locais (agilidade) + query string (referência)
+          // Nota: Você pode optar por mandar [] e buscar do banco, mas mandar 'parts' é mais rápido visualmente
+          onSendToNesting(parts, searchString);
+      } else {
+          // Fallback se o banco falhar
+          if (window.confirm("Houve um erro ao salvar no Banco. Deseja prosseguir APENAS LOCALMENTE?")) {
+              onSendToNesting(parts);
+          }
+      }
+  };
+
+  // --- NOVO: NAVEGAÇÃO DIRETA PARA O NESTING ---
+  const handleGoToNestingEmpty = () => {
+      if (parts.length > 0) {
+          if (!window.confirm("Você tem peças na lista de engenharia. Ir para o Nesting diretamente NÃO levará estas peças (use 'Cortar Agora' para isso).\n\nDeseja ir para o Nesting vazio (para buscar do banco)?")) {
+              return;
+          }
+      }
+      // Envia array vazio e string vazia. O Nesting abrirá vazio.
+      onSendToNesting([], '');
   };
 
   const handleRotatePart = (direction: 'cw' | 'ccw') => {
@@ -608,8 +642,34 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack, on
             {loading && <span style={{fontSize:'12px', color:'#ffd700'}}>⏳ {processingMsg}</span>}
         </div>
         <div style={{display:'flex', gap:'15px', alignItems:'center'}}>
+
+             {/* --- NOVO BOTÃO: IR PARA NESTING --- */}
+             <button 
+                onClick={handleGoToNestingEmpty} 
+                title="Ir para a Mesa de Nesting (Buscar peças lá)"
+                style={{
+                    background: 'transparent', 
+                    color: theme.text, 
+                    border: `1px solid ${theme.border}`, 
+                    padding: '8px 12px', 
+                    borderRadius: '4px', 
+                    cursor: 'pointer', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '5px',
+                    marginRight: '10px'
+                }}
+             >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="14" width="7" height="7"></rect>
+                    <rect x="3" y="14" width="7" height="7"></rect>
+                </svg>
+                <span style={{fontSize: '13px'}}>Mesa de Corte</span>
+             </button>
+             {/* ----------------------------------- */}
              
-             {/* BOTÃO NOVO: RESET */}
              <button onClick={handleReset} style={{background: 'transparent', color: theme.text, border: `1px solid ${theme.border}`, padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px'}}>
                 ✨ Nova Lista
              </button>
@@ -618,7 +678,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack, on
                 💾 Storage DB
              </button>
 
-             {/* BOTÃO NOVO: NESTING DIRETO */}
              <button onClick={handleDirectNesting} style={{background: '#6f42c1', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px'}}>
                 🚀 Cortar Agora
              </button>
@@ -629,8 +688,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack, on
         </div>
       </div>
       
-      {/* ... RESTO DO COMPONENTE (Layout dividido, Tabela, Modal) IGUAL AO ANTERIOR ... */}
-      {/* ... (Copiei a lógica do render acima, a estrutura abaixo se mantém) ... */}
       <div style={batchContainerStyle}>
           <div style={{color: theme.text, fontWeight: 'bold', marginRight: '20px', fontSize: '14px'}}>PADRÃO DO LOTE:</div>
           <div style={inputGroupStyle}><label style={labelStyle}>PEDIDO <button style={applyButtonStyle} onClick={() => applyToAll('pedido')}>Aplicar Todos</button></label><input style={inputStyle} value={batchDefaults.pedido} onChange={(e) => handleDefaultChange('pedido', e.target.value)} placeholder="Ex: 35041" /></div>
@@ -709,7 +766,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack, on
                         <th style={tableHeaderStyle}>Autor</th>
                         <th style={tableHeaderStyle}>Dimensões</th>
                         <th style={tableHeaderStyle}>Área (m²)</th>
-                        <th style={tableHeaderStyle}>Qtd.</th>
+                        <th style={tableHeaderStyle} title="Complexidade da peça (número de vetores)">Entidades</th>
+                        <th style={{...tableHeaderStyle, width: '60px', color: '#007bff'}}>Qtd. Peças</th>
                         <th style={tableHeaderStyle}>Ações</th>
                     </tr>
                 </thead>
@@ -737,6 +795,15 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack, on
                                 <td style={{...tableCellStyle, fontSize:'11px', opacity:0.7}}>{(part.grossArea / 1000000).toFixed(4)}</td>
                                 <td style={{...tableCellStyle, color: entColor, fontWeight: 'bold', textAlign:'center'}}>{entCount}</td>
                                 <td style={tableCellStyle}>
+                                    <input 
+                                        type="number" 
+                                        min="1" 
+                                        value={part.quantity || 1} 
+                                        onChange={(e) => handleRowChange(part.id, 'quantity', Number(e.target.value))}
+                                        style={{...cellInputStyle, textAlign: 'center', fontWeight: 'bold', color: '#007bff'}} 
+                                    />
+                                </td>
+                                <td style={tableCellStyle}>
                                     <div style={{display:'flex', gap:'10px'}}>
                                         {entCount > 1 && <button style={blockBtnStyle} onClick={(e) => handleConvertToBlock(part.id, e)} title="Converter para Bloco Único">📦</button>}
                                         <button style={deleteBtnStyle} onClick={(e) => handleDeletePart(part.id, e)} title="Excluir peça">🗑️</button>
@@ -750,7 +817,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({ onBack, on
         </div>
       </div>
 
-      {/* Modal (Mantido igual) */}
       {viewingPart && (
           <div style={{position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: theme.modalOverlay, zIndex: 9999, display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
               <div style={{background: theme.modalBg, width: '80%', height: '80%', borderRadius: '8px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 0 20px rgba(0,0,0,0.5)', border: `1px solid ${theme.border}`}}>
