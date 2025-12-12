@@ -26,14 +26,16 @@ interface Size {
   width: number;
   height: number;
 }
+
+// --- CORREÇÃO 1: Adicionado initialSearchQuery na Interface ---
 interface NestingBoardProps {
-  parts: ImportedPart[];
+  initialParts: ImportedPart[];
+  initialSearchQuery?: string; 
   onBack?: () => void;
 }
 
 const cleanTextContent = (text: string): string => {
   if (!text) return "";
-  // Mantém letras, números e hífens. Remove o resto.
   return text.replace(/[^a-zA-Z0-9-]/g, "");
 };
 
@@ -297,9 +299,20 @@ const renderEntityFunction = (
 };
 
 export const NestingBoard: React.FC<NestingBoardProps> = ({
-  parts,
+  initialParts,
+  initialSearchQuery, // Recebido
   onBack,
 }) => {
+  // Estado local das peças (acumulativo)
+  const [parts, setParts] = useState<ImportedPart[]>(initialParts);
+
+  // --- NOVOS ESTADOS PARA A BUSCA ---
+  // Inicializa o input de busca com o valor que veio da engenharia (se houver)
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery || "");
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  // ----------------------------------
+
   const [isDarkMode, setIsDarkMode] = useState(true);
   const theme = getTheme(isDarkMode);
 
@@ -323,21 +336,77 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   } = useLabelManager(parts);
   const [editingPartId, setEditingPartId] = useState<string | null>(null);
 
-  // --- REFERÊNCIAS PARA SCROLL AUTOMÁTICO ---
   const thumbnailRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
   const [quantities, setQuantities] = useState<{ [key: string]: number }>(
     () => {
       const initialQ: { [key: string]: number } = {};
-      parts.forEach((p) => {
+      initialParts.forEach((p) => {
         initialQ[p.id] = p.quantity || 1;
       });
       return initialQ;
     }
   );
 
+  // --- EFEITO: BUSCA AUTOMÁTICA AO ENTRAR ---
+  // Se initialSearchQuery existir (vindo do "Cortar Agora"), dispara a busca no banco
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (initialSearchQuery && parts.length === 0) {
+          // Precisamos chamar a busca aqui. 
+          // Como handleDBSearch depende do estado 'searchQuery' e 'parts', 
+          // a forma mais segura é chamar a lógica diretamente ou via função.
+          // Para simplificar, vou criar um trigger.
+          const timer = setTimeout(() => {
+             // Chama a busca apenas se houver query
+             const doAutoSearch = async () => {
+                if (!initialSearchQuery) return;
+                setIsSearching(true);
+                try {
+                    const params = new URLSearchParams();
+                    params.append("pedido", initialSearchQuery);
+                    const response = await fetch(`http://localhost:3001/api/pecas/buscar?${params.toString()}`);
+                    
+                    if (response.status === 404) {
+                        alert(`Nenhuma peça encontrada para o pedido: ${initialSearchQuery}`);
+                        setIsSearching(false);
+                        return;
+                    }
+                    if (!response.ok) throw new Error("Erro ao buscar.");
+
+                    const data = await response.json();
+                    if (Array.isArray(data) && data.length > 0) {
+                        const dbParts: ImportedPart[] = data.map((item: any) => ({
+                            id: item.id,
+                            name: item.name,
+                            entities: item.entities,
+                            blocks: item.blocks || {},
+                            width: Number(item.width),
+                            height: Number(item.height),
+                            grossArea: Number(item.grossArea),
+                            netArea: Number(item.grossArea),
+                            quantity: Number(item.quantity) || 1,
+                            pedido: item.pedido,
+                            op: item.op,
+                            material: item.material,
+                            espessura: item.espessura,
+                            autor: item.autor,
+                            dataCadastro: item.dataCadastro,
+                        }));
+                        setParts(dbParts); // Na carga inicial, substitui
+                    }
+                } catch(e) { console.error(e); alert("Erro ao buscar dados iniciais."); }
+                finally { setIsSearching(false); }
+             };
+             doAutoSearch();
+          }, 100);
+          return () => clearTimeout(timer);
+      }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Executa apenas uma vez
+
+  // --- CORREÇÃO 2: Removido comentário ESLint desnecessário ---
+  // Atualiza quantities quando novas peças chegam
+  useEffect(() => {
     setQuantities((prev) => {
       const currentIds = new Set(Object.keys(prev));
       const missingParts = parts.filter((p) => !currentIds.has(p.id));
@@ -483,28 +552,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [undo, redo]);
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setQuantities((prev) => {
-      const currentIds = new Set(Object.keys(prev));
-      const missingParts = parts.filter((p) => !currentIds.has(p.id));
-      if (missingParts.length > 0) {
-        const newQ = { ...prev };
-        missingParts.forEach((p) => {
-          newQ[p.id] = 1;
-        });
-        return newQ;
-      }
-      return prev;
-    });
-  }, [parts]);
-
-  // --- CORREÇÃO: SCROLL AUTOMÁTICO COM UUID ---
+  // SCROLL AUTOMÁTICO
   useEffect(() => {
     if (selectedPartIds.length > 0) {
-      // Pega o UUID da última peça selecionada
       const lastUUID = selectedPartIds[selectedPartIds.length - 1];
-      // Descobre qual é o ID Genérico da peça
       const placed = nestingResult.find((p) => p.uuid === lastUUID);
       if (placed) {
         const el = thumbnailRefs.current[placed.partId];
@@ -515,13 +566,71 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
   }, [selectedPartIds, nestingResult]);
 
-  // --- CORREÇÃO: MENU DE CONTEXTO E ROTAÇÃO (USANDO UUID) ---
+  // --- NOVA FUNÇÃO DE BUSCA NO BANCO ---
+  const handleDBSearch = async () => {
+    if (!searchQuery) return;
+    setIsSearching(true);
+    try {
+      const params = new URLSearchParams();
+      params.append("pedido", searchQuery);
+      const response = await fetch(
+        `http://localhost:3001/api/pecas/buscar?${params.toString()}`
+      );
+
+      if (response.status === 404) {
+        alert("Nenhum pedido encontrado.");
+        setIsSearching(false);
+        return;
+      }
+      if (!response.ok) throw new Error("Erro ao buscar.");
+
+      const data = await response.json();
+      if (Array.isArray(data) && data.length > 0) {
+        const dbParts: ImportedPart[] = data.map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          entities: item.entities,
+          blocks: item.blocks || {},
+          width: Number(item.width),
+          height: Number(item.height),
+          grossArea: Number(item.grossArea),
+          netArea: Number(item.grossArea),
+          quantity: Number(item.quantity) || 1,
+          pedido: item.pedido,
+          op: item.op,
+          material: item.material,
+          espessura: item.espessura,
+          autor: item.autor,
+          dataCadastro: item.dataCadastro,
+        }));
+
+        setParts((prev) => {
+          const currentIds = new Set(prev.map((p) => p.id));
+          const newUnique = dbParts.filter((p) => !currentIds.has(p.id));
+          if (newUnique.length === 0) {
+            alert("Peças já carregadas!");
+            return prev;
+          }
+          return [...prev, ...newUnique];
+        });
+
+        setSearchQuery("");
+        setIsSearchModalOpen(false); // Fecha modal
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erro de conexão.");
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
   const handleContextRotate = useCallback(
     (angle: number) => {
       if (selectedPartIds.length === 0) return;
       setNestingResult((prev) =>
         prev.map((p) =>
-          selectedPartIds.includes(p.uuid) // <-- CORRIGIDO: p.partId para p.uuid
+          selectedPartIds.includes(p.uuid)
             ? { ...p, rotation: (p.rotation + angle) % 360 }
             : p
         )
@@ -530,13 +639,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     [selectedPartIds, setNestingResult]
   );
 
-  // --- CORREÇÃO: MOVIMENTO PELO CONTEXTO (USANDO UUID) ---
   const handleContextMove = useCallback(
     (dx: number, dy: number) => {
       if (selectedPartIds.length === 0) return;
       setNestingResult((prev) =>
         prev.map((p) =>
-          selectedPartIds.includes(p.uuid) // <-- CORRIGIDO: p.partId para p.uuid
+          selectedPartIds.includes(p.uuid)
             ? { ...p, x: p.x + dx, y: p.y - dy }
             : p
         )
@@ -545,16 +653,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     [selectedPartIds, setNestingResult]
   );
 
-  // --- CORREÇÃO: MOVIMENTO PELO MOUSE/CANVAS (USANDO UUID) ---
   const handlePartsMove = useCallback(
     (moves: { partId: string; dx: number; dy: number }[]) => {
       if (moves.length === 0) return;
       setNestingResult((prev) => {
-        // moves[].partId contém o UUID enviado pelo InteractiveCanvas
         const moveMap = new Map(moves.map((m) => [m.partId, m]));
         return prev.map((p) => {
-          // Buscamos o movimento usando o UUID da peça colocada
-          const move = moveMap.get(p.uuid); // <-- CORRIGIDO: p.partId para p.uuid
+          const move = moveMap.get(p.uuid);
           return move ? { ...p, x: p.x + move.dx, y: p.y + move.dy } : p;
         });
       });
@@ -643,7 +748,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     const currentBinParts = nestingResult.filter(
       (p) => p.binId === currentBinIndex
     );
-    const dxfString = generateDxfContent(currentBinParts, displayedParts);
+    const dxfString = generateDxfContent(currentBinParts, displayedParts, binSize);
     const blob = new Blob([dxfString], { type: "application/dxf" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -653,7 +758,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [nestingResult, currentBinIndex, displayedParts]);
+  }, [nestingResult, currentBinIndex, displayedParts, binSize]);
 
   const updateQty = useCallback(
     (id: string, val: number) =>
@@ -751,8 +856,100 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     maxWidth: "120px",
   };
 
+  const modalOverlayStyle: React.CSSProperties = {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    zIndex: 9999,
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+  };
+  const modalContentStyle: React.CSSProperties = {
+    backgroundColor: theme.panelBg,
+    padding: "25px",
+    borderRadius: "8px",
+    width: "350px",
+    border: `1px solid ${theme.border}`,
+    boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
+  };
+
   return (
     <div style={containerStyle}>
+      {/* --- MODAL DE BUSCA --- */}
+      {isSearchModalOpen && (
+        <div
+          style={modalOverlayStyle}
+          onClick={() => setIsSearchModalOpen(false)}
+        >
+          <div style={modalContentStyle} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0, color: theme.text }}>
+              🔍 Buscar Pedido(s)
+            </h3>
+            <p style={{ fontSize: "13px", color: theme.label }}>
+              Separe múltiplos pedidos por vírgula.
+            </p>
+            <input
+              autoFocus
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleDBSearch()}
+              placeholder="Ex: 35905, 35906"
+              style={{
+                width: "100%",
+                padding: "10px",
+                marginTop: "10px",
+                marginBottom: "20px",
+                background: theme.inputBg,
+                color: theme.text,
+                border: `1px solid ${theme.border}`,
+                borderRadius: "4px",
+                boxSizing: "border-box",
+              }}
+            />
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "10px",
+              }}
+            >
+              <button
+                onClick={() => setIsSearchModalOpen(false)}
+                style={{
+                  padding: "8px 15px",
+                  background: "transparent",
+                  border: `1px solid ${theme.border}`,
+                  color: theme.text,
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDBSearch}
+                disabled={isSearching}
+                style={{
+                  padding: "8px 15px",
+                  background: "#28a745",
+                  border: "none",
+                  color: "white",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                }}
+              >
+                {isSearching ? "Buscando..." : "Buscar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {contextMenu && contextMenu.visible && selectedPartIds.length > 0 && (
         <ContextControl
           x={contextMenu.x}
@@ -763,9 +960,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         />
       )}
 
-      {/* ... RESTO DO COMPONENTE RENDERIZADO ... */}
-      {/* (Mantive o resto do JSX idêntico, apenas apliquei as lógicas acima) */}
-      
       <div style={topBarStyle}>
         <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
           {onBack && (
@@ -983,6 +1177,25 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             alignItems: "center",
           }}
         >
+          {/* BOTÃO DE BUSCA */}
+          <button
+            onClick={() => setIsSearchModalOpen(true)}
+            style={{
+              background: "#6f42c1",
+              color: "white",
+              border: "none",
+              padding: "8px 15px",
+              borderRadius: "4px",
+              cursor: "pointer",
+              fontWeight: "bold",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+            }}
+          >
+            🔍 Buscar Pedido
+          </button>
+
           <button
             style={{
               background: isComputing ? "#666" : "#28a745",
@@ -1273,17 +1486,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                       labelState={labelStates}
                       onTogglePartFlag={togglePartFlag}
                     />
-                    {/* Borda condicional azul para seleção: Checa se algum UUID selecionado pertence a esta peça */}
                     <div
                       style={{
                         width: "100%",
                         aspectRatio: "1/1",
                         background: theme.cardBg,
                         border: `1px solid ${
-                          selectedPartIds.some((uuid) => {
-                            const p = nestingResult.find((np) => np.uuid === uuid);
-                            return p && p.partId === part.id;
-                          })
+                          selectedPartIds.includes(part.id)
                             ? "#007bff"
                             : theme.border
                         }`,
@@ -1294,10 +1503,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        boxShadow: selectedPartIds.some((uuid) => {
-                            const p = nestingResult.find((np) => np.uuid === uuid);
-                            return p && p.partId === part.id;
-                          })
+                        boxShadow: selectedPartIds.includes(part.id)
                           ? "0 0 5px rgba(0,123,255,0.5)"
                           : "none",
                       }}
