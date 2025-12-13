@@ -124,6 +124,105 @@ app.get('/api/pecas/buscar', async (req, res) => {
   }
 });
 
+// --- Rota para Atualizar Status (Ex: Baixa de Produção) ---
+app.put('/api/pecas/status', async (req, res) => {
+  const { ids, status } = req.body;
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'Lista de IDs inválida.' });
+  }
+  if (!status) {
+    return res.status(400).json({ error: 'Status não fornecido.' });
+  }
+
+  console.log(`🔄 Atualizando ${ids.length} peças para status: '${status}'...`);
+
+  try {
+    // Atualiza apenas as peças cujos IDs foram passados
+    const sql = `UPDATE pecas_engenharia SET status = ? WHERE id IN (?)`;
+    
+    // O mysql2 aceita arrays diretamente no placeholder (?) para cláusulas IN
+    const [result] = await db.query(sql, [status, ids]);
+
+    console.log(`✅ Status atualizado! Linhas afetadas: ${result.affectedRows}`);
+    
+    res.json({ 
+        message: 'Status atualizado com sucesso.', 
+        updatedCount: result.affectedRows 
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao atualizar status:', error);
+    res.status(500).json({ error: 'Erro interno ao atualizar status.', details: error.message });
+  }
+});
+
+// --- Rota de Registro de Produção (Caminho B) ---
+app.post('/api/producao/registrar', async (req, res) => {
+  const { itens, chapaIndex, aproveitamento } = req.body;
+  // itens espera: [{ id: 'uuid', qtd: 5 }, { id: 'uuid2', qtd: 1 }]
+
+  if (!itens || !Array.isArray(itens) || itens.length === 0) {
+    return res.status(400).json({ error: 'Nenhum item para registrar.' });
+  }
+
+  const connection = await db.getConnection(); // Pega conexão para transação
+
+  try {
+    await connection.beginTransaction();
+
+    console.log(`🏭 Registrando produção da Chapa ${chapaIndex + 1} (Eficiência: ${aproveitamento}%)...`);
+
+    for (const item of itens) {
+      // 1. Inserir no Histórico
+      await connection.query(
+        `INSERT INTO historico_producao (id_peca, quantidade_produzida, numero_chapa, aproveitamento) VALUES (?, ?, ?, ?)`,
+        [item.id, item.qtd, chapaIndex + 1, aproveitamento]
+      );
+
+      // 2. Verificar Totais para Atualizar Status
+      // Soma tudo que já foi feito dessa peça (histórico)
+      const [histRows] = await connection.query(
+        `SELECT SUM(quantidade_produzida) as total_feito FROM historico_producao WHERE id_peca = ?`,
+        [item.id]
+      );
+      const totalFeito = histRows[0].total_feito || 0;
+
+      // Pega a meta original
+      const [pecaRows] = await connection.query(
+        `SELECT quantidade FROM pecas_engenharia WHERE id = ?`,
+        [item.id]
+      );
+      
+      if (pecaRows.length > 0) {
+        const meta = pecaRows[0].quantidade;
+        let novoStatus = 'EM PRODUCAO';
+        
+        if (totalFeito >= meta) {
+          novoStatus = 'CONCLUIDO';
+        }
+
+        // Atualiza o status na tabela pai
+        await connection.query(
+          `UPDATE pecas_engenharia SET status = ? WHERE id = ?`,
+          [novoStatus, item.id]
+        );
+      }
+    }
+
+    await connection.commit();
+    console.log("✅ Produção registrada e status atualizados.");
+    res.json({ message: 'Produção registrada com sucesso!' });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error("❌ Erro ao registrar produção:", error);
+    res.status(500).json({ error: 'Erro ao processar produção.', details: error.message });
+  } finally {
+    connection.release();
+  }
+});
+
 // 4. Iniciar Servidor
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {

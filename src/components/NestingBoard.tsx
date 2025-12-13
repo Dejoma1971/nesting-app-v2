@@ -8,7 +8,6 @@ import React, {
 } from "react";
 import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
-import { generateDxfContent } from "../utils/dxfWriter";
 import { ContextControl } from "./ContextControl";
 import { InteractiveCanvas } from "./InteractiveCanvas";
 import { useUndoRedo } from "../hooks/useUndoRedo";
@@ -21,16 +20,16 @@ import { GlobalLabelPanel, ThumbnailFlags } from "./labels/LabelControls";
 import { LabelEditorModal } from "./labels/LabelEditorModal";
 import type { LabelConfig } from "./labels/LabelTypes";
 import { textToVectorLines } from "../utils/vectorFont";
+import { useProductionManager } from "../hooks/useProductionManager";
 
 interface Size {
   width: number;
   height: number;
 }
 
-// --- CORREÇÃO 1: Adicionado initialSearchQuery na Interface ---
 interface NestingBoardProps {
   initialParts: ImportedPart[];
-  initialSearchQuery?: string; 
+  initialSearchQuery?: string;
   onBack?: () => void;
 }
 
@@ -54,7 +53,7 @@ const bulgeToArc = (
   return { radius, cx, cy };
 };
 
-// --- CÁLCULO DE BOUNDING BOX ROBUSTO ---
+// --- CÁLCULO DE BOUNDING BOX ---
 const calculateBoundingBox = (
   entities: any[],
   blocks: any = {}
@@ -300,32 +299,39 @@ const renderEntityFunction = (
 
 export const NestingBoard: React.FC<NestingBoardProps> = ({
   initialParts,
-  initialSearchQuery, // Recebido
+  initialSearchQuery,
   onBack,
 }) => {
-  // Estado local das peças (acumulativo)
+  // Estado local das peças
   const [parts, setParts] = useState<ImportedPart[]>(initialParts);
 
-  // --- NOVOS ESTADOS PARA A BUSCA ---
-  // Inicializa o input de busca com o valor que veio da engenharia (se houver)
+  // Estados de Busca
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || "");
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
-  // ----------------------------------
 
   const [isDarkMode, setIsDarkMode] = useState(true);
   const theme = getTheme(isDarkMode);
 
+  // Configuração da Mesa
   const [binSize, setBinSize] = useState<Size>({ width: 1200, height: 3000 });
   const [gap, setGap] = useState(5);
   const [margin, setMargin] = useState(5);
   const [strategy, setStrategy] = useState<"rect" | "true-shape">("rect");
-  const [direction, setDirection] = useState<
-    "auto" | "vertical" | "horizontal"
-  >("auto");
+  const [direction, setDirection] = useState<"auto" | "vertical" | "horizontal">("auto");
   const [iterations] = useState(50);
   const [rotationStep, setRotationStep] = useState(90);
 
+  // --- INTEGRANDO O HOOK DE PRODUÇÃO (CORRIGIDO) ---
+  const {
+    isSaving,
+    lockedBins,
+    handleProductionDownload,
+    getPartStatus,
+    resetProduction
+  } = useProductionManager(binSize); // <--- AQUI A CORREÇÃO: Apenas 1 argumento
+
+  // Gerenciamento de Labels
   const {
     labelStates,
     globalWhiteEnabled,
@@ -334,77 +340,73 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     togglePartFlag,
     updateLabelConfig,
   } = useLabelManager(parts);
+  
   const [editingPartId, setEditingPartId] = useState<string | null>(null);
 
   const thumbnailRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
-  const [quantities, setQuantities] = useState<{ [key: string]: number }>(
-    () => {
-      const initialQ: { [key: string]: number } = {};
-      initialParts.forEach((p) => {
-        initialQ[p.id] = p.quantity || 1;
-      });
-      return initialQ;
-    }
-  );
+  const [quantities, setQuantities] = useState<{ [key: string]: number }>(() => {
+    const initialQ: { [key: string]: number } = {};
+    initialParts.forEach((p) => {
+      initialQ[p.id] = p.quantity || 1;
+    });
+    return initialQ;
+  });
 
-  // --- EFEITO: BUSCA AUTOMÁTICA AO ENTRAR ---
-  // Se initialSearchQuery existir (vindo do "Cortar Agora"), dispara a busca no banco
+  // Busca Automática Inicial
   useEffect(() => {
-      if (initialSearchQuery && parts.length === 0) {
-          // Precisamos chamar a busca aqui. 
-          // Como handleDBSearch depende do estado 'searchQuery' e 'parts', 
-          // a forma mais segura é chamar a lógica diretamente ou via função.
-          // Para simplificar, vou criar um trigger.
-          const timer = setTimeout(() => {
-             // Chama a busca apenas se houver query
-             const doAutoSearch = async () => {
-                if (!initialSearchQuery) return;
-                setIsSearching(true);
-                try {
-                    const params = new URLSearchParams();
-                    params.append("pedido", initialSearchQuery);
-                    const response = await fetch(`http://localhost:3001/api/pecas/buscar?${params.toString()}`);
-                    
-                    if (response.status === 404) {
-                        alert(`Nenhuma peça encontrada para o pedido: ${initialSearchQuery}`);
-                        setIsSearching(false);
-                        return;
-                    }
-                    if (!response.ok) throw new Error("Erro ao buscar.");
+    if (initialSearchQuery && parts.length === 0) {
+      const timer = setTimeout(() => {
+        const doAutoSearch = async () => {
+          if (!initialSearchQuery) return;
+          setIsSearching(true);
+          try {
+            const params = new URLSearchParams();
+            params.append("pedido", initialSearchQuery);
+            const response = await fetch(`http://localhost:3001/api/pecas/buscar?${params.toString()}`);
+            
+            if (response.status === 404) {
+              alert(`Nenhuma peça encontrada para o pedido: ${initialSearchQuery}`);
+              setIsSearching(false);
+              return;
+            }
+            if (!response.ok) throw new Error("Erro ao buscar.");
 
-                    const data = await response.json();
-                    if (Array.isArray(data) && data.length > 0) {
-                        const dbParts: ImportedPart[] = data.map((item: any) => ({
-                            id: item.id,
-                            name: item.name,
-                            entities: item.entities,
-                            blocks: item.blocks || {},
-                            width: Number(item.width),
-                            height: Number(item.height),
-                            grossArea: Number(item.grossArea),
-                            netArea: Number(item.grossArea),
-                            quantity: Number(item.quantity) || 1,
-                            pedido: item.pedido,
-                            op: item.op,
-                            material: item.material,
-                            espessura: item.espessura,
-                            autor: item.autor,
-                            dataCadastro: item.dataCadastro,
-                        }));
-                        setParts(dbParts); // Na carga inicial, substitui
-                    }
-                } catch(e) { console.error(e); alert("Erro ao buscar dados iniciais."); }
-                finally { setIsSearching(false); }
-             };
-             doAutoSearch();
-          }, 100);
-          return () => clearTimeout(timer);
-      }
+            const data = await response.json();
+            if (Array.isArray(data) && data.length > 0) {
+              const dbParts: ImportedPart[] = data.map((item: any) => ({
+                id: item.id,
+                name: item.name,
+                entities: item.entities,
+                blocks: item.blocks || {},
+                width: Number(item.width),
+                height: Number(item.height),
+                grossArea: Number(item.grossArea),
+                netArea: Number(item.grossArea),
+                quantity: Number(item.quantity) || 1,
+                pedido: item.pedido,
+                op: item.op,
+                material: item.material,
+                espessura: item.espessura,
+                autor: item.autor,
+                dataCadastro: item.dataCadastro,
+              }));
+              setParts(dbParts);
+            }
+          } catch(e) { 
+            console.error(e); 
+            alert("Erro ao buscar dados iniciais."); 
+          } finally { 
+            setIsSearching(false); 
+          }
+        };
+        doAutoSearch();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Executa apenas uma vez
+  }, []);
 
-  // --- CORREÇÃO 2: Removido comentário ESLint desnecessário ---
   // Atualiza quantities quando novas peças chegam
   useEffect(() => {
     setQuantities((prev) => {
@@ -431,13 +433,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const displayedParts = useMemo(() => {
     const filtered = parts.filter((p) => {
-      const matchPedido =
-        filters.pedido.length === 0 || filters.pedido.includes(p.pedido);
+      const matchPedido = filters.pedido.length === 0 || filters.pedido.includes(p.pedido);
       const matchOp = filters.op.length === 0 || filters.op.includes(p.op);
-      const matchMaterial =
-        !filters.material || p.material === filters.material;
-      const matchEspessura =
-        !filters.espessura || p.espessura === filters.espessura;
+      const matchMaterial = !filters.material || p.material === filters.material;
+      const matchEspessura = !filters.espessura || p.espessura === filters.espessura;
       return matchPedido && matchOp && matchMaterial && matchEspessura;
     });
 
@@ -448,27 +447,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       const bounds = calculateBoundingBox(part.entities, part.blocks);
       const newEntities = [...part.entities];
       const rawText = part.pedido || part.op || part.name;
-      const finalText =
-        typeof cleanTextContent === "function"
-          ? cleanTextContent(rawText)
-          : rawText;
+      const finalText = typeof cleanTextContent === "function" ? cleanTextContent(rawText) : rawText;
 
-      const addLabelVector = (
-        config: LabelConfig,
-        color: string,
-        type: "white" | "pink"
-      ) => {
+      const addLabelVector = (config: LabelConfig, color: string, type: "white" | "pink") => {
         if (config.active && finalText) {
           const posX = bounds.cx + config.offsetX;
           const posY = bounds.cy + config.offsetY;
 
-          const vectorLines = textToVectorLines(
-            finalText,
-            posX,
-            posY,
-            config.fontSize,
-            color
-          );
+          const vectorLines = textToVectorLines(finalText, posX, posY, config.fontSize, color);
 
           const rotatedLines = vectorLines.map((line: any) => {
             if (config.rotation === 0) return line;
@@ -510,6 +496,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const [activeTab, setActiveTab] = useState<"grid" | "list">("grid");
   const [showDebug, setShowDebug] = useState(true);
+  
   const [
     nestingResult,
     setNestingResult,
@@ -519,6 +506,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     canUndo,
     canRedo,
   ] = useUndoRedo<PlacedPart[]>([]);
+  
   const [isComputing, setIsComputing] = useState(false);
   const [failedCount, setFailedCount] = useState(0);
   const [totalBins, setTotalBins] = useState(1);
@@ -529,15 +517,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     x: number;
     y: number;
   } | null>(null);
+  
   const workerRef = useRef<Worker | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      )
-        return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -566,7 +551,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
   }, [selectedPartIds, nestingResult]);
 
-  // --- NOVA FUNÇÃO DE BUSCA NO BANCO ---
   const handleDBSearch = async () => {
     if (!searchQuery) return;
     setIsSearching(true);
@@ -615,7 +599,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         });
 
         setSearchQuery("");
-        setIsSearchModalOpen(false); // Fecha modal
+        setIsSearchModalOpen(false);
       }
     } catch (err) {
       console.error(err);
@@ -699,6 +683,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     setCurrentBinIndex(0);
     setTotalBins(1);
     setSelectedPartIds([]);
+    
+    // Opcional: Resetar produção ao iniciar novo cálculo se desejado
+    // resetProduction(); 
+    
     if (workerRef.current) workerRef.current.terminate();
     workerRef.current = new NestingWorker();
     workerRef.current.onmessage = (e) => {
@@ -735,36 +723,16 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   ]);
 
   const handleClearTable = useCallback(() => {
-    if (window.confirm("Deseja limpar todos os arranjos da mesa?")) {
+    if (window.confirm("Deseja limpar todos os arranjos e reiniciar os contadores da sessão?")) {
       resetNestingResult([]);
       setFailedCount(0);
       setTotalBins(1);
       setCurrentBinIndex(0);
+      resetProduction(); // Limpa também o estado de produção (locked bins, counts)
     }
-  }, [resetNestingResult]);
-
-  const handleDownload = useCallback(() => {
-    if (nestingResult.length === 0) return;
-    const currentBinParts = nestingResult.filter(
-      (p) => p.binId === currentBinIndex
-    );
-    const dxfString = generateDxfContent(currentBinParts, displayedParts, binSize);
-    const blob = new Blob([dxfString], { type: "application/dxf" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `nesting_chapa_${currentBinIndex + 1}.dxf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, [nestingResult, currentBinIndex, displayedParts, binSize]);
-
-  const updateQty = useCallback(
-    (id: string, val: number) =>
-      setQuantities((prev) => ({ ...prev, [id]: val })),
-    []
-  );
+  }, [resetNestingResult, resetProduction]);
+  
+  
   const formatArea = useCallback(
     (mm2: number) =>
       mm2 > 100000
@@ -877,6 +845,16 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
   };
 
+  // Helper para renderizar a barra de progresso
+  const renderProgressBar = (produced: number, total: number) => {
+    const pct = Math.min(100, Math.round((produced / total) * 100));
+    return (
+        <div style={{ width: "100%", background: theme.border, height: "6px", borderRadius: "3px", marginTop: "5px", overflow: "hidden" }}>
+            <div style={{ width: `${pct}%`, background: pct >= 100 ? "#28a745" : "#007bff", height: "100%" }}></div>
+        </div>
+    );
+  };
+
   return (
     <div style={containerStyle}>
       {/* --- MODAL DE BUSCA --- */}
@@ -977,54 +955,52 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 padding: 0,
               }}
             >
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
                 <polyline points="9 22 9 12 15 12 15 22"></polyline>
               </svg>
             </button>
           )}
-          <h2
-            style={{
-              margin: 0,
-              fontSize: "18px",
-              color: "#007bff",
-              whiteSpace: "nowrap",
-            }}
-          >
+          <h2 style={{ margin: 0, fontSize: "18px", color: "#007bff", whiteSpace: "nowrap" }}>
             Planejamento de Corte
           </h2>
         </div>
         
-        {/* Lado Direito: Ações + Tema */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "10px" }}>
-            
-            {/* BOTÕES DE AÇÃO (MOVIDOS PARA CÁ) */}
             <button onClick={() => setIsSearchModalOpen(true)} style={{ background: "#6f42c1", color: "white", border: "none", padding: "6px 12px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "5px", fontSize: "13px" }}>
                 🔍 Buscar Pedido
             </button>
             <button style={{ background: isComputing ? "#666" : "#28a745", color: "white", border: "none", padding: "6px 12px", cursor: isComputing ? "wait" : "pointer", borderRadius: "4px", fontWeight: "bold", fontSize: "13px" }} onClick={handleCalculate} disabled={isComputing}>
                 {isComputing ? "..." : "▶ Calcular"}
             </button>
-            <button onClick={handleDownload} disabled={nestingResult.length === 0} style={{ background: "#007bff", color: "white", border: "none", padding: "6px 12px", cursor: nestingResult.length === 0 ? "not-allowed" : "pointer", borderRadius: "4px", opacity: nestingResult.length === 0 ? 0.5 : 1, fontSize: "13px" }}>
-                💾 DXF
+            
+            {/* BOTÃO DXF: Usa o Hook de Produção Agora */}
+            <button 
+                onClick={() => handleProductionDownload(nestingResult, currentBinIndex, displayedParts)} 
+                disabled={nestingResult.length === 0 || isSaving} 
+                style={{ 
+                    background: lockedBins.includes(currentBinIndex) ? "#17a2b8" : "#007bff", // Muda cor se já baixado
+                    color: "white", 
+                    border: "none", 
+                    padding: "6px 12px", 
+                    cursor: (nestingResult.length === 0 || isSaving) ? "not-allowed" : "pointer", 
+                    borderRadius: "4px", 
+                    opacity: (nestingResult.length === 0 || isSaving) ? 0.5 : 1, 
+                    fontSize: "13px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "5px"
+                }}
+            >
+                {isSaving ? "Salvando..." : lockedBins.includes(currentBinIndex) ? "⬇ Baixar Novamente" : "💾 Salvar DXF"}
             </button>
+            
             <button onClick={handleClearTable} title="Limpar Mesa" style={{ background: "transparent", color: "#dc3545", border: `1px solid #dc3545`, padding: "5px 10px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>
                 🗑️
             </button>
 
-            {/* Divisor Visual */}
             <div style={{ width: 1, height: 24, background: theme.border, margin: '0 5px' }}></div>
 
-            {/* Botão de Tema */}
             <button onClick={() => setIsDarkMode(!isDarkMode)} title="Alternar Tema" style={{ background: "transparent", border: `1px solid ${theme.border}`, color: theme.text, padding: "6px 12px", borderRadius: "20px", cursor: "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {isDarkMode ? "☀️" : "🌙"}
             </button>
@@ -1088,6 +1064,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               <button onClick={() => setCurrentBinIndex(Math.min(totalBins - 1, currentBinIndex + 1))} disabled={currentBinIndex === totalBins - 1} style={{ cursor: "pointer", border: "none", background: "transparent", fontWeight: "bold", color: theme.text }}>▶</button>
             </div>
           )}
+          
+          {/* CANVAS INTERATIVO RECONECTADO */}
           <InteractiveCanvas
             parts={displayedParts}
             placedParts={currentPlacedParts}
@@ -1098,12 +1076,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             strategy={strategy}
             theme={theme}
             selectedPartIds={selectedPartIds}
-            onPartsMove={handlePartsMove}
-            onPartSelect={handlePartSelect}
-            onContextMenu={handlePartContextMenu}
+            onPartsMove={handlePartsMove} // Reconectado
+            onPartSelect={handlePartSelect} // Reconectado
+            onContextMenu={handlePartContextMenu} // Reconectado
           />
+          
           <div style={{ padding: "10px 20px", display: "flex", gap: "20px", borderTop: `1px solid ${theme.border}`, background: theme.panelBg, zIndex: 5, color: theme.text }}>
             <span style={{ opacity: 0.6, fontSize: "12px" }}>{nestingResult.length > 0 ? `Total: ${nestingResult.length} Peças` : `Área: ${binSize.width}x${binSize.height}mm`}</span>
+            {lockedBins.includes(currentBinIndex) && <span style={{ color: "#28a745", fontWeight: "bold", fontSize: "12px" }}>✅ CHAPA PRODUZIDA</span>}
             {failedCount > 0 && <span style={{ color: "#dc3545", fontWeight: "bold", fontSize: "12px", background: "rgba(255,0,0,0.1)", padding: "2px 8px", borderRadius: "4px" }}>⚠️ {failedCount} NÃO COUBERAM</span>}
           </div>
         </div>
@@ -1116,27 +1096,49 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             <button style={tabStyle(activeTab === "list")} onClick={() => setActiveTab("list")}>📄 Lista Técnica</button>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: activeTab === "grid" ? "15px" : "0" }}>
+            
+            {/* GRID VIEW */}
             {activeTab === "grid" && (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "15px", alignContent: "start" }}>
-                {displayedParts.map((part) => (
-                  <div key={part.id} ref={(el) => { thumbnailRefs.current[part.id] = el; }} style={{ display: "flex", flexDirection: "column", alignItems: "center", position: "relative" }} onContextMenu={(e) => handleThumbnailContextMenu(e, part.id)}>
-                    <ThumbnailFlags partId={part.id} labelState={labelStates} onTogglePartFlag={togglePartFlag} />
-                    <div style={{ width: "100%", aspectRatio: "1/1", background: theme.cardBg, border: `1px solid ${selectedPartIds.includes(part.id) ? "#007bff" : theme.border}`, borderRadius: "8px", marginBottom: "8px", padding: "10px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: selectedPartIds.includes(part.id) ? "0 0 5px rgba(0,123,255,0.5)" : "none" }}>
-                      <svg viewBox={getThumbnailViewBox(part)} style={{ width: "100%", height: "100%", overflow: "visible", color: theme.text }} transform="scale(1, -1)" preserveAspectRatio="xMidYMid meet">
-                        {part.entities.map((ent, i) => renderEntityFunction(ent, i, part.blocks, 1, theme.text))}
-                      </svg>
+                {displayedParts.map((part) => {
+                   const qty = quantities[part.id] || 1;
+                   const { produced, remaining, isFullyProduced } = getPartStatus(part.id, qty);
+
+                   return (
+                    <div key={part.id} ref={(el) => { thumbnailRefs.current[part.id] = el; }} style={{ display: "flex", flexDirection: "column", alignItems: "center", position: "relative", opacity: isFullyProduced ? 0.6 : 1 }} onContextMenu={(e) => handleThumbnailContextMenu(e, part.id)}>
+                        <ThumbnailFlags partId={part.id} labelState={labelStates} onTogglePartFlag={togglePartFlag} />
+                        <div style={{ width: "100%", aspectRatio: "1/1", background: theme.cardBg, border: `1px solid ${selectedPartIds.includes(part.id) ? "#007bff" : theme.border}`, borderRadius: "8px", marginBottom: "8px", padding: "10px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: selectedPartIds.includes(part.id) ? "0 0 5px rgba(0,123,255,0.5)" : "none" }}>
+                        <svg viewBox={getThumbnailViewBox(part)} style={{ width: "100%", height: "100%", overflow: "visible", color: theme.text }} transform="scale(1, -1)" preserveAspectRatio="xMidYMid meet">
+                            {part.entities.map((ent, i) => renderEntityFunction(ent, i, part.blocks, 1, theme.text))}
+                        </svg>
+                        </div>
+                        <div style={{ width: "100%", display: "flex", flexDirection: "column", fontSize: "12px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <span title={part.name} style={{ fontWeight: "bold", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70px" }}>{part.name}</span>
+                                {/* --- ALTERAÇÃO AQUI: Remove input, mostra Saldo --- */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", background: theme.hoverRow, padding: "2px 6px", borderRadius: "4px" }}>
+            <span style={{ fontSize: "11px", fontWeight: "bold", color: isFullyProduced ? "#28a745" : theme.text }}>
+                {remaining === 0 ? "OK" : `${produced}/${qty}`}
+            </span>
+            <span style={{ fontSize: "9px", opacity: 0.7 }}>
+                Meta: {qty}
+            </span>
+        </div>
+        {/* ------------------------------------------------ */}
+                            </div>
+                            {/* BADGE DE SALDO NO GRID */}
+                            <div style={{ marginTop: "4px", fontSize: "10px", color: isFullyProduced ? "#28a745" : theme.label, display: "flex", justifyContent: "space-between" }}>
+                                <span>Feito: {produced}</span>
+                                <span style={{ fontWeight: "bold" }}>Falta: {remaining}</span>
+                            </div>
+                        </div>
                     </div>
-                    <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px" }}>
-                      <span title={part.name} style={{ fontWeight: "bold", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70px" }}>{part.name}</span>
-                      <div style={{ display: "flex", alignItems: "center", background: theme.hoverRow, borderRadius: "4px" }}>
-                        <span style={{ padding: "0 4px", fontSize: 10, opacity: 0.7 }}>Qtd:</span>
-                        <input type="number" min="1" value={quantities[part.id] || 1} onChange={(e) => updateQty(part.id, Number(e.target.value))} style={{ width: 35, border: "none", background: "transparent", textAlign: "center", color: theme.text, fontWeight: "bold", padding: "4px 0" }} />
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
+
+            {/* LIST VIEW */}
             {activeTab === "list" && (
               <div style={{ overflowX: "auto", transform: "rotateX(180deg)", borderBottom: `1px solid ${theme.border}` }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", borderSpacing: 0, minWidth: "600px", transform: "rotateX(180deg)" }}>
@@ -1145,29 +1147,77 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                       <th style={thStyle}>#</th>
                       <th style={thStyle}>Peça</th>
                       <th style={thStyle}>Pedido</th>
-                      <th style={thStyle}>OP</th>
-                      <th style={thStyle}>Material</th>
-                      <th style={thStyle}>Espessura</th>
+                      <th style={thStyle}>Mat/Esp</th>
                       <th style={thStyle}>Dimensões</th>
                       <th style={thStyle}>Área</th>
-                      <th style={thStyle}>Qtd.</th>
+                      <th style={thStyle}>Qtd. Total</th>
+                      <th style={thStyle}>Status Produção</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {displayedParts.map((part, index) => (
-                      <tr key={part.id} style={{ borderBottom: `1px solid ${theme.border}` }}>
-                        <td style={tdStyle}>{index + 1}</td>
-                        <td style={{ ...tdStyle, fontWeight: "bold" }} title={part.name}>{part.name}</td>
-                        <td style={tdStyle}>{part.pedido || "-"}</td>
-                        <td style={tdStyle}>{part.op || "-"}</td>
-                        <td style={tdStyle}>{part.material}</td>
-                        <td style={tdStyle}>{part.espessura || "-"}</td>
-                        <td style={tdStyle}>{part.width.toFixed(0)}x{part.height.toFixed(0)}</td>
-                        <td style={tdStyle}>{formatArea(part.grossArea)}</td>
-                        <td style={tdStyle}><input type="number" min="1" value={quantities[part.id] || 1} onChange={(e) => updateQty(part.id, Number(e.target.value))} style={{ width: 40, textAlign: "center", background: theme.inputBg, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 4 }} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
+  {displayedParts.map((part, index) => {
+    // 1. Obtém a quantidade definida (Meta)
+    const qty = quantities[part.id] || 1;
+
+    // 2. Calcula o status atual (Produzido vs Meta)
+    const { produced, remaining, isFullyProduced } = getPartStatus(part.id, qty);
+
+    return (
+      <tr 
+        key={part.id} 
+        style={{ 
+            borderBottom: `1px solid ${theme.border}`, 
+            background: isFullyProduced ? "rgba(40, 167, 69, 0.1)" : "transparent" 
+        }}
+      >
+        <td style={tdStyle}>{index + 1}</td>
+        <td style={{ ...tdStyle, fontWeight: "bold" }} title={part.name}>{part.name}</td>
+        <td style={tdStyle}>{part.pedido || "-"}</td>
+        <td style={tdStyle}>{part.material} {part.espessura && `/ ${part.espessura}`}</td>
+        <td style={tdStyle}>{part.width.toFixed(0)}x{part.height.toFixed(0)}</td>
+        <td style={tdStyle}>{formatArea(part.grossArea)}</td>
+        
+        {/* --- ALTERAÇÃO: Coluna Qtd Total agora é APENAS LEITURA --- */}
+        <td style={{ ...tdStyle, textAlign: "center" }}>
+            <span style={{ 
+                fontWeight: "bold", 
+                fontSize: "13px",
+                color: theme.text 
+            }}>
+                {qty}
+            </span>
+        </td>
+        {/* --------------------------------------------------------- */}
+
+        {/* Coluna Status/Produzido */}
+        <td style={{ ...tdStyle, textAlign: "center" }}>
+            <div style={{ 
+                padding: "4px 8px", 
+                borderRadius: "4px", 
+                background: isFullyProduced ? "rgba(40, 167, 69, 0.1)" : theme.hoverRow,
+                border: `1px solid ${isFullyProduced ? "#28a745" : theme.border}`,
+                color: isFullyProduced ? "#28a745" : theme.text,
+                fontWeight: "bold",
+                fontSize: "12px",
+                display: "inline-block",
+                minWidth: "60px"
+            }}>
+                {produced} <span style={{fontSize: "10px", fontWeight: "normal", opacity: 0.7}}>de {qty}</span>
+            </div>
+        </td>
+
+        {/* Coluna Barra de Progresso */}
+        <td style={{ ...tdStyle, width: "120px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", marginBottom: "2px" }}>
+                <span style={{fontWeight: 'bold'}}>Saldo:</span>
+                <span>{remaining === 0 ? "✅" : `-${remaining}`}</span>
+            </div>
+            {renderProgressBar(produced, qty)}
+        </td>
+      </tr>
+    );
+  })}
+</tbody>
                 </table>
               </div>
             )}
