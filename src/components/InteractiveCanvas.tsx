@@ -12,9 +12,12 @@ interface InteractiveCanvasProps {
   margin: number;
   showDebug: boolean;
   strategy: "rect" | "true-shape";
-  selectedPartIds: string[]; // Agora contém UUIDs
+  selectedPartIds: string[]; // UUIDs
   theme: AppTheme;
   onPartsMove: (moves: { partId: string; dx: number; dy: number }[]) => void;
+  // --- NOVO: Callback para devolver ao banco ---
+  onPartReturn: (uuids: string[]) => void; 
+  // ------------------------------------------
   onLabelDrag?: (partId: string, type: 'white' | 'pink', dx: number, dy: number) => void;
   onPartSelect: (partIds: string[], append: boolean) => void;
   onContextMenu: (e: React.MouseEvent, partId: string) => void;
@@ -25,7 +28,7 @@ interface BoundingBoxCache {
   [partId: string]: { minX: number; minY: number; width: number; height: number; centerX: number; centerY: number; };
 }
 
-// --- 1. FUNÇÕES AUXILIARES RESTAURADAS ---
+// --- 1. FUNÇÕES AUXILIARES ---
 
 const bulgeToArc = (p1: {x: number, y: number}, p2: {x: number, y: number}, bulge: number) => {
     const chordDx = p2.x - p1.x;
@@ -191,7 +194,7 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
 };
 
 
-// --- 2. SUBCOMPONENTE PEÇA (ATUALIZADO PARA UUID) ---
+// --- 2. SUBCOMPONENTE PEÇA (PartElement) ---
 
 interface PartElementProps {
   placed: PlacedPart;
@@ -215,13 +218,11 @@ const PartElement = React.memo(forwardRef<SVGGElement, PartElementProps>(({
   const occupiedW = placed.rotation % 180 !== 0 ? partData.height : partData.width;
   const occupiedH = placed.rotation % 180 !== 0 ? partData.width : partData.height;
   
-  // Usa dados de transformação baseados no UUID
   const finalTransform = transformData ? `translate(${placed.x + transformData.occupiedW / 2}, ${placed.y + transformData.occupiedH / 2}) rotate(${placed.rotation}) translate(${-transformData.centerX}, ${-transformData.centerY})` : "";
   const strokeColor = isSelected ? "#c94028ff" : theme.text === "#e0e0e0" ? "#007bff" : "#007bff";
 
   return (
     <g ref={ref}
-      // Passa o UUID para os manipuladores de evento
       onMouseDown={(e) => onMouseDown(e, placed.uuid)}
       onDoubleClick={(e) => onDoubleClick(e, placed.uuid)}
       onContextMenu={(e) => onContextMenu(e, placed.uuid)}
@@ -230,7 +231,6 @@ const PartElement = React.memo(forwardRef<SVGGElement, PartElementProps>(({
       <rect x={placed.x} y={placed.y} width={occupiedW} height={occupiedH} fill="transparent" stroke={isSelected ? "#a3a3a0ff" : showDebug ? "red" : "none"} strokeWidth={1} vectorEffect="non-scaling-stroke" pointerEvents="all" />
       <g transform={finalTransform} style={{ pointerEvents: "none" }}>
         {partData.entities.map((ent, j) => 
-            // RESTAURADO: Chamada da função de renderização
             renderEntityFunction(ent, j, partData.blocks, 1, strokeColor, onLabelDown, onEntityContextMenu) 
         )}
       </g>
@@ -240,10 +240,12 @@ const PartElement = React.memo(forwardRef<SVGGElement, PartElementProps>(({
 PartElement.displayName = "PartElement";
 
 
-// --- 3. MAIN CANVAS (ATUALIZADO PARA UUID) ---
+// --- 3. MAIN CANVAS ---
 
 export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
-  parts, placedParts, binWidth, binHeight, margin, showDebug, strategy, selectedPartIds, onPartsMove, onLabelDrag, onPartSelect, onContextMenu, onEntityContextMenu, theme
+  parts, placedParts, binWidth, binHeight, margin, showDebug, strategy, selectedPartIds, onPartsMove, onLabelDrag, onPartSelect, onContextMenu, onEntityContextMenu, theme,
+  // Desestruturando a nova prop aqui para não causar erro
+  onPartReturn 
 }) => {
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
   const [dragMode, setDragMode] = useState<"none" | "pan" | "parts" | "label">("none");
@@ -255,7 +257,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   const transformRef = useRef({ x: 0, y: 0, k: 1 });
   const rafRef = useRef<number | null>(null);
   
-  // MAPEA UUID PARA ELEMENTO DOM
   const partRefs = useRef<{ [key: string]: SVGGElement | null }>({});
   const draggingIdsRef = useRef<string[]>([]);
   const dragRef = useRef({ startX: 0, startY: 0, startSvgX: 0, startSvgY: 0, initialX: 0, initialY: 0 });
@@ -273,7 +274,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     if (panGroupRef.current) panGroupRef.current.setAttribute("transform", `translate(${newT.x}, ${newT.y}) scale(${newT.k})`);
   }, []);
 
-  // RESTAURADO: Lógica de Zoom com Wheel
   useEffect(() => {
     const el = svgContainerRef.current;
     if (!el) return;
@@ -315,7 +315,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
 
   const resetZoom = useCallback(() => updateTransform({ x: 0, y: 0, k: 1 }), [updateTransform]);
 
-  // RESTAURADO: Handlers do Container
   const handleMouseDownContainer = useCallback((e: React.MouseEvent) => {
     setDragMode("pan");
     dragRef.current = { startX: e.clientX, startY: e.clientY, startSvgX: 0, startSvgY: 0, initialX: transformRef.current.x, initialY: transformRef.current.y };
@@ -336,7 +335,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       let box;
       if (cachedBox) { box = cachedBox; } 
       else {
-        // RESTAURADO: Chamada de calculateBoundingBox
         box = calculateBoundingBox(part.entities, part.blocks);
         const newBox = { ...box, centerX: box.minX + box.width / 2, centerY: box.minY + box.height / 2 };
         requestAnimationFrame(() => {
@@ -345,7 +343,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         box = newBox;
       }
       
-      // Chave é UUID
       transforms[placed.uuid] = {
         centerX: box.centerX,
         centerY: box.centerY,
@@ -375,7 +372,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     if (strategy !== "rect" && e.button === 0) {
       e.preventDefault();
       setDragMode("parts");
-      draggingIdsRef.current = selectedPartIds; // IDs aqui são UUIDs
+      draggingIdsRef.current = selectedPartIds;
       const svgPos = getSVGPoint(e.clientX, e.clientY);
       dragRef.current = { startX: e.clientX, startY: e.clientY, startSvgX: svgPos.x, startSvgY: svgPos.y, initialX: 0, initialY: 0 };
     }
@@ -423,18 +420,41 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     });
   }, [dragMode, getSVGPoint, draggingLabel, onLabelDrag]);
 
-  const handleMouseUp = useCallback(() => {
+  // --- ALTERAÇÃO AQUI: Detecção de drop fora do Canvas ---
+  const handleMouseUp = useCallback((e: React.MouseEvent) => {
     if (dragMode === "none") return;
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    
     if (dragMode === "pan") { setTransform({ ...transformRef.current }); }
     else if (dragMode === "parts") {
+        
+      // Lógica de Devolução ao Banco
+      if (svgContainerRef.current) {
+          const rect = svgContainerRef.current.getBoundingClientRect();
+          // Verifica se soltou fora da área visível do componente
+          const isOutside = 
+              e.clientX < rect.left || 
+              e.clientX > rect.right || 
+              e.clientY < rect.top || 
+              e.clientY > rect.bottom;
+
+          if (isOutside && draggingIdsRef.current.length > 0) {
+              // Chama o callback para remover do nestingResult
+              onPartReturn(draggingIdsRef.current);
+              
+              // Reseta estado e não processa o movimento (pois peça sumirá)
+              setDragMode("none");
+              draggingIdsRef.current = [];
+              return; 
+          }
+      }
+
       const moves: { partId: string; dx: number; dy: number }[] = [];
       draggingIdsRef.current.forEach((id) => {
         const el = partRefs.current[id];
         if (el) {
           const style = window.getComputedStyle(el);
           const matrix = new DOMMatrixReadOnly(style.transform);
-          // O campo partId aqui transporta o UUID
           moves.push({ partId: id, dx: matrix.m41, dy: matrix.m42 });
           el.style.transform = ""; el.style.willChange = ""; el.style.cursor = "";
         }
@@ -444,7 +464,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     setDragMode("none");
     setDraggingLabel(null);
     draggingIdsRef.current = [];
-  }, [dragMode, onPartsMove]);
+  }, [dragMode, onPartsMove, onPartReturn]);
 
   const binViewBox = useMemo(() => {
     const pX = binWidth * 0.05, pY = binHeight * 0.05;
@@ -482,7 +502,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                     if (!part) return null;
                     return (
                     <PartElement
-                        // CRÍTICO: Key e Ref baseados em UUID
                         key={placed.uuid}
                         ref={(el) => { partRefs.current[placed.uuid] = el; }}
                         placed={placed}
