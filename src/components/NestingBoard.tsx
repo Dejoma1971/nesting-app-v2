@@ -318,7 +318,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || "");
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
-  const [searchMode, setSearchMode] = useState<"replace" | "append">("replace");
+  const [searchMode, setSearchMode] = useState<"replace" | "append">("append");
+  // 'append' = Adicionar (Mix) será o padrão agora.
 
   const [isDarkMode, setIsDarkMode] = useState(true);
   const theme = getTheme(isDarkMode);
@@ -326,10 +327,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const [binSize, setBinSize] = useState<Size>({ width: 1200, height: 3000 });
   const [gap, setGap] = useState(5);
   const [margin, setMargin] = useState(5);
-  const [strategy, setStrategy] = useState<"rect" | "true-shape">("rect");
+  const [strategy, setStrategy] = useState<"rect" | "true-shape">("true-shape");
   const [direction, setDirection] = useState<
     "auto" | "vertical" | "horizontal"
-  >("auto");
+  >("horizontal");
   const [iterations] = useState(50);
   const [rotationStep, setRotationStep] = useState(90);
 
@@ -361,8 +362,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       return initialQ;
     }
   );
-
- 
 
   useEffect(() => {
     if (initialSearchQuery && parts.length === 0) {
@@ -526,22 +525,60 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     canRedo,
   ] = useUndoRedo<PlacedPart[]>([]);
 
-   // --- NOVA FUNÇÃO: DEVOLVER AO BANCO ---
+ // --- ATUALIZAÇÃO: Devolver ao banco com Scroll Automático ---
   const handleReturnToBank = useCallback((uuidsToRemove: string[]) => {
+      // 1. Identifica qual é a peça (ID original) antes de remover
+      // Pegamos o primeiro UUID da lista (caso esteja arrastando várias, foca na primeira)
+      const targetPlaced = nestingResult.find(p => uuidsToRemove.includes(p.uuid));
+      const partIdToScroll = targetPlaced?.partId;
+
       setNestingResult((prev) => {
-          // Filtra o array removendo as peças que tiverem os UUIDs passados
           return prev.filter(p => !uuidsToRemove.includes(p.uuid));
       });
-      // Limpa a seleção para evitar erros de referência
+      
+      // Limpa seleção para ela perder o destaque azul (já que saiu da mesa)
       setSelectedPartIds([]);
-  }, [setNestingResult]);
-  // --------------------------------------
+
+      // 2. Scroll para a peça na lista
+      if (partIdToScroll) {
+          // Usamos setTimeout para garantir que o React re-ordene a lista 
+          // (pois a peça vai sair do topo "Da Chapa" para sua posição original)
+          setTimeout(() => {
+              const element = thumbnailRefs.current[partIdToScroll];
+              if (element) {
+                  element.scrollIntoView({ 
+                      behavior: "smooth", 
+                      block: "center" // Centraliza o card na tela
+                  });
+              }
+          }, 100);
+      }
+  }, [nestingResult, setNestingResult]);
+  // -----------------------------------------------------------
 
   const [isComputing, setIsComputing] = useState(false);
   const [failedCount, setFailedCount] = useState(0);
   const [totalBins, setTotalBins] = useState(1);
   const [currentBinIndex, setCurrentBinIndex] = useState(0);
   const [selectedPartIds, setSelectedPartIds] = useState<string[]>([]);
+
+  // --- CORREÇÃO: Mapeia UUIDs selecionados na mesa para o ID da peça original ---
+  const activeSelectedPartIds = useMemo(() => {
+    const ids = new Set<string>();
+
+    // 1. Se selecionou direto o ID (clique no futuro no card)
+    selectedPartIds.forEach((id) => ids.add(id));
+
+    // 2. Se selecionou na mesa (UUID), buscamos quem é o 'pai' (partId)
+    nestingResult.forEach((placed) => {
+      if (selectedPartIds.includes(placed.uuid)) {
+        ids.add(placed.partId);
+      }
+    });
+    return ids;
+  }, [selectedPartIds, nestingResult]);
+  // -----------------------------------------------------------------------------
+
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
     x: number;
@@ -888,14 +925,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     alignItems: "center",
     backgroundColor: theme.headerBg,
   };
-  const toolbarStyle: React.CSSProperties = {
-    padding: "10px 20px",
-    borderBottom: `1px solid ${theme.border}`,
-    display: "flex",
-    gap: "15px",
-    alignItems: "center",
-    backgroundColor: theme.panelBg,
-    flexWrap: "wrap",
+  const toolbarStyle: React.CSSProperties = { 
+      padding: "10px 20px", 
+      borderBottom: `1px solid ${theme.border}`, 
+      display: "flex", 
+      gap: "15px", 
+      alignItems: "center", 
+      backgroundColor: theme.panelBg, 
+      flexWrap: "nowrap", // <--- Garante linha única
+      overflowX: "auto"   // <--- Permite rolagem lateral se a tela for muito pequena
   };
   const inputStyle: React.CSSProperties = {
     padding: 5,
@@ -1198,22 +1236,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           >
             🔍 Buscar Pedido
           </button>
-          <button
-            style={{
-              background: isComputing ? "#666" : "#28a745",
-              color: "white",
-              border: "none",
-              padding: "6px 12px",
-              cursor: isComputing ? "wait" : "pointer",
-              borderRadius: "4px",
-              fontWeight: "bold",
-              fontSize: "13px",
-            }}
-            onClick={handleCalculate}
-            disabled={isComputing}
-          >
-            {isComputing ? "..." : "▶ Calcular"}
-          </button>
+          
           <button
             onClick={() =>
               handleProductionDownload(
@@ -1437,6 +1460,26 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           />
           Ver Box
         </label>
+        {/* --- NOVO LOCAL DO BOTÃO CALCULAR --- */}
+        <button 
+            style={{ 
+                marginLeft: "auto", // Empurra para a direita
+                background: isComputing ? "#666" : "#28a745", 
+                color: "white", 
+                border: "none", 
+                padding: "8px 15px", 
+                cursor: isComputing ? "wait" : "pointer", 
+                borderRadius: "4px", 
+                fontWeight: "bold", 
+                fontSize: "13px",
+                whiteSpace: "nowrap", // Impede quebra de texto
+                boxShadow: "0 2px 4px rgba(0,0,0,0.2)"
+            }} 
+            onClick={handleCalculate} 
+            disabled={isComputing}
+        >
+            {isComputing ? "..." : "▶ Calcular Nesting"}
+        </button>
       </div>
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
@@ -1568,7 +1611,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             onPartSelect={handlePartSelect}
             onContextMenu={handlePartContextMenu}
             // --- ADICIONE ESTA LINHA ---
-              onPartReturn={handleReturnToBank}
+            onPartReturn={handleReturnToBank}
           />
           <div
             style={{
@@ -1679,26 +1722,28 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   const { produced } = getPartStatus(part.id, qty);
                   const orderColor = stringToColor(part.pedido || "N/A");
 
-                  // CÁLCULO GERAL
                   const placedTotal = totalPlacedCounts[part.id] || 0;
                   const totalVisual = produced + placedTotal;
                   const remainingVisual = Math.max(0, qty - totalVisual);
                   const isDoneVisual = remainingVisual === 0;
 
-                  // LÓGICA DE ESTILO E INTERAÇÃO
+                  // --- CORREÇÃO AQUI: Usamos o Set calculado para verificar a seleção ---
+                  const isSelected = activeSelectedPartIds.has(part.id);
+                  // ---------------------------------------------------------------------
+
                   const isOnCurrentSheet = currentBinPartIds.has(part.id);
-                  const isSelected = selectedPartIds.includes(part.id);
 
-                  // --- ALTERAÇÃO 1: Opacidade removida do container pai ---
-                  // Antes: const opacity = isDoneVisual ? 0.6 : 1;
-                  // Agora o container é sempre opaco (1)
+                  // Lógica de Prioridade da Borda (Azul > Verde > Padrão)
+                  let mainBorderColor = theme.border;
+                  let mainBorderWidth = "1px";
 
-                  const mainBorderColor = isOnCurrentSheet
-                    ? "#28a745"
-                    : isSelected
-                    ? "#007bff"
-                    : theme.border;
-                  const mainBorderWidth = isOnCurrentSheet ? "3px" : "1px";
+                  if (isSelected) {
+                    mainBorderColor = "#007bff"; // Azul (Seleção)
+                    mainBorderWidth = "2px";
+                  } else if (isOnCurrentSheet) {
+                    mainBorderColor = "#28a745"; // Verde (Na Chapa)
+                    mainBorderWidth = "3px";
+                  }
 
                   const cardBorderStyle = {
                     borderLeft: `5px solid ${orderColor}`,
@@ -1710,7 +1755,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   const cursorStyle = isDoneVisual ? "not-allowed" : "grab";
                   const canDrag = !isDoneVisual;
 
-                  // --- CÁLCULO DE VISUALIZAÇÃO E ROTAÇÃO ---
                   const box = calculateBoundingBox(part.entities, part.blocks);
                   const originalW = box.width || 100;
                   const originalH = box.height || 100;
@@ -1735,7 +1779,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                     } ${originalH + p * 2}`;
                   }
 
-                  // --- ALTERAÇÃO 2: Cor do desenho (mais fraca se concluído) ---
                   const drawingColor = isDoneVisual ? theme.border : theme.text;
 
                   return (
@@ -1749,7 +1792,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                         flexDirection: "column",
                         alignItems: "center",
                         position: "relative",
-                        opacity: 1, // <--- AGORA SEMPRE 1 (TOTALMENTE VISÍVEL)
+                        opacity: 1,
                         cursor: cursorStyle,
                       }}
                       onContextMenu={(e) =>
@@ -1777,9 +1820,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                           alignItems: "center",
                           justifyContent: "center",
                           overflow: "hidden",
+                          // Sombra azulada apenas se selecionado
                           boxShadow: isSelected
-                            ? "0 0 5px rgba(0,123,255,0.5)"
+                            ? "0 0 8px rgba(0,123,255,0.6)"
                             : "none",
+                          transition: "all 0.2s ease",
                           ...cardBorderStyle,
                         }}
                       >
@@ -1790,15 +1835,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                             height: "100%",
                             overflow: "visible",
                             color: theme.text,
-                            // --- ALTERAÇÃO 3: Opacidade aplicada APENAS no desenho ---
-                            opacity: isDoneVisual ? 0.9 : 1,
+                            opacity: isDoneVisual ? 0.8 : 1,
                             transition: "opacity 0.3s ease",
                           }}
                           transform="scale(1, -1)"
                           preserveAspectRatio="xMidYMid meet"
                         >
                           <g transform={contentTransform}>
-                            {/* Passamos 'drawingColor' para que as linhas fiquem cinzas se concluído */}
                             {part.entities.map((ent, i) =>
                               renderEntityFunction(
                                 ent,
@@ -1855,7 +1898,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                               Ped: {part.pedido || "-"}
                             </span>
                           </div>
-                          {/* O Badge de status continua totalmente visível */}
                           <div
                             style={{
                               display: "flex",
