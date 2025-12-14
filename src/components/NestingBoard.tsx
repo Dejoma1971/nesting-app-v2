@@ -842,19 +842,28 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     nestingResult.length,
   ]);
 
+  // --- ATUALIZAÇÃO: Reset Total (Mesa + Banco de Peças) ---
   const handleClearTable = useCallback(() => {
-    if (
-      window.confirm(
-        "Deseja limpar todos os arranjos e reiniciar os contadores da sessão?"
-      )
-    ) {
+    if (window.confirm("ATENÇÃO: Isso limpará a mesa de corte E O BANCO DE PEÇAS.\n\nDeseja reiniciar todo o trabalho do zero?")) {
+      // 1. Limpa o Arranjo (Mesa)
       resetNestingResult([]);
+
+      // 2. Limpa o Banco de Peças (Lista Lateral)
+      setParts([]);
+
+      // 3. Reseta Estados Auxiliares
       setFailedCount(0);
       setTotalBins(1);
       setCurrentBinIndex(0);
+      setSelectedPartIds([]); // Remove seleções
+      setQuantities({});      // Zera o mapa de quantidades
+      setSearchQuery("");     // Limpa o campo de busca
+      
+      // 4. Reseta Produção (Status de cores)
       resetProduction();
     }
   }, [resetNestingResult, resetProduction]);
+  // --------------------------------------------------------
 
   const formatArea = useCallback(
     (mm2: number) =>
@@ -1273,7 +1282,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           </button>
           <button
             onClick={handleClearTable}
-            title="Limpar Mesa"
+            title="Reiniciar Página"
             style={{
               background: "transparent",
               color: "#dc3545",

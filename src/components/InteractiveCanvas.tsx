@@ -219,7 +219,7 @@ const PartElement = React.memo(forwardRef<SVGGElement, PartElementProps>(({
   const occupiedH = placed.rotation % 180 !== 0 ? partData.width : partData.height;
   
   const finalTransform = transformData ? `translate(${placed.x + transformData.occupiedW / 2}, ${placed.y + transformData.occupiedH / 2}) rotate(${placed.rotation}) translate(${-transformData.centerX}, ${-transformData.centerY})` : "";
-  const strokeColor = isSelected ? "#c94028ff" : theme.text === "#e0e0e0" ? "#007bff" : "#007bff";
+  const strokeColor = isSelected ? "#01ff3cff" : theme.text === "#e0e0e0" ? "#007bff" : "#007bff";
 
   return (
     <g ref={ref}
@@ -228,7 +228,7 @@ const PartElement = React.memo(forwardRef<SVGGElement, PartElementProps>(({
       onContextMenu={(e) => onContextMenu(e, placed.uuid)}
       style={{ cursor: strategy === "rect" ? "default" : isSelected ? "move" : "pointer", opacity: isSelected ? 0.8 : 1 }}
     >
-      <rect x={placed.x} y={placed.y} width={occupiedW} height={occupiedH} fill="transparent" stroke={isSelected ? "#a3a3a0ff" : showDebug ? "red" : "none"} strokeWidth={1} vectorEffect="non-scaling-stroke" pointerEvents="all" />
+      <rect x={placed.x} y={placed.y} width={occupiedW} height={occupiedH} fill="transparent" stroke={isSelected ? "#01ff3cff" : showDebug ? "red" : "none"} strokeWidth={1} vectorEffect="non-scaling-stroke" pointerEvents="all" />
       <g transform={finalTransform} style={{ pointerEvents: "none" }}>
         {partData.entities.map((ent, j) => 
             renderEntityFunction(ent, j, partData.blocks, 1, strokeColor, onLabelDown, onEntityContextMenu) 
@@ -480,14 +480,34 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
 
   const cncTransform = `translate(0, ${binHeight}) scale(1, -1)`;
 
+  const handleReturnAll = useCallback(() => {
+      if (placedParts.length === 0) return;
+      
+      // Confirmação opcional (pode remover se quiser ação imediata)
+      if (window.confirm("Deseja recolher todas as peças da mesa de volta para o banco?")) {
+          const allUuids = placedParts.map(p => p.uuid);
+          onPartReturn(allUuids);
+      }
+  }, [placedParts, onPartReturn]);
+
   return (
     <div ref={svgContainerRef} style={{flex: 2, position: "relative", background: "transparent", display: "flex", flexDirection: "column", cursor: dragMode === "label" || dragMode === "parts" ? "grabbing" : dragMode === "pan" ? "grabbing" : "grab", overflow: "hidden", width: "100%", height: "100%"}}
       onMouseDown={handleMouseDownContainer} onDoubleClick={handleDoubleClickContainer} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
         
         <div style={{ position: "absolute", right: 20, top: 20, display: "flex", flexDirection: "column", gap: "5px", zIndex: 10 }}>
-            <button onClick={() => updateTransform({ ...transformRef.current, k: transformRef.current.k * 1.2 })} style={btnStyle}>➕</button>
-            <button onClick={() => updateTransform({ ...transformRef.current, k: transformRef.current.k / 1.2 })} style={btnStyle}>➖</button>
-            <button onClick={resetZoom} style={{ ...btnStyle, fontSize: "12px" }}>⛶</button>
+            <button onClick={() => updateTransform({ ...transformRef.current, k: transformRef.current.k * 1.2 })} style={btnStyle} title="Zoom In">➕</button>
+            <button onClick={() => updateTransform({ ...transformRef.current, k: transformRef.current.k / 1.2 })} style={btnStyle} title="Zoom Out">➖</button>
+            <button onClick={resetZoom} style={{ ...btnStyle, fontSize: "12px" }} title="Ajustar à Tela">⛶</button>
+            
+            {/* --- NOVO BOTÃO: RECOLHER TUDO --- */}
+            <button 
+                onClick={handleReturnAll} 
+                style={{ ...btnStyle, marginTop: "10px", color: "#dc3545", borderColor: "#dc3545" }} 
+                title="Recolher Todas para o Banco"
+                disabled={placedParts.length === 0}
+            >
+                📥
+            </button>
         </div>
         
         <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center", padding: "20px", overflow: "hidden" }}>
