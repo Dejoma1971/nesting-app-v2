@@ -4,12 +4,12 @@ import DxfParser from 'dxf-parser';
 import type { ImportedPart } from './types';
 import { 
     calculateBoundingBox, 
-    flattenGeometry,     
+    flattenGeometry, 
     rotatePoint,
     calculatePartNetArea,
     UnionFind,
     entitiesTouch,
-    isContained
+    isContained    
 } from '../utils/geometryCore';
 
 // --- CONSTANTES ---
@@ -26,14 +26,12 @@ interface EngineeringScreenProps {
     setParts: React.Dispatch<React.SetStateAction<ImportedPart[]>>;
 }
 
-// --- 1. FUNÇÕES ESPECÍFICAS DE MANIPULAÇÃO DE PEÇAS ---
+// --- 1. FUNÇÕES AUXILIARES (Rotação e Processamento de Arquivo) ---
 
 const applyRotationToPart = (part: ImportedPart, angle: number): ImportedPart => {
-    // Usa o flatten do core para garantir que não haja blocos aninhados antes de rodar
     const flatEntities = flattenGeometry(part.entities, part.blocks);
     const transform = { x: 0, y: 0, rotation: angle, scale: 1 };
     
-    // Rotaciona cada entidade
     const rotatedEntities = flatEntities.map((ent: any) => {
         const applyTrans = (x: number, y: number) => rotatePoint(x, y, transform.rotation);
 
@@ -57,7 +55,6 @@ const applyRotationToPart = (part: ImportedPart, angle: number): ImportedPart =>
         return ent;
     });
 
-    // Recalcula limites para "encostar" a peça no 0,0 (Normalização)
     const box = calculateBoundingBox(rotatedEntities);
     const minX = box.minX;
     const minY = box.minY;
@@ -65,7 +62,7 @@ const applyRotationToPart = (part: ImportedPart, angle: number): ImportedPart =>
     const newPart = JSON.parse(JSON.stringify(part));
     newPart.width = box.maxX - box.minX;
     newPart.height = box.maxY - box.minY;
-    newPart.blocks = {}; // Flatten removeu os blocos
+    newPart.blocks = {}; 
 
     newPart.entities = rotatedEntities.map((ent: any) => {
         const move = (x: number, y: number) => ({ x: x - minX, y: y - minY });
@@ -82,12 +79,10 @@ const applyRotationToPart = (part: ImportedPart, angle: number): ImportedPart =>
     return newPart;
 };
 
-// Reconstruí esta função aqui para usar as importações do geometryCore
 const processFileToParts = (flatEntities: any[], fileName: string, defaults: any): ImportedPart[] => {
     const n = flatEntities.length;
     const uf = new UnionFind(n);
     
-    // 1. Agrupamento (UnionFind)
     for (let i = 0; i < n; i++) {
         for (let j = i + 1; j < n; j++) {
             if (entitiesTouch(flatEntities[i], flatEntities[j])) uf.union(i, j);
@@ -100,17 +95,14 @@ const processFileToParts = (flatEntities: any[], fileName: string, defaults: any
         clusters.get(root)!.push(ent);
     });
 
-    // 2. Identificação de Candidatos
     const candidateParts = Array.from(clusters.values()).map(ents => ({
         entities: ents,
         box: calculateBoundingBox(ents),
         children: [] as any[],
         isHole: false
     }));
-    // Ordena do maior para o menor para detectar furos facilmente
     candidateParts.sort((a, b) => b.box.area - a.box.area);
 
-    // 3. Detecção de Ilhas/Furos (Containment)
     const finalParts: ImportedPart[] = [];
     for (let i = 0; i < candidateParts.length; i++) {
         const parent = candidateParts[i];
@@ -119,19 +111,16 @@ const processFileToParts = (flatEntities: any[], fileName: string, defaults: any
         const width = parent.box.maxX - parent.box.minX;
         const height = parent.box.maxY - parent.box.minY;
         
-        // Ignora "sujeira" muito pequena
         if (width < 2 && height < 2) continue; 
 
         for (let j = i + 1; j < candidateParts.length; j++) {
             const child = candidateParts[j];
-            // Se o filho está contido no pai, é um furo
             if (!child.isHole && isContained(child.box, parent.box)) {
                 parent.entities = parent.entities.concat(child.entities);
                 child.isHole = true;
             }
         }
 
-        // 4. Normalização Final (Mover para 0,0)
         const finalBox = calculateBoundingBox(parent.entities);
         const finalW = finalBox.maxX - finalBox.minX;
         const finalH = finalBox.maxY - finalBox.minY;
@@ -294,19 +283,22 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
       }));
   };
 
-  // --- FUNÇÃO DE SALVAR NO BANCO ---
+ // --- FUNÇÃO DE SALVAR NO BANCO (SIMPLIFICADA - SEM VALIDAÇÃO DE ABERTURA) ---
   const savePartsToDB = async (silent: boolean = false): Promise<boolean> => {
+      // 1. Validação básica de lista vazia
       if (parts.length === 0) {
           if (!silent) alert("A lista está vazia. Importe peças primeiro.");
           return false;
       }
       
+      // 2. Validação estrutural (Blocos): Importante manter para garantir integridade do DXF
       const nonBlocks = parts.filter(p => p.entities.length > 1);
       if (nonBlocks.length > 0) {
           alert(`ATENÇÃO: Existem ${nonBlocks.length} peças que ainda não são Blocos.\n\nPor favor, clique em "📦 Insert/Block" antes de enviar.`);
           return false;
       }
 
+      // 3. Preparação para salvar
       setLoading(true);
       if (!silent) setProcessingMsg("Salvando no Banco de Dados...");
 
@@ -314,7 +306,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
           const response = await fetch('http://localhost:3001/api/pecas', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(parts)
+              body: JSON.stringify(parts) // Envia as peças diretamente, sem alterações
           });
           
           const data = await response.json();
@@ -346,11 +338,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
           const uniqueOrders = Array.from(new Set(parts.map(p => p.pedido).filter(Boolean)));
           const searchString = uniqueOrders.join(', ');
           onSendToNesting(parts, searchString);
-      } else {
-          if (window.confirm("Houve um erro ao salvar no Banco. Deseja prosseguir APENAS LOCALMENTE?")) {
-              onSendToNesting(parts);
-          }
-      }
+      } 
+      // Se savePartsToDB retornou false, já exibiu alerta ou bloqueio, então não fazemos nada.
   };
 
   const handleGoToNestingEmpty = () => {
@@ -407,7 +396,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
     setProcessingMsg('');
   };
 
-  // Visualização de Entidade (Renderização simples)
   const renderEntity = (entity: any, index: number, blocks?: any): React.ReactNode => {
     switch (entity.type) {
       case 'INSERT': {
@@ -425,12 +413,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
       case 'LINE': return <line key={index} x1={entity.vertices[0].x} y1={entity.vertices[0].y} x2={entity.vertices[1].x} y2={entity.vertices[1].y} stroke="currentColor" strokeWidth={2} vectorEffect="non-scaling-stroke" />;
       case 'LWPOLYLINE': case 'POLYLINE': { 
           if (!entity.vertices) return null; 
-          
-          // Renderiza LWPolyline simples para visualização (sem processar bulges complexos aqui para performance de render)
-          // Se precisar de arcos perfeitos na visualização, precisaria discretizar ou criar path SVG com Arcos.
-          // Para preview rápido, linhas retas funcionam bem, ou usar path com comandos de arco se disponível.
-          // Aqui mantivemos a renderização "leve" original, mas você pode usar 'bulgeToArc' se quiser arcos perfeitos no preview.
-          
           const d = entity.vertices.map((v:any, i:number)=>`${i===0?'M':'L'} ${v.x} ${v.y}`).join(' '); 
           return <path key={index} d={entity.shape?d+" Z":d} fill="none" stroke="currentColor" strokeWidth={2} vectorEffect="non-scaling-stroke" />; 
       }
@@ -453,7 +435,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
     }
   };
 
-  // --- ESTILOS ---
   const containerStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', height: '100vh', background: theme.bg, color: theme.text, fontFamily: 'Arial' };
   const batchContainerStyle: React.CSSProperties = { display: 'flex', gap: '15px', alignItems: 'flex-end', padding: '15px', background: theme.batchBg, borderBottom: `1px solid ${theme.border}`, flexWrap: 'wrap' };
   const inputGroupStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: '5px' };
@@ -474,7 +455,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
 
   return (
     <div style={containerStyle}>
-      {/* HEADER */}
       <div style={{ padding: '5px 20px', borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: theme.headerBg }}>
         <div style={{display:'flex', alignItems:'center', gap:'15px'}}>
             <button onClick={onBack} title="Voltar ao Menu Principal" style={{background: 'transparent', border: 'none', color: theme.text, cursor: 'pointer', fontSize: '24px', display: 'flex', alignItems: 'center'}}>
@@ -495,7 +475,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
         </div>
       </div>
       
-      {/* BATCH CONTROL */}
       <div style={batchContainerStyle}>
           <div style={{color: theme.text, fontWeight: 'bold', marginRight: '20px', fontSize: '14px'}}>PADRÃO DO LOTE:</div>
           <div style={inputGroupStyle}><label style={labelStyle}>PEDIDO <button style={applyButtonStyle} onClick={() => applyToAll('pedido')}>Aplicar Todos</button></label><input style={inputStyle} value={batchDefaults.pedido} onChange={(e) => handleDefaultChange('pedido', e.target.value)} placeholder="Ex: 35041" /></div>
@@ -512,7 +491,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
           <label style={{ background: '#007bff', color: 'white', padding: '10px 20px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', marginLeft: 'auto' }}>Importar Peças<input type="file" accept=".dxf" multiple onChange={handleFileUpload} style={{ display: 'none' }} /></label>
       </div>
 
-      {/* MAIN CONTENT SPLIT */}
       <div style={splitContainer}>
         <div style={leftPanel}>
             <div style={{ padding: '10px', borderBottom: `1px solid ${theme.border}`, fontWeight: 'bold', fontSize: '12px', background: theme.headerBg }}>VISUALIZAÇÃO ({parts.length})</div>

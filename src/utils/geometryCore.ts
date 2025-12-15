@@ -305,3 +305,4 @@ export const clipperShapeToPolygons = (shape: ClipperShape): { x: number, y: num
         }));
     });
 };
+
