@@ -55,7 +55,7 @@ export const useProductionManager = (
       // Área (buscar a área bruta da peça original para precisão)
       const original = displayedParts.find(dp => dp.id === p.partId);
       if (original) {
-          usedArea += original.grossArea;
+          usedArea += original.netArea;
       }
     });
 
