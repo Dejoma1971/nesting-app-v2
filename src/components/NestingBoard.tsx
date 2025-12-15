@@ -1506,45 +1506,87 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           onDrop={handleCanvasDrop}
           onDragOver={handleCanvasDragOver}
         >
+          {/* --- NAVEGADOR DE CHAPAS (VERTICAL, DISCRETO E COM TOOLTIPS) --- */}
           {totalBins > 1 && (
             <div
               style={{
                 position: "absolute",
-                bottom: 20,
-                right: 20,
+                top: 110, // Logo abaixo dos botões de Undo/Redo
+                left: 20,
                 zIndex: 20,
                 display: "flex",
+                flexDirection: "column",
                 alignItems: "center",
-                gap: "10px",
-                background: isCurrentSheetSaved ? "#28a745" : theme.buttonBg,
-                color: isCurrentSheetSaved ? "white" : theme.text,
+                gap: "5px",
+                background: "rgba(30, 30, 30, 0.85)",
+                color: theme.text,
                 border: isCurrentSheetSaved
                   ? "1px solid #28a745"
-                  : `1px solid ${theme.buttonBorder}`,
-                padding: "5px 15px",
+                  : `1px solid ${theme.border}`,
+                padding: "8px 4px",
                 borderRadius: "20px",
-                boxShadow: "0 2px 5px rgba(0,0,0,0.2)",
+                boxShadow: "0 4px 6px rgba(0,0,0,0.3)",
+                width: "32px",
                 transition: "all 0.3s ease",
               }}
             >
+              {/* Botão Anterior */}
               <button
                 onClick={() =>
                   setCurrentBinIndex(Math.max(0, currentBinIndex - 1))
                 }
                 disabled={currentBinIndex === 0}
+                title="Voltar para a chapa anterior" // <--- TOOLTIP AQUI
                 style={{
-                  cursor: "pointer",
+                  cursor: currentBinIndex === 0 ? "default" : "pointer",
                   border: "none",
                   background: "transparent",
                   fontWeight: "bold",
-                  color: "inherit",
+                  color: currentBinIndex === 0 ? "#555" : theme.text,
+                  fontSize: "20px",
+                  padding: 2,
+                  display: "flex",
+                  justifyContent: "center",
+                  width: "100%",
                 }}
               >
-                ◀
+                ▴
               </button>
-              <span style={{ fontWeight: "bold", fontSize: "13px" }}>
-                Chapa {currentBinIndex + 1} de {totalBins}
-              </span>
+
+              {/* Indicador Numérico */}
+              <div
+                title={`Chapa ${currentBinIndex + 1} de ${totalBins} ${
+                  isCurrentSheetSaved ? "(Salva)" : "(Não salva)"
+                }`} // <--- TOOLTIP AQUI
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                  lineHeight: 2,
+                  gap: "2px",
+                  cursor: "help",
+                }}
+              >
+                <span
+                  style={{
+                    color: isCurrentSheetSaved ? "#28a745" : theme.text,
+                  }}
+                >
+                  {currentBinIndex + 1}
+                </span>
+                <div
+                  style={{
+                    width: "12px",
+                    height: "1px",
+                    background: theme.border,
+                  }}
+                ></div>
+                <span style={{ opacity: 0.6 }}>{totalBins}</span>
+              </div>
+
+              {/* Botão Próximo */}
               <button
                 onClick={() =>
                   setCurrentBinIndex(
@@ -1552,15 +1594,23 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   )
                 }
                 disabled={currentBinIndex === totalBins - 1}
+                title="Avançar para a próxima chapa" // <--- TOOLTIP AQUI
                 style={{
-                  cursor: "pointer",
+                  cursor:
+                    currentBinIndex === totalBins - 1 ? "default" : "pointer",
                   border: "none",
                   background: "transparent",
                   fontWeight: "bold",
-                  color: "inherit",
+                  color:
+                    currentBinIndex === totalBins - 1 ? "#555" : theme.text,
+                  fontSize: "18px",
+                  padding: 0,
+                  display: "flex",
+                  justifyContent: "center",
+                  width: "100%",
                 }}
               >
-                ▶
+                ▾
               </button>
             </div>
           )}
@@ -1638,11 +1688,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   style={{
                     color: "#28a745",
                     fontWeight: "bold",
-                    fontSize: "12px",
+                    fontSize: "13px",
                     lineHeight: "1",
                   }}
                 >
-                  ✅ CHAPA PRODUZIDA
+                  ✅ ARRANJO SALVO
                 </span>
               )}
 
