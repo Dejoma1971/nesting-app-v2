@@ -638,6 +638,16 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     markBinAsSaved(currentBinIndex);
   };
 
+  // --- NOVA FUNÇÃO: ADICIONAR CHAPA VAZIA ---
+  const handleAddBin = useCallback(() => {
+    setTotalBins((prev) => {
+      const newTotal = prev + 1;
+      // Move o visualizador para a nova chapa criada imediatamente
+      setCurrentBinIndex(newTotal - 1);
+      return newTotal;
+    });
+  }, []);
+
   const handleCalculate = useCallback(() => {
     if (displayedParts.length === 0) {
       alert("Nenhuma peça disponível no filtro atual!");
@@ -1440,6 +1450,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             style={{ ...inputStyle, width: 40 }}
           />
         </div>
+
+        
+
         {strategy === "true-shape" && (
           <div style={{ display: "flex", alignItems: "center" }}>
             <label style={{ fontSize: 12, marginRight: 5 }}>Rot:</label>
@@ -1471,6 +1484,31 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           />{" "}
           Ver Box
         </label>
+
+        {/* --- NOVO BOTÃO: ADICIONAR CHAPA --- */}
+        <button
+            onClick={handleAddBin}
+            title="Criar uma nova chapa vazia para nesting manual"
+            style={{
+                background: theme.buttonBg,
+                border: `1px solid ${theme.border}`,
+                color: theme.text,
+                padding: "5px 10px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontWeight: "bold",
+                fontSize: "12px",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                marginLeft: "70px"
+            }}
+        >
+            <span style={{color: '#28a745', fontSize: '14px', marginRight: '3px'}}>+</span> Nova Chapa
+        </button>
+        {/* ----------------------------------- */}
+
+
         <button
           onClick={handleCalculate}
           disabled={isComputing}
