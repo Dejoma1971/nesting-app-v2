@@ -2,6 +2,15 @@
 import React, { useState } from 'react';
 import DxfParser from 'dxf-parser';
 import type { ImportedPart } from './types';
+import { 
+    calculateBoundingBox, 
+    flattenGeometry,     
+    rotatePoint,
+    calculatePartNetArea,
+    UnionFind,
+    entitiesTouch,
+    isContained
+} from '../utils/geometryCore';
 
 // --- CONSTANTES ---
 const THICKNESS_OPTIONS = [
@@ -9,201 +18,22 @@ const THICKNESS_OPTIONS = [
     '1/8"', '3/16"', '1/4"', '5/16"'
 ];
 
-// --- ESTRUTURAS AUXILIARES ---
-interface Point { x: number; y: number; }
-interface EntityBox { minX: number; minY: number; maxX: number; maxY: number; area: number; }
-
-// --- PROPS ATUALIZADAS ---
+// --- PROPS ---
 interface EngineeringScreenProps {
     onBack: () => void;
-    // Aceita peças e opcionalmente uma string de busca (pedidos)
     onSendToNesting: (parts: ImportedPart[], searchQuery?: string) => void;
     parts: ImportedPart[];
     setParts: React.Dispatch<React.SetStateAction<ImportedPart[]>>;
 }
 
-// --- 1. FUNÇÕES AUXILIARES (MATEMÁTICA E GEOMETRIA) ---
-
-class UnionFind {
-  parent: number[];
-  constructor(size: number) {
-      this.parent = Array.from({ length: size }, (_, i) => i);
-  }
-  find(i: number): number {
-      if (this.parent[i] === i) return i;
-      this.parent[i] = this.find(this.parent[i]);
-      return this.parent[i];
-  }
-  union(i: number, j: number) {
-      const rootI = this.find(i);
-      const rootJ = this.find(j);
-      if (rootI !== rootJ) this.parent[rootI] = rootJ;
-  }
-}
-
-const rotatePoint = (x: number, y: number, angleDeg: number) => {
-  const rad = (angleDeg * Math.PI) / 180;
-  return { 
-      x: (x * Math.cos(rad)) - (y * Math.sin(rad)), 
-      y: (x * Math.sin(rad)) + (y * Math.cos(rad)) 
-  };
-};
-
-const getConnectionPoints = (ent: any): Point[] => {
-    if (ent.type === 'LINE') return ent.vertices;
-    if (ent.type === 'LWPOLYLINE' || ent.type === 'POLYLINE') return ent.vertices;
-    if (ent.type === 'ARC') {
-        const r = ent.radius;
-        const cx = ent.center.x;
-        const cy = ent.center.y;
-        const p1 = { x: cx + r * Math.cos(ent.startAngle), y: cy + r * Math.sin(ent.startAngle) };
-        const p2 = { x: cx + r * Math.cos(ent.endAngle), y: cy + r * Math.sin(ent.endAngle) };
-        return [p1, p2];
-    }
-    return [];
-};
-
-const arePointsClose = (p1: Point, p2: Point) => {
-    const TOLERANCE = 1.0; 
-    return Math.abs(p1.x - p2.x) < TOLERANCE && Math.abs(p1.y - p2.y) < TOLERANCE;
-};
-
-const entitiesTouch = (ent1: any, ent2: any) => {
-    const pts1 = getConnectionPoints(ent1);
-    const pts2 = getConnectionPoints(ent2);
-    for (const p1 of pts1) {
-        for (const p2 of pts2) {
-            if (arePointsClose(p1, p2)) return true;
-        }
-    }
-    return false;
-};
-
-const calculatePolygonArea = (vertices: Point[]) => {
-    let area = 0;
-    const n = vertices.length;
-    for (let i = 0; i < n; i++) {
-        const j = (i + 1) % n;
-        area += vertices[i].x * vertices[j].y;
-        area -= vertices[j].x * vertices[i].y;
-    }
-    return Math.abs(area) / 2;
-};
-
-const calculatePartNetArea = (entities: any[]): number => {
-    let netArea = 0;
-    entities.forEach(ent => {
-        if (ent.type === 'CIRCLE') {
-            netArea += Math.PI * (ent.radius * ent.radius);
-        }
-        else if ((ent.type === 'LWPOLYLINE' || ent.type === 'POLYLINE') && ent.shape) {
-            netArea += calculatePolygonArea(ent.vertices);
-        }
-    });
-    return netArea;
-};
-
-const calculateBoundingBox = (entities: any[], blocks: any = {}): EntityBox => {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    const update = (x: number, y: number) => {
-        if (x < minX) minX = x; if (x > maxX) maxX = x;
-        if (y < minY) minY = y; if (y > maxY) maxY = y;
-    };
-    entities.forEach(ent => {
-        if (ent.type === 'INSERT') {
-             const block = blocks[ent.name];
-             if (block && block.entities) {
-                 const innerBox = calculateBoundingBox(block.entities, blocks);
-                 const bPos = ent.position || {x:0, y:0};
-                 const bScale = ent.scale?.x || 1;
-                 update(bPos.x + innerBox.minX * bScale, bPos.y + innerBox.minY * bScale);
-                 update(bPos.x + innerBox.maxX * bScale, bPos.y + innerBox.maxY * bScale);
-             } else {
-                 update(ent.position.x, ent.position.y);
-             }
-        }
-        else if (ent.vertices) {
-            ent.vertices.forEach((v: any) => update(v.x, v.y));
-        }
-        else if (ent.type === 'CIRCLE') {
-            update(ent.center.x - ent.radius, ent.center.y - ent.radius);
-            update(ent.center.x + ent.radius, ent.center.y + ent.radius);
-        }
-        else if (ent.type === 'ARC') {
-            const cx = ent.center.x;
-            const cy = ent.center.y;
-            const r = ent.radius;
-            const startAngle = ent.startAngle;
-            let endAngle = ent.endAngle;
-            if (endAngle < startAngle) endAngle += 2 * Math.PI;
-            update(cx + r * Math.cos(startAngle), cy + r * Math.sin(startAngle));
-            update(cx + r * Math.cos(endAngle), cy + r * Math.sin(endAngle));
-            const startK = Math.ceil(startAngle / (Math.PI / 2));
-            const endK = Math.floor(endAngle / (Math.PI / 2));
-            for (let k = startK; k <= endK; k++) {
-                const angle = k * (Math.PI / 2);
-                update(cx + r * Math.cos(angle), cy + r * Math.sin(angle));
-            }
-        }
-    });
-    if (minX === Infinity) return { minX: 0, minY: 0, maxX: 0, maxY: 0, area: 0 };
-    return { minX, minY, maxX, maxY, area: (maxX - minX) * (maxY - minY) };
-};
-
-const isContained = (inner: EntityBox, outer: EntityBox) => {
-    const eps = 0.5; 
-    return (inner.minX >= outer.minX - eps && inner.maxX <= outer.maxX + eps && inner.minY >= outer.minY - eps && inner.maxY <= outer.maxY + eps);
-};
-
-const flattenGeometry = (entities: any[], blocks: any, transform = { x: 0, y: 0, rotation: 0, scale: 1 }): any[] => {
-  let flatEntities: any[] = [];
-  if (!entities) return [];
-  entities.forEach(ent => {
-      if (ent.type === 'INSERT') {
-          const block = blocks[ent.name];
-          if (block && block.entities) {
-              const newScale = transform.scale * (ent.scale?.x || 1);
-              const newRotation = transform.rotation + (ent.rotation || 0);
-              const rPos = rotatePoint(ent.position.x, ent.position.y, transform.rotation);
-              const newX = transform.x + (rPos.x * transform.scale);
-              const newY = transform.y + (rPos.y * transform.scale);
-              flatEntities = flatEntities.concat(flattenGeometry(block.entities, blocks, { x: newX, y: newY, rotation: newRotation, scale: newScale }));
-          }
-      } else {
-          const clone = JSON.parse(JSON.stringify(ent));
-          const applyTrans = (x: number, y: number) => {
-              const rx = x * transform.scale; 
-              const ry = y * transform.scale;
-              const r = rotatePoint(rx, ry, transform.rotation);
-              return { x: r.x + transform.x, y: r.y + transform.y };
-          };
-          if (clone.type === 'LINE') {
-              const p1 = applyTrans(clone.vertices[0].x, clone.vertices[0].y);
-              const p2 = applyTrans(clone.vertices[1].x, clone.vertices[1].y);
-              clone.vertices = [{ x: p1.x, y: p1.y }, { x: p2.x, y: p2.y }];
-              flatEntities.push(clone);
-          } else if (clone.type === 'LWPOLYLINE' || clone.type === 'POLYLINE') {
-              if (clone.vertices) clone.vertices = clone.vertices.map((v: any) => { const p = applyTrans(v.x, v.y); return { ...v, x: p.x, y: p.y }; });
-              flatEntities.push(clone);
-          } else if (clone.type === 'CIRCLE' || clone.type === 'ARC') {
-              const c = applyTrans(clone.center.x, clone.center.y);
-              clone.center = { x: c.x, y: c.y };
-              clone.radius *= transform.scale;
-              if (clone.type === 'ARC') {
-                  clone.startAngle += (transform.rotation * Math.PI / 180);
-                  clone.endAngle += (transform.rotation * Math.PI / 180);
-              }
-              flatEntities.push(clone);
-          }
-      }
-  });
-  return flatEntities;
-};
+// --- 1. FUNÇÕES ESPECÍFICAS DE MANIPULAÇÃO DE PEÇAS ---
 
 const applyRotationToPart = (part: ImportedPart, angle: number): ImportedPart => {
+    // Usa o flatten do core para garantir que não haja blocos aninhados antes de rodar
     const flatEntities = flattenGeometry(part.entities, part.blocks);
     const transform = { x: 0, y: 0, rotation: angle, scale: 1 };
     
+    // Rotaciona cada entidade
     const rotatedEntities = flatEntities.map((ent: any) => {
         const applyTrans = (x: number, y: number) => rotatePoint(x, y, transform.rotation);
 
@@ -227,6 +57,7 @@ const applyRotationToPart = (part: ImportedPart, angle: number): ImportedPart =>
         return ent;
     });
 
+    // Recalcula limites para "encostar" a peça no 0,0 (Normalização)
     const box = calculateBoundingBox(rotatedEntities);
     const minX = box.minX;
     const minY = box.minY;
@@ -234,7 +65,7 @@ const applyRotationToPart = (part: ImportedPart, angle: number): ImportedPart =>
     const newPart = JSON.parse(JSON.stringify(part));
     newPart.width = box.maxX - box.minX;
     newPart.height = box.maxY - box.minY;
-    newPart.blocks = {}; 
+    newPart.blocks = {}; // Flatten removeu os blocos
 
     newPart.entities = rotatedEntities.map((ent: any) => {
         const move = (x: number, y: number) => ({ x: x - minX, y: y - minY });
@@ -251,9 +82,12 @@ const applyRotationToPart = (part: ImportedPart, angle: number): ImportedPart =>
     return newPart;
 };
 
+// Reconstruí esta função aqui para usar as importações do geometryCore
 const processFileToParts = (flatEntities: any[], fileName: string, defaults: any): ImportedPart[] => {
     const n = flatEntities.length;
     const uf = new UnionFind(n);
+    
+    // 1. Agrupamento (UnionFind)
     for (let i = 0; i < n; i++) {
         for (let j = i + 1; j < n; j++) {
             if (entitiesTouch(flatEntities[i], flatEntities[j])) uf.union(i, j);
@@ -266,14 +100,17 @@ const processFileToParts = (flatEntities: any[], fileName: string, defaults: any
         clusters.get(root)!.push(ent);
     });
 
+    // 2. Identificação de Candidatos
     const candidateParts = Array.from(clusters.values()).map(ents => ({
         entities: ents,
         box: calculateBoundingBox(ents),
         children: [] as any[],
         isHole: false
     }));
+    // Ordena do maior para o menor para detectar furos facilmente
     candidateParts.sort((a, b) => b.box.area - a.box.area);
 
+    // 3. Detecção de Ilhas/Furos (Containment)
     const finalParts: ImportedPart[] = [];
     for (let i = 0; i < candidateParts.length; i++) {
         const parent = candidateParts[i];
@@ -281,16 +118,20 @@ const processFileToParts = (flatEntities: any[], fileName: string, defaults: any
         
         const width = parent.box.maxX - parent.box.minX;
         const height = parent.box.maxY - parent.box.minY;
+        
+        // Ignora "sujeira" muito pequena
         if (width < 2 && height < 2) continue; 
 
         for (let j = i + 1; j < candidateParts.length; j++) {
             const child = candidateParts[j];
+            // Se o filho está contido no pai, é um furo
             if (!child.isHole && isContained(child.box, parent.box)) {
                 parent.entities = parent.entities.concat(child.entities);
                 child.isHole = true;
             }
         }
 
+        // 4. Normalização Final (Mover para 0,0)
         const finalBox = calculateBoundingBox(parent.entities);
         const finalW = finalBox.maxX - finalBox.minX;
         const finalH = finalBox.maxY - finalBox.minY;
@@ -316,7 +157,7 @@ const processFileToParts = (flatEntities: any[], fileName: string, defaults: any
             height: finalH,
             grossArea,
             netArea,
-            quantity: 1, // Padrão
+            quantity: 1,
             pedido: defaults.pedido,
             op: defaults.op,
             material: defaults.material,
@@ -453,7 +294,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
       }));
   };
 
-  // --- FUNÇÃO DE SALVAR NO BANCO (Centralizada) ---
+  // --- FUNÇÃO DE SALVAR NO BANCO ---
   const savePartsToDB = async (silent: boolean = false): Promise<boolean> => {
       if (parts.length === 0) {
           if (!silent) alert("A lista está vazia. Importe peças primeiro.");
@@ -495,40 +336,29 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
       }
   };
 
-  // BOTÃO: Storage DB (Salva e avisa)
   const handleStorageDB = () => {
       savePartsToDB(false);
   };
 
-  // BOTÃO: Cortar Agora (Salva silencioso e vai para Nesting)
   const handleDirectNesting = async () => {
-      // 1. Tenta salvar
       const saved = await savePartsToDB(true);
-
-      // 2. Se salvou, extrai os pedidos para busca automática
       if (saved) {
           const uniqueOrders = Array.from(new Set(parts.map(p => p.pedido).filter(Boolean)));
           const searchString = uniqueOrders.join(', ');
-          
-          // Vai para o Nesting enviando as peças locais (agilidade) + query string (referência)
-          // Nota: Você pode optar por mandar [] e buscar do banco, mas mandar 'parts' é mais rápido visualmente
           onSendToNesting(parts, searchString);
       } else {
-          // Fallback se o banco falhar
           if (window.confirm("Houve um erro ao salvar no Banco. Deseja prosseguir APENAS LOCALMENTE?")) {
               onSendToNesting(parts);
           }
       }
   };
 
-  // --- NOVO: NAVEGAÇÃO DIRETA PARA O NESTING ---
   const handleGoToNestingEmpty = () => {
       if (parts.length > 0) {
-          if (!window.confirm("Você tem peças na lista de engenharia. Ir para o Nesting diretamente NÃO levará estas peças (use 'Cortar Agora' para isso).\n\nDeseja ir para o Nesting vazio (para buscar do banco)?")) {
+          if (!window.confirm("Você tem peças na lista de engenharia. Ir para o Nesting diretamente NÃO levará estas peças.\n\nDeseja ir para o Nesting vazio?")) {
               return;
           }
       }
-      // Envia array vazio e string vazia. O Nesting abrirá vazio.
       onSendToNesting([], '');
   };
 
@@ -577,6 +407,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
     setProcessingMsg('');
   };
 
+  // Visualização de Entidade (Renderização simples)
   const renderEntity = (entity: any, index: number, blocks?: any): React.ReactNode => {
     switch (entity.type) {
       case 'INSERT': {
@@ -592,7 +423,17 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
           );
       }
       case 'LINE': return <line key={index} x1={entity.vertices[0].x} y1={entity.vertices[0].y} x2={entity.vertices[1].x} y2={entity.vertices[1].y} stroke="currentColor" strokeWidth={2} vectorEffect="non-scaling-stroke" />;
-      case 'LWPOLYLINE': case 'POLYLINE': { if (!entity.vertices) return null; const d = entity.vertices.map((v:any, i:number)=>`${i===0?'M':'L'} ${v.x} ${v.y}`).join(' '); return <path key={index} d={entity.shape?d+" Z":d} fill="none" stroke="currentColor" strokeWidth={2} vectorEffect="non-scaling-stroke" />; }
+      case 'LWPOLYLINE': case 'POLYLINE': { 
+          if (!entity.vertices) return null; 
+          
+          // Renderiza LWPolyline simples para visualização (sem processar bulges complexos aqui para performance de render)
+          // Se precisar de arcos perfeitos na visualização, precisaria discretizar ou criar path SVG com Arcos.
+          // Para preview rápido, linhas retas funcionam bem, ou usar path com comandos de arco se disponível.
+          // Aqui mantivemos a renderização "leve" original, mas você pode usar 'bulgeToArc' se quiser arcos perfeitos no preview.
+          
+          const d = entity.vertices.map((v:any, i:number)=>`${i===0?'M':'L'} ${v.x} ${v.y}`).join(' '); 
+          return <path key={index} d={entity.shape?d+" Z":d} fill="none" stroke="currentColor" strokeWidth={2} vectorEffect="non-scaling-stroke" />; 
+      }
       case 'CIRCLE': return <circle key={index} cx={entity.center.x} cy={entity.center.y} r={entity.radius} fill="none" stroke="currentColor" strokeWidth={2} vectorEffect="non-scaling-stroke" />;
       case 'ARC': {
           const startAngle = entity.startAngle;
@@ -612,7 +453,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
     }
   };
 
-  // --- ESTILOS DINÂMICOS (TEMAS) ---
+  // --- ESTILOS ---
   const containerStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', height: '100vh', background: theme.bg, color: theme.text, fontFamily: 'Arial' };
   const batchContainerStyle: React.CSSProperties = { display: 'flex', gap: '15px', alignItems: 'flex-end', padding: '15px', background: theme.batchBg, borderBottom: `1px solid ${theme.border}`, flexWrap: 'wrap' };
   const inputGroupStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: '5px' };
@@ -633,6 +474,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
 
   return (
     <div style={containerStyle}>
+      {/* HEADER */}
       <div style={{ padding: '5px 20px', borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: theme.headerBg }}>
         <div style={{display:'flex', alignItems:'center', gap:'15px'}}>
             <button onClick={onBack} title="Voltar ao Menu Principal" style={{background: 'transparent', border: 'none', color: theme.text, cursor: 'pointer', fontSize: '24px', display: 'flex', alignItems: 'center'}}>
@@ -642,52 +484,18 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
             {loading && <span style={{fontSize:'12px', color:'#ffd700'}}>⏳ {processingMsg}</span>}
         </div>
         <div style={{display:'flex', gap:'15px', alignItems:'center'}}>
-
-             {/* --- NOVO BOTÃO: IR PARA NESTING --- */}
-             <button 
-                onClick={handleGoToNestingEmpty} 
-                title="Ir para a Mesa de Nesting (Buscar peças lá)"
-                style={{
-                    background: 'transparent', 
-                    color: theme.text, 
-                    border: `1px solid ${theme.border}`, 
-                    padding: '8px 12px', 
-                    borderRadius: '4px', 
-                    cursor: 'pointer', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '5px',
-                    marginRight: '10px'
-                }}
-             >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="7" height="7"></rect>
-                    <rect x="14" y="3" width="7" height="7"></rect>
-                    <rect x="14" y="14" width="7" height="7"></rect>
-                    <rect x="3" y="14" width="7" height="7"></rect>
-                </svg>
+             <button onClick={handleGoToNestingEmpty} title="Ir para a Mesa de Nesting (Buscar peças lá)" style={{background: 'transparent', color: theme.text, border: `1px solid ${theme.border}`, padding: '8px 12px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', marginRight: '10px'}}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
                 <span style={{fontSize: '13px'}}>Mesa de Corte</span>
              </button>
-             {/* ----------------------------------- */}
-             
-             <button onClick={handleReset} style={{background: 'transparent', color: theme.text, border: `1px solid ${theme.border}`, padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px'}}>
-                ✨ Nova Lista
-             </button>
-             
-             <button onClick={handleStorageDB} style={{background: '#28a745', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px'}}>
-                💾 Storage DB
-             </button>
-
-             <button onClick={handleDirectNesting} style={{background: '#6f42c1', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px'}}>
-                🚀 Cortar Agora
-             </button>
-
-             <button onClick={() => setIsDarkMode(!isDarkMode)} style={{background:'transparent', border: `1px solid ${theme.border}`, color: theme.text, padding:'5px 10px', borderRadius:'4px', cursor:'pointer'}}>
-                {isDarkMode ? '☀️' : '🌙'}
-             </button>
+             <button onClick={handleReset} style={{background: 'transparent', color: theme.text, border: `1px solid ${theme.border}`, padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px'}}>✨ Nova Lista</button>
+             <button onClick={handleStorageDB} style={{background: '#28a745', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px'}}>💾 Storage DB</button>
+             <button onClick={handleDirectNesting} style={{background: '#6f42c1', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px'}}>🚀 Cortar Agora</button>
+             <button onClick={() => setIsDarkMode(!isDarkMode)} style={{background:'transparent', border: `1px solid ${theme.border}`, color: theme.text, padding:'5px 10px', borderRadius:'4px', cursor:'pointer'}}>{isDarkMode ? '☀️' : '🌙'}</button>
         </div>
       </div>
       
+      {/* BATCH CONTROL */}
       <div style={batchContainerStyle}>
           <div style={{color: theme.text, fontWeight: 'bold', marginRight: '20px', fontSize: '14px'}}>PADRÃO DO LOTE:</div>
           <div style={inputGroupStyle}><label style={labelStyle}>PEDIDO <button style={applyButtonStyle} onClick={() => applyToAll('pedido')}>Aplicar Todos</button></label><input style={inputStyle} value={batchDefaults.pedido} onChange={(e) => handleDefaultChange('pedido', e.target.value)} placeholder="Ex: 35041" /></div>
@@ -701,15 +509,13 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
           <div style={inputGroupStyle}><label style={labelStyle}>AUTOR <button style={applyButtonStyle} onClick={() => applyToAll('autor')}>Aplicar Todos</button></label><input style={inputStyle} value={batchDefaults.autor} onChange={(e) => handleDefaultChange('autor', e.target.value)} placeholder="Ex: Gabriel" /></div>
           
           <button onClick={handleConvertAllToBlocks} title="Converte todas as peças complexas em blocos únicos" style={{ background: '#ffc107', color: '#333', border: 'none', padding: '10px 15px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', marginLeft: '15px' }}>📦 Insert/Block</button>
-
           <label style={{ background: '#007bff', color: 'white', padding: '10px 20px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', marginLeft: 'auto' }}>Importar Peças<input type="file" accept=".dxf" multiple onChange={handleFileUpload} style={{ display: 'none' }} /></label>
       </div>
 
+      {/* MAIN CONTENT SPLIT */}
       <div style={splitContainer}>
         <div style={leftPanel}>
-            <div style={{ padding: '10px', borderBottom: `1px solid ${theme.border}`, fontWeight: 'bold', fontSize: '12px', background: theme.headerBg }}>
-                VISUALIZAÇÃO ({parts.length})
-            </div>
+            <div style={{ padding: '10px', borderBottom: `1px solid ${theme.border}`, fontWeight: 'bold', fontSize: '12px', background: theme.headerBg }}>VISUALIZAÇÃO ({parts.length})</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', padding: '10px', alignContent: 'flex-start' }}>
                 {parts.map((part, idx) => {
                      const box = calculateBoundingBox(part.entities, part.blocks);
@@ -717,18 +523,10 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
                      const h = (box.maxY - box.minY) || 100;
                      const p = Math.max(w, h) * 0.1;
                      const viewBox = `${box.minX - p} ${box.minY - p} ${w + p*2} ${h + p*2}`;
-
                      const isSelected = part.id === selectedPartId;
-                     const dynamicCardStyle: React.CSSProperties = {
-                         ...cardStyle,
-                         borderColor: isSelected ? '#007bff' : theme.border,
-                         boxShadow: isSelected ? '0 0 0 2px rgba(0,123,255,0.5)' : 'none',
-                         transform: isSelected ? 'scale(1.05)' : 'scale(1)',
-                         zIndex: isSelected ? 1 : 0
-                     };
-
+                     
                      return (
-                        <div key={part.id} style={dynamicCardStyle} title={part.name} onClick={() => setSelectedPartId(part.id)}>
+                        <div key={part.id} style={{...cardStyle, borderColor: isSelected ? '#007bff' : theme.border, boxShadow: isSelected ? '0 0 0 2px rgba(0,123,255,0.5)' : 'none', transform: isSelected ? 'scale(1.05)' : 'scale(1)', zIndex: isSelected ? 1 : 0}} title={part.name} onClick={() => setSelectedPartId(part.id)}>
                             <div style={{position:'absolute', top:2, left:2, fontSize:'9px', color: isSelected ? '#007bff' : theme.label, fontWeight:'bold'}}>#{idx+1}</div>
                             <div style={{position: 'absolute', top: 5, right: 5, display: 'flex', flexDirection: 'column', gap: 5, zIndex: 10}}>
                                 <button onClick={(e) => { e.stopPropagation(); setViewingPartId(part.id); }} style={{background: 'rgba(0,0,0,0.1)', border: `1px solid ${theme.border}`, color: '#007bff', cursor: 'pointer', fontSize: '12px', padding: '4px', borderRadius: '3px', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center'}} title="Visualizar">👁️</button>
@@ -766,8 +564,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
                         <th style={tableHeaderStyle}>Autor</th>
                         <th style={tableHeaderStyle}>Dimensões</th>
                         <th style={tableHeaderStyle}>Área (m²)</th>
-                        <th style={tableHeaderStyle} title="Complexidade da peça (número de vetores)">Entidades</th>
-                        <th style={{...tableHeaderStyle, width: '60px', color: '#007bff'}}>Qtd. Peças</th>
+                        <th style={tableHeaderStyle} title="Complexidade da peça">Entidades</th>
+                        <th style={{...tableHeaderStyle, width: '60px', color: '#007bff'}}>Qtd.</th>
                         <th style={tableHeaderStyle}>Ações</th>
                     </tr>
                 </thead>
@@ -795,13 +593,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
                                 <td style={{...tableCellStyle, fontSize:'11px', opacity:0.7}}>{(part.grossArea / 1000000).toFixed(4)}</td>
                                 <td style={{...tableCellStyle, color: entColor, fontWeight: 'bold', textAlign:'center'}}>{entCount}</td>
                                 <td style={tableCellStyle}>
-                                    <input 
-                                        type="number" 
-                                        min="1" 
-                                        value={part.quantity || 1} 
-                                        onChange={(e) => handleRowChange(part.id, 'quantity', Number(e.target.value))}
-                                        style={{...cellInputStyle, textAlign: 'center', fontWeight: 'bold', color: '#007bff'}} 
-                                    />
+                                    <input type="number" min="1" value={part.quantity || 1} onChange={(e) => handleRowChange(part.id, 'quantity', Number(e.target.value))} style={{...cellInputStyle, textAlign: 'center', fontWeight: 'bold', color: '#007bff'}} />
                                 </td>
                                 <td style={tableCellStyle}>
                                     <div style={{display:'flex', gap:'10px'}}>
@@ -817,6 +609,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
         </div>
       </div>
 
+      {/* MODAL DE VISUALIZAÇÃO/ROTAÇÃO */}
       {viewingPart && (
           <div style={{position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: theme.modalOverlay, zIndex: 9999, display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
               <div style={{background: theme.modalBg, width: '80%', height: '80%', borderRadius: '8px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 0 20px rgba(0,0,0,0.5)', border: `1px solid ${theme.border}`}}>
