@@ -304,6 +304,25 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     [nestingResult, currentBinIndex]
   );
 
+  // --- CÁLCULO DE APROVEITAMENTO (REAL/NET AREA) ---
+  const currentEfficiency = useMemo(() => {
+    // 1. Calcula a área líquida total das peças nesta chapa
+    const partsInSheet = nestingResult.filter(p => p.binId === currentBinIndex);
+    if (partsInSheet.length === 0) return "0,0";
+
+    const usedNetArea = partsInSheet.reduce((acc, placed) => {
+      const original = displayedParts.find(dp => dp.id === placed.partId);
+      // Prioriza netArea, fallback para grossArea se netArea não existir (segurança)
+      return acc + (original ? (original.netArea || original.grossArea) : 0);
+    }, 0);
+
+    const totalBinArea = binSize.width * binSize.height;
+    // Calcula porcentagem e formata
+    return totalBinArea > 0 
+      ? ((usedNetArea / totalBinArea) * 100).toFixed(1).replace('.', ',') 
+      : "0,0";
+  }, [nestingResult, currentBinIndex, displayedParts, binSize]);
+
   const activeSelectedPartIds = useMemo(() => {
     const ids = new Set<string>();
     selectedPartIds.forEach((id) => ids.add(id));
@@ -786,7 +805,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               style={{
                 position: "absolute", bottom: 20, right: 20, zIndex: 20,
                 display: "flex", alignItems: "center", gap: "10px",
-                // --- AQUI ESTÁ A ALTERAÇÃO VISUAL DA NAVEGAÇÃO ---
                 background: isCurrentSheetSaved ? "#28a745" : theme.buttonBg,
                 color: isCurrentSheetSaved ? "white" : theme.text,
                 border: isCurrentSheetSaved ? "1px solid #28a745" : `1px solid ${theme.buttonBorder}`,
@@ -816,10 +834,24 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             onPartReturn={handleReturnToBank}
           />
 
-          <div style={{ padding: "10px 20px", display: "flex", gap: "20px", borderTop: `1px solid ${theme.border}`, background: theme.panelBg, zIndex: 5, color: theme.text }}>
-            <span style={{ opacity: 0.6, fontSize: "12px" }}>{nestingResult.length > 0 ? `Total: ${nestingResult.length} Peças` : `Área: ${binSize.width}x${binSize.height}mm`}</span>
-            {lockedBins.includes(currentBinIndex) && <span style={{ color: "#28a745", fontWeight: "bold", fontSize: "12px" }}>✅ CHAPA PRODUZIDA</span>}
-            {failedCount > 0 && <span style={{ color: "#dc3545", fontWeight: "bold", fontSize: "12px", background: "rgba(255,0,0,0.1)", padding: "2px 8px", borderRadius: "4px" }}>⚠️ {failedCount} NÃO COUBERAM</span>}
+          {/* --- RODAPÉ FIXO (MODIFICADO) --- */}
+          <div style={{ padding: "10px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1px solid ${theme.border}`, background: theme.panelBg, zIndex: 5, color: theme.text }}>
+            
+            {/* ESQUERDA: Contagem Detalhada */}
+            <span style={{ opacity: 0.9, fontSize: "12px", fontWeight: "bold" }}>
+              Total: {currentPlacedParts.length} de {displayedParts.length} Peças
+            </span>
+
+            {/* CENTRO: Aproveitamento Líquido */}
+            <span style={{ fontSize: "13px", fontWeight: "bold", color: theme.text, marginLeft: "100px"}}>
+              Aproveitamento: <span style={{ color: Number(currentEfficiency.replace(',','.')) > 70 ? "#28a745" : "inherit" }}>{currentEfficiency}%</span>
+            </span>
+
+            {/* DIREITA: Status */}
+            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+               {lockedBins.includes(currentBinIndex) && <span style={{ color: "#28a745", fontWeight: "bold", fontSize: "12px" }}>✅ CHAPA PRODUZIDA</span>}
+               {failedCount > 0 && <span style={{ color: "#dc3545", fontWeight: "bold", fontSize: "12px", background: "rgba(255,0,0,0.1)", padding: "2px 8px", borderRadius: "4px" }}>⚠️ {failedCount} NÃO COUBERAM</span>}
+            </div>
           </div>
         </div>
 
