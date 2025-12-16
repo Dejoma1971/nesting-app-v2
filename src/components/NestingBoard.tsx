@@ -638,6 +638,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     markBinAsSaved(currentBinIndex);
   };
 
+  const handlePartRotate = useCallback(
+    (uuid: string, newRotation: number) => {
+      setNestingResult((prev) =>
+        prev.map((p) => (p.uuid === uuid ? { ...p, rotation: newRotation } : p))
+      );
+    },
+    [setNestingResult]
+  );
+
   // --- NOVA FUNÇÃO: ADICIONAR CHAPA VAZIA ---
   const handleAddBin = useCallback(() => {
     setTotalBins((prev) => {
@@ -1451,8 +1460,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           />
         </div>
 
-        
-
         {strategy === "true-shape" && (
           <div style={{ display: "flex", alignItems: "center" }}>
             <label style={{ fontSize: 12, marginRight: 5 }}>Rot:</label>
@@ -1487,27 +1494,31 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
         {/* --- NOVO BOTÃO: ADICIONAR CHAPA --- */}
         <button
-            onClick={handleAddBin}
-            title="Criar uma nova chapa vazia para nesting manual"
-            style={{
-                background: theme.buttonBg,
-                border: `1px solid ${theme.border}`,
-                color: theme.text,
-                padding: "5px 10px",
-                borderRadius: "4px",
-                cursor: "pointer",
-                fontWeight: "bold",
-                fontSize: "12px",
-                display: "flex",
-                alignItems: "center",
-                gap: "5px",
-                marginLeft: "70px"
-            }}
+          onClick={handleAddBin}
+          title="Criar uma nova chapa vazia para nesting manual"
+          style={{
+            background: theme.buttonBg,
+            border: `1px solid ${theme.border}`,
+            color: theme.text,
+            padding: "5px 10px",
+            borderRadius: "4px",
+            cursor: "pointer",
+            fontWeight: "bold",
+            fontSize: "12px",
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+            marginLeft: "70px",
+          }}
         >
-            <span style={{color: '#28a745', fontSize: '14px', marginRight: '3px'}}>+</span> Nova Chapa
+          <span
+            style={{ color: "#28a745", fontSize: "14px", marginRight: "3px" }}
+          >
+            +
+          </span>{" "}
+          Nova Chapa
         </button>
         {/* ----------------------------------- */}
-
 
         <button
           onClick={handleCalculate}
@@ -1664,6 +1675,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             theme={theme}
             selectedPartIds={selectedPartIds}
             onPartsMove={handlePartsMove}
+            onPartRotate={handlePartRotate}
             onPartSelect={handlePartSelect}
             onContextMenu={handlePartContextMenu}
             onPartReturn={handleReturnToBank}

@@ -12,7 +12,7 @@ import type { PlacedPart } from "../utils/nestingCore";
 import type { AppTheme } from "../styles/theme";
 
 // CONFIGURAÇÃO DO SNAP
-const SNAP_THRESHOLD = 15; // Distância em pixels (ou unidades da tela) para o imã atrair
+const SNAP_THRESHOLD = 15;
 
 interface InteractiveCanvasProps {
   parts: ImportedPart[];
@@ -22,9 +22,12 @@ interface InteractiveCanvasProps {
   margin: number;
   showDebug: boolean;
   strategy: "rect" | "true-shape";
-  selectedPartIds: string[]; // UUIDs
+  selectedPartIds: string[];
   theme: AppTheme;
+
+  // Funções de Manipulação
   onPartsMove: (moves: { partId: string; dx: number; dy: number }[]) => void;
+  onPartRotate: (partId: string, newRotation: number) => void;
   onPartReturn: (uuids: string[]) => void;
   onLabelDrag?: (
     partId: string,
@@ -36,6 +39,7 @@ interface InteractiveCanvasProps {
   onContextMenu: (e: React.MouseEvent, partId: string) => void;
   onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void;
 
+  // Undo/Redo
   onUndo: () => void;
   onRedo: () => void;
   canUndo: boolean;
@@ -53,7 +57,6 @@ interface BoundingBoxCache {
   };
 }
 
-// Estrutura para as Linhas de Snap Visuais
 interface SnapLine {
   x1: number;
   y1: number;
@@ -92,7 +95,6 @@ const renderEntityFunction = (
       onLabelDown(e, entity.labelType);
     }
   };
-
   const handleContextMenu = (e: React.MouseEvent) => {
     if (entity.isLabel && onEntityContextMenu) {
       e.preventDefault();
@@ -100,7 +102,6 @@ const renderEntityFunction = (
       onEntityContextMenu(e, entity);
     }
   };
-
   const labelStyle: React.CSSProperties = entity.isLabel
     ? { cursor: "move" }
     : {};
@@ -179,9 +180,9 @@ const renderEntityFunction = (
           const ry = radius * scale;
           const largeArc = Math.abs(v1.bulge) > 1 ? 1 : 0;
           const sweep = v1.bulge > 0 ? 1 : 0;
-          const x = v2.x * scale;
-          const y = v2.y * scale;
-          d += ` A ${rx} ${ry} 0 ${largeArc} ${sweep} ${x} ${y}`;
+          d += ` A ${rx} ${ry} 0 ${largeArc} ${sweep} ${v2.x * scale} ${
+            v2.y * scale
+          }`;
         } else {
           d += ` L ${v2.x * scale} ${v2.y * scale}`;
         }
@@ -282,7 +283,6 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
     if (y < minY) minY = y;
     if (y > maxY) maxY = y;
   };
-
   const checkArcBounds = (
     cx: number,
     cy: number,
@@ -310,7 +310,6 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
         update(cx + r * Math.cos(ang), cy + r * Math.sin(ang));
     }
   };
-
   const traverse = (ents: any[], ox = 0, oy = 0) => {
     if (!ents) return;
     ents.forEach((ent) => {
@@ -368,12 +367,12 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
 };
 
 // --- 2. SUBCOMPONENTE PEÇA (PartElement) ---
-
 interface PartElementProps {
   placed: PlacedPart;
   isSelected: boolean;
   onMouseDown: (e: React.MouseEvent, uuid: string) => void;
   onLabelDown: (e: React.MouseEvent, type: "white" | "pink") => void;
+  onRotateStart: (e: React.MouseEvent, uuid: string) => void;
   onDoubleClick: (e: React.MouseEvent, uuid: string) => void;
   onContextMenu: (e: React.MouseEvent, uuid: string) => void;
   onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void;
@@ -382,6 +381,7 @@ interface PartElementProps {
   strategy: "rect" | "true-shape";
   transformData: any;
   theme: AppTheme;
+  globalScale: number;
 }
 
 const PartElement = React.memo(
@@ -392,6 +392,7 @@ const PartElement = React.memo(
         isSelected,
         onMouseDown,
         onLabelDown,
+        onRotateStart,
         onDoubleClick,
         onContextMenu,
         onEntityContextMenu,
@@ -400,14 +401,15 @@ const PartElement = React.memo(
         strategy,
         transformData,
         theme,
+        globalScale,
       },
       ref
     ) => {
       if (!partData) return null;
-      const occupiedW =
-        placed.rotation % 180 !== 0 ? partData.height : partData.width;
-      const occupiedH =
-        placed.rotation % 180 !== 0 ? partData.width : partData.height;
+      const localW = partData.width;
+      const localH = partData.height;
+      const occupiedW = placed.rotation % 180 !== 0 ? localH : localW;
+      const occupiedH = placed.rotation % 180 !== 0 ? localW : localH;
 
       const finalTransform = transformData
         ? `translate(${placed.x + transformData.occupiedW / 2}, ${
@@ -422,42 +424,98 @@ const PartElement = React.memo(
         ? "#007bff"
         : "#007bff";
 
+      // Visual do Handle (Alavanca) - Aumentado e Visível
+      const handleSize = 25 / globalScale;
+      const handleStickLength = 60 / globalScale;
+      const handleStrokeWidth = 3 / globalScale;
+
       return (
-        <g
-          ref={ref}
-          onMouseDown={(e) => onMouseDown(e, placed.uuid)}
-          onDoubleClick={(e) => onDoubleClick(e, placed.uuid)}
-          onContextMenu={(e) => onContextMenu(e, placed.uuid)}
-          style={{
-            cursor:
-              strategy === "rect" ? "default" : isSelected ? "move" : "pointer",
-            opacity: isSelected ? 0.8 : 1,
-          }}
-        >
-          <rect
-            x={placed.x}
-            y={placed.y}
-            width={occupiedW}
-            height={occupiedH}
-            fill="transparent"
-            stroke={isSelected ? "#01ff3cff" : showDebug ? "red" : "none"}
-            strokeWidth={1}
-            vectorEffect="non-scaling-stroke"
-            pointerEvents="all"
-          />
-          <g transform={finalTransform} style={{ pointerEvents: "none" }}>
-            {partData.entities.map((ent, j) =>
-              renderEntityFunction(
-                ent,
-                j,
-                partData.blocks,
-                1,
-                strokeColor,
-                onLabelDown,
-                onEntityContextMenu
-              )
-            )}
+        <g ref={ref}>
+          <g
+            onMouseDown={(e) => onMouseDown(e, placed.uuid)}
+            onDoubleClick={(e) => onDoubleClick(e, placed.uuid)}
+            onContextMenu={(e) => onContextMenu(e, placed.uuid)}
+            style={{
+              cursor:
+                strategy === "rect"
+                  ? "default"
+                  : isSelected
+                  ? "move"
+                  : "pointer",
+              opacity: isSelected ? 0.8 : 1,
+            }}
+          >
+            <rect
+              x={placed.x}
+              y={placed.y}
+              width={occupiedW}
+              height={occupiedH}
+              fill="transparent"
+              stroke={isSelected ? "#01ff3cff" : showDebug ? "red" : "none"}
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+              pointerEvents="all"
+            />
+            <g transform={finalTransform} style={{ pointerEvents: "none" }}>
+              {partData.entities.map((ent, j) =>
+                renderEntityFunction(
+                  ent,
+                  j,
+                  partData.blocks,
+                  1,
+                  strokeColor,
+                  onLabelDown,
+                  onEntityContextMenu
+                )
+              )}
+            </g>
           </g>
+
+          {/* HANDLE DE ROTAÇÃO */}
+          {isSelected && strategy === "true-shape" && (
+            <g
+              transform={`translate(${placed.x + occupiedW / 2}, ${
+                placed.y + occupiedH / 2
+              }) rotate(${placed.rotation})`}
+            >
+              <line
+                x1={0}
+                y1={localH / 2}
+                x2={0}
+                y2={localH / 2 + handleStickLength}
+                stroke="#01ff3cff"
+                strokeWidth={handleStrokeWidth}
+                vectorEffect="non-scaling-stroke"
+              />
+              <circle
+                cx={0}
+                cy={localH / 2 + handleStickLength}
+                r={handleSize}
+                fill="#01ff3cff"
+                stroke="#fff"
+                strokeWidth={handleStrokeWidth}
+                style={{ cursor: "grab" }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  onRotateStart(e, placed.uuid);
+                }}
+              />
+              <text
+                x={0}
+                y={localH / 2 + handleStickLength}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fill="white"
+                fontSize={handleSize * 1.2}
+                style={{ pointerEvents: "none", userSelect: "none" }}
+                transform={`rotate(${-placed.rotation}, 0, ${
+                  localH / 2 + handleStickLength
+                })`}
+              >
+                ⟳
+              </text>
+            </g>
+          )}
         </g>
       );
     }
@@ -465,7 +523,7 @@ const PartElement = React.memo(
 );
 PartElement.displayName = "PartElement";
 
-// --- 3. MAIN CANVAS (COM SNAPPING) ---
+// --- 3. MAIN CANVAS ---
 
 export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   parts,
@@ -477,6 +535,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   strategy,
   selectedPartIds,
   onPartsMove,
+  onPartRotate,
   onLabelDrag,
   onPartSelect,
   onContextMenu,
@@ -489,9 +548,10 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   canRedo,
 }) => {
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
-  const [dragMode, setDragMode] = useState<"none" | "pan" | "parts" | "label">(
-    "none"
-  );
+
+  const [dragMode, setDragMode] = useState<
+    "none" | "pan" | "parts" | "label" | "rotate"
+  >("none");
   const [draggingLabel, setDraggingLabel] = useState<{
     partId: string;
     type: "white" | "pink";
@@ -499,8 +559,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   const [boundingBoxCache, setBoundingBoxCache] = useState<BoundingBoxCache>(
     {}
   );
-
-  // ESTADO PARA LINHAS GUIAS DE SNAP
   const [snapLines, setSnapLines] = useState<SnapLine[]>([]);
 
   const svgContainerRef = useRef<HTMLDivElement>(null);
@@ -510,8 +568,16 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
 
   const partRefs = useRef<{ [key: string]: SVGGElement | null }>({});
   const draggingIdsRef = useRef<string[]>([]);
-  // Armazena a posição "final" (snapped) do arraste atual, para salvar no MouseUp
   const currentDragDeltaRef = useRef({ dx: 0, dy: 0 });
+
+  // Refs de rotação
+  const rotationRef = useRef({
+    startAngle: 0,
+    initialPartRotation: 0,
+    activePartId: "",
+    centerX: 0,
+    centerY: 0,
+  });
 
   const dragRef = useRef({
     startX: 0,
@@ -547,14 +613,11 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   useEffect(() => {
     const el = svgContainerRef.current;
     if (!el) return;
-
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       e.stopPropagation();
-
       const svgElement = el.querySelector("svg");
       if (!svgElement) return;
-
       let mouseX = 0,
         mouseY = 0;
       try {
@@ -571,7 +634,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         mouseX = e.clientX - rect.left;
         mouseY = e.clientY - rect.top;
       }
-
       const zoomIntensity = 0.15;
       const wheelDirection = e.deltaY < 0 ? 1 : -1;
       const scaleFactor = Math.exp(wheelDirection * zoomIntensity);
@@ -581,22 +643,35 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       const scaleRatio = newScale / currentT.k;
       const newX = mouseX - (mouseX - currentT.x) * scaleRatio;
       const newY = mouseY - (mouseY - currentT.y) * scaleRatio;
-
       updateTransform({ x: newX, y: newY, k: newScale });
     };
-
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
   }, [updateTransform]);
+
+  // --- Efeito para Cancelar Rotação com ESC ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Aceita "Escape" ou "Esc"
+      if ((e.key === "Escape" || e.key === "Esc") && dragMode === "rotate") {
+        const { activePartId, initialPartRotation } = rotationRef.current;
+        if (activePartId) {
+          onPartRotate(activePartId, initialPartRotation); // Reverte ângulo
+          setDragMode("none");
+          rotationRef.current = { ...rotationRef.current, activePartId: "" }; // Limpa
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [dragMode, onPartRotate]);
 
   const resetZoom = useCallback(
     () => updateTransform({ x: 0, y: 0, k: 1 }),
     [updateTransform]
   );
 
-  const handleMouseDownContainer = useCallback(() => {
-    // Pan desabilitado conforme seu código anterior
-  }, []);
+  const handleMouseDownContainer = useCallback(() => {}, []);
 
   const handleDoubleClickContainer = useCallback(
     (e: React.MouseEvent) => {
@@ -611,7 +686,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     placedParts.forEach((placed) => {
       const part = parts.find((p) => p.id === placed.partId);
       if (!part) return;
-
       const cachedBox = boundingBoxCache[placed.partId];
       let box;
       if (cachedBox) {
@@ -628,13 +702,11 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         });
         box = newBox;
       }
-
       transforms[placed.uuid] = {
         centerX: box.centerX,
         centerY: box.centerY,
         occupiedW: placed.rotation % 180 !== 0 ? part.height : part.width,
         occupiedH: placed.rotation % 180 !== 0 ? part.width : part.height,
-        // Guardar raw dims para snap
         rawWidth: placed.rotation % 180 !== 0 ? part.height : part.width,
         rawHeight: placed.rotation % 180 !== 0 ? part.width : part.height,
       };
@@ -668,7 +740,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         e.preventDefault();
         setDragMode("parts");
         draggingIdsRef.current = selectedPartIds;
-        currentDragDeltaRef.current = { dx: 0, dy: 0 }; // reseta delta
+        currentDragDeltaRef.current = { dx: 0, dy: 0 };
         const svgPos = getSVGPoint(e.clientX, e.clientY);
         dragRef.current = {
           startX: e.clientX,
@@ -681,6 +753,38 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       }
     },
     [strategy, selectedPartIds, getSVGPoint]
+  );
+
+  const handleRotateStart = useCallback(
+    (e: React.MouseEvent, uuid: string) => {
+      const placed = placedParts.find((p) => p.uuid === uuid);
+      const info = partTransforms[uuid];
+      if (!placed || !info) return;
+
+      const svgPos = getSVGPoint(e.clientX, e.clientY);
+
+      const centerX = placed.x + info.occupiedW / 2;
+      const centerY = placed.y + info.occupiedH / 2;
+      const visualCenterX = centerX;
+      const visualCenterY = binHeight - centerY;
+
+      const startAngleRad = Math.atan2(
+        svgPos.y - visualCenterY,
+        svgPos.x - visualCenterX
+      );
+      const startAngleDeg = startAngleRad * (180 / Math.PI);
+
+      rotationRef.current = {
+        startAngle: startAngleDeg,
+        initialPartRotation: placed.rotation,
+        activePartId: uuid,
+        centerX: visualCenterX,
+        centerY: visualCenterY,
+      };
+
+      setDragMode("rotate");
+    },
+    [placedParts, partTransforms, getSVGPoint, binHeight]
   );
 
   const handleLabelDown = useCallback(
@@ -700,40 +804,30 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     [getSVGPoint]
   );
 
-  // --- LÓGICA DE SNAPPING (Agora envolvida em useCallback) ---
   const calculateSnap = useCallback(
     (deltaX: number, deltaY: number) => {
-      // Se estiver arrastando múltiplas peças, usamos a primeira como referência.
       const leaderId = draggingIdsRef.current[0];
       const leaderPlaced = placedParts.find((p) => p.uuid === leaderId);
       if (!leaderPlaced)
         return { snapedDx: deltaX, snapedDy: deltaY, guides: [] };
-
       const leaderInfo = partTransforms[leaderId];
       if (!leaderInfo)
         return { snapedDx: deltaX, snapedDy: deltaY, guides: [] };
 
-      // Posição proposta:
       const proposedX = leaderPlaced.x + deltaX;
       const proposedY = leaderPlaced.y + deltaY;
       const w = leaderInfo.rawWidth;
       const h = leaderInfo.rawHeight;
-
-      // Bordas propostas
       const left = proposedX;
       const right = proposedX + w;
       const bottom = proposedY;
       const top = proposedY + h;
 
-      // Ajustes de Snap
       let snapDx = 0;
       let snapDy = 0;
       const guides: SnapLine[] = [];
-
-      // Limite de distância para atrair (em unidades do canvas/mundo)
       const threshold = SNAP_THRESHOLD / transformRef.current.k;
 
-      // Comparar com bordas da MESA
       if (Math.abs(left - 0) < threshold) {
         snapDx = 0 - left;
         guides.push({ x1: 0, y1: 0, x2: 0, y2: binHeight, key: "margin-left" });
@@ -747,7 +841,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           key: "margin-right",
         });
       }
-
       if (Math.abs(bottom - 0) < threshold) {
         snapDy = 0 - bottom;
         guides.push({
@@ -768,21 +861,16 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         });
       }
 
-      // Comparar com OUTRAS PEÇAS
       const draggingSet = new Set(draggingIdsRef.current);
-
       placedParts.forEach((other) => {
         if (draggingSet.has(other.uuid)) return;
-
         const otherInfo = partTransforms[other.uuid];
         if (!otherInfo) return;
-
         const oLeft = other.x;
         const oRight = other.x + otherInfo.rawWidth;
         const oBottom = other.y;
         const oTop = other.y + otherInfo.rawHeight;
 
-        // --- SNAP HORIZONTAL (X) ---
         if (Math.abs(left - oRight) < threshold) {
           snapDx = oRight - left;
           guides.push({
@@ -821,7 +909,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           });
         }
 
-        // --- SNAP VERTICAL (Y) ---
         if (Math.abs(bottom - oTop) < threshold) {
           snapDy = oTop - bottom;
           guides.push({
@@ -860,15 +947,10 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           });
         }
       });
-
-      return {
-        snapedDx: deltaX + snapDx,
-        snapedDy: deltaY + snapDy,
-        guides,
-      };
+      return { snapedDx: deltaX + snapDx, snapedDy: deltaY + snapDy, guides };
     },
     [placedParts, partTransforms, binWidth, binHeight]
-  ); // Dependências do calculateSnap
+  );
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
@@ -884,40 +966,42 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           onLabelDrag(draggingLabel.partId, draggingLabel.type, dx, -dy);
           dragRef.current.startSvgX = currentSvgPos.x;
           dragRef.current.startSvgY = currentSvgPos.y;
-        } else if (dragMode === "pan" && panGroupRef.current) {
-          const dx = e.clientX - dragRef.current.startX;
-          const dy = e.clientY - dragRef.current.startY;
-          const currentK = transformRef.current.k;
-          const newX = dragRef.current.initialX + dx;
-          const newY = dragRef.current.initialY + dy;
-          transformRef.current.x = newX;
-          transformRef.current.y = newY;
-          panGroupRef.current.setAttribute(
-            "transform",
-            `translate(${newX}, ${newY}) scale(${currentK})`
+        } else if (dragMode === "rotate") {
+          const {
+            activePartId,
+            startAngle,
+            initialPartRotation,
+            centerX,
+            centerY,
+          } = rotationRef.current;
+
+          const currentAngleRad = Math.atan2(
+            currentSvgPos.y - centerY,
+            currentSvgPos.x - centerX
           );
+          const currentAngleDeg = currentAngleRad * (180 / Math.PI);
+
+          let deltaRotation = currentAngleDeg - startAngle;
+
+          if (e.shiftKey) {
+            const snapStep = 15;
+            const rawNewRot = initialPartRotation - deltaRotation; // Direção correta
+            const snappedRot = Math.round(rawNewRot / snapStep) * snapStep;
+            deltaRotation = initialPartRotation - snappedRot;
+          }
+
+          const newRotation = (initialPartRotation - deltaRotation + 360) % 360;
+          onPartRotate(activePartId, newRotation);
         } else if (dragMode === "parts") {
           let deltaX = currentSvgPos.x - dragRef.current.startSvgX;
           let deltaY = currentSvgPos.y - dragRef.current.startSvgY;
-
-          // --- NOVO: AMORTECEDOR DE PRECISÃO NO ZOOM ---
           const currentZoom = transformRef.current.k;
-
-          // Se o zoom for maior que 1.5x (aproximação), ativamos o "freio"
           if (currentZoom > 1.5) {
-            // Cálculo Logarítmico Suave:
-            // Zoom 2x -> Move a ~80% da velocidade
-            // Zoom 5x -> Move a ~60% da velocidade
-            // Zoom 10x -> Move a ~50% da velocidade
             const dampFactor = 1 / Math.pow(currentZoom, 0.3);
-
             deltaX *= dampFactor;
             deltaY *= dampFactor;
           }
-          // ---------------------------------------------
-
           const machineDeltaY = -deltaY;
-
           const { snapedDx, snapedDy, guides } = calculateSnap(
             deltaX,
             machineDeltaY
@@ -926,8 +1010,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           setSnapLines(guides);
           currentDragDeltaRef.current = { dx: snapedDx, dy: snapedDy };
 
-          // O translate visual deve seguir o eixo Y invertido do SVG (scale 1, -1)
-          // Se snapedDy é positivo (subiu na máquina), visualSnapDy deve ser positivo (subiu visualmente no eixo invertido)
           const visualSnapDy = snapedDy;
 
           draggingIdsRef.current.forEach((id) => {
@@ -938,7 +1020,14 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         }
       });
     },
-    [dragMode, getSVGPoint, draggingLabel, onLabelDrag, calculateSnap]
+    [
+      dragMode,
+      getSVGPoint,
+      draggingLabel,
+      onLabelDrag,
+      calculateSnap,
+      onPartRotate,
+    ]
   );
 
   const handleMouseUp = useCallback(
@@ -946,12 +1035,9 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       if (dragMode === "none") return;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
 
-      // Limpa linhas guias ao soltar
       setSnapLines([]);
 
-      if (dragMode === "pan") {
-        setTransform({ ...transformRef.current });
-      } else if (dragMode === "parts") {
+      if (dragMode === "parts") {
         if (svgContainerRef.current) {
           const rect = svgContainerRef.current.getBoundingClientRect();
           const isOutside =
@@ -959,7 +1045,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
             e.clientX > rect.right ||
             e.clientY < rect.top ||
             e.clientY > rect.bottom;
-
           if (isOutside && draggingIdsRef.current.length > 0) {
             onPartReturn(draggingIdsRef.current);
             setDragMode("none");
@@ -968,11 +1053,8 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
             return;
           }
         }
-
-        // Usa o delta calculado (e snappado) no loop do requestAnimationFrame
         const finalDx = currentDragDeltaRef.current.dx;
         const finalDy = currentDragDeltaRef.current.dy;
-
         const moves: { partId: string; dx: number; dy: number }[] = [];
         draggingIdsRef.current.forEach((id) => {
           const el = partRefs.current[id];
@@ -985,6 +1067,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         });
         if (moves.length > 0) onPartsMove(moves);
       }
+
       setDragMode("none");
       setDraggingLabel(null);
       draggingIdsRef.current = [];
@@ -1197,6 +1280,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                     onLabelDown={(e, type) =>
                       handleLabelDown(e, placed.uuid, type)
                     }
+                    onRotateStart={handleRotateStart}
                     onDoubleClick={handleDoubleClickPart}
                     onContextMenu={onContextMenu}
                     onEntityContextMenu={onEntityContextMenu}
@@ -1205,11 +1289,10 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                     strategy={strategy}
                     transformData={partTransforms[placed.uuid] || {}}
                     theme={theme}
+                    globalScale={transform.k}
                   />
                 );
               })}
-
-              {/* --- RENDERIZAÇÃO DAS LINHAS GUIAS DE SNAP --- */}
               {snapLines.map((line) => (
                 <line
                   key={line.key}
@@ -1218,7 +1301,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                   x2={line.x2}
                   y2={line.y2}
                   stroke="#00aaff"
-                  strokeWidth={1 / transform.k} // Mantém espessura visual constante
+                  strokeWidth={1 / transform.k}
                   strokeDasharray={`${4 / transform.k}, ${4 / transform.k}`}
                   vectorEffect="non-scaling-stroke"
                   style={{ pointerEvents: "none" }}
