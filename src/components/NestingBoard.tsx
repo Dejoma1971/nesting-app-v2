@@ -22,7 +22,7 @@ import type { LabelConfig } from "./labels/LabelTypes";
 import { textToVectorLines } from "../utils/vectorFont";
 import { useProductionManager } from "../hooks/useProductionManager";
 import { useNestingSaveStatus } from "../hooks/useNestingSaveStatus";
-import { detectCollisions } from '../utils/collisionCheck';
+
 
 interface Size {
   width: number;
@@ -363,7 +363,37 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // Dentro do componente NestingBoard
 const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
 
-  const workerRef = useRef<Worker | null>(null);
+  // Dentro do componente NestingBoard
+  const collisionWorkerRef = useRef<Worker | null>(null);
+
+  const nestingWorkerRef = useRef<Worker | null>(null);
+
+  // Inicializa o Worker uma vez ao montar o componente
+  // Inicializa o Worker de Colisão
+  useEffect(() => {
+    // Cria o worker
+    collisionWorkerRef.current = new Worker(new URL('../workers/collision.worker.ts', import.meta.url));
+    
+    // Configura o ouvinte de mensagens
+    // Adicionamos ': MessageEvent' para corrigir o erro de 'implicitly any'
+    collisionWorkerRef.current.onmessage = (e: MessageEvent) => {
+        const collisions = e.data as string[];
+        setCollidingPartIds(collisions);
+        
+        if (collisions.length > 0) {
+             alert(`⚠️ ALERTA DE COLISÃO!\n\n${collisions.length} peças com problemas marcadas em VERMELHO.`);
+        } else {
+             alert("✅ Verificação Completa! Nenhuma colisão.");
+        }
+    };
+
+    // Limpeza ao desmontar
+    return () => {
+        collisionWorkerRef.current?.terminate();
+    };
+  }, []);
+
+
   const thumbnailRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
   // --- 2. HOOKS ---
@@ -661,7 +691,7 @@ const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
     });
   }, []);
 
-  const handleCalculate = useCallback(() => {
+ const handleCalculate = useCallback(() => {
     if (displayedParts.length === 0) {
       alert("Nenhuma peça disponível no filtro atual!");
       return;
@@ -681,9 +711,15 @@ const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
     setSelectedPartIds([]);
     resetAllSaveStatus();
 
-    if (workerRef.current) workerRef.current.terminate();
-    workerRef.current = new NestingWorker();
-    workerRef.current.onmessage = (e) => {
+    // CORREÇÃO AQUI: Usar nestingWorkerRef em vez de workerRef
+    if (nestingWorkerRef.current) nestingWorkerRef.current.terminate();
+    
+    // Aqui assumo que NestingWorker é a classe importada do worker. 
+    // Se der erro no 'new NestingWorker()', use a sintaxe de URL como fizemos no outro:
+    // nestingWorkerRef.current = new Worker(new URL('../workers/nesting.worker.ts', import.meta.url));
+    nestingWorkerRef.current = new NestingWorker(); 
+
+    nestingWorkerRef.current.onmessage = (e) => {
       const result = e.data;
       resetNestingResult(result.placed);
       setFailedCount(result.failed.length);
@@ -691,7 +727,8 @@ const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
       setIsComputing(false);
       if (result.placed.length === 0) alert("Nenhuma peça coube!");
     };
-    workerRef.current.postMessage({
+
+    nestingWorkerRef.current.postMessage({
       parts: JSON.parse(JSON.stringify(displayedParts)),
       quantities,
       gap,
@@ -834,54 +871,57 @@ const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
     [selectedPartIds, setNestingResult]
   );
 
-  const handlePartsMove = useCallback(
-    (moves: { partId: string; dx: number; dy: number }[]) => {
-      if (moves.length === 0) return;
-      setNestingResult((prev) => {
-        const moveMap = new Map(moves.map((m) => [m.partId, m]));
-        return prev.map((p) => {
-          const move = moveMap.get(p.uuid);
-          return move ? { ...p, x: p.x + move.dx, y: p.y + move.dy } : p;
-        });
+  // 1. PRIMEIRO: A função original que calcula a matemática do movimento
+  const handlePartsMove = useCallback((moves: { partId: string; dx: number; dy: number }[]) => {
+    // ... (sua lógica existente aqui dentro, mantenha como estava) ...
+    // Se você não tiver o código dela fácil, é aquele que faz setNestingResult com map...
+    setNestingResult((prev) => {
+      const newPlaced = [...prev];
+      moves.forEach(({ partId, dx, dy }) => {
+        const index = newPlaced.findIndex((p) => p.uuid === partId);
+        if (index !== -1) {
+          // Atualiza posição
+          newPlaced[index] = {
+            ...newPlaced[index],
+            x: newPlaced[index].x + dx,
+            y: newPlaced[index].y + dy,
+          };
+        }
       });
-    },
-    [setNestingResult]
-  );
+      return newPlaced;
+    });
+  }, [setNestingResult] ); 
 
+  // 2. SEGUNDO: A função wrapper que limpa o erro e chama a primeira
+  // (Esta deve vir DEPOIS da handlePartsMove)
+  const handlePartsMoveWithClear = useCallback((moves: any) => {
+      // Chama a função original definida acima
+      handlePartsMove(moves); 
+      
+      // Limpa as marcas vermelhas se houver
+      if (collidingPartIds.length > 0) {
+          setCollidingPartIds([]); 
+      }
+  }, [handlePartsMove, collidingPartIds]);
   // --- COLE AQUI AS FUNÇÕES DE COLISÃO (PARA FICAREM DEPOIS DO MOVER) ---
 
   const handleCheckCollisions = useCallback(() => {
-    if (currentPlacedParts.length < 2) {
-        alert("É necessário ter pelo menos 2 peças na mesa para verificar colisão.");
+    if (currentPlacedParts.length < 1) {
+        alert("A mesa está vazia.");
         return;
     }
-    // --- ATUALIZE ESTA LINHA ---
-    const collisions = detectCollisions(
-        currentPlacedParts, 
-        parts, 
-        binSize.width, 
-        binSize.height, 
-        margin
-    );
-    // ----------------------------
 
-    setCollidingPartIds(collisions);
-
-    if (collisions.length > 0) {
-        alert(`⚠️ ALERTA DE PROBLEMAS!\n\nForam detectadas ${collisions.length} falhas.\n(Peças sobrepostas OU fora da área de corte).\n\nElas estão marcadas em VERMELHO.`);
-    } else {
-        alert("✅ Verificação Completa.\nTodas as peças estão dentro da margem e sem colisão.");
+    // Verifica se o worker existe antes de enviar
+    if (collisionWorkerRef.current) {
+        collisionWorkerRef.current.postMessage({
+            placedParts: currentPlacedParts,
+            partsData: parts,
+            binWidth: binSize.width,
+            binHeight: binSize.height,
+            margin: margin
+        });
     }
-  }, [currentPlacedParts, parts, binSize, margin]); // Adicionei binSize e margin nas dependências
-  
-  const handlePartsMoveWithClear = useCallback((moves: any) => {
-      handlePartsMove(moves); // Agora isso funciona, pois handlePartsMove já foi declarada acima
-      if (collidingPartIds.length > 0) {
-          setCollidingPartIds([]); // Limpa o vermelho ao mover
-      }
-  }, [handlePartsMove, collidingPartIds]);
-
-  // ---------------------------------------------------------------------
+  }, [currentPlacedParts, parts, binSize, margin]);
   
 
   const handlePartSelect = useCallback((ids: string[], append: boolean) => {
