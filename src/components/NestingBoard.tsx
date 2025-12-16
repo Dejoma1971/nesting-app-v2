@@ -22,6 +22,7 @@ import type { LabelConfig } from "./labels/LabelTypes";
 import { textToVectorLines } from "../utils/vectorFont";
 import { useProductionManager } from "../hooks/useProductionManager";
 import { useNestingSaveStatus } from "../hooks/useNestingSaveStatus";
+import { detectCollisions } from '../utils/collisionCheck';
 
 interface Size {
   width: number;
@@ -359,6 +360,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
   );
 
+  // Dentro do componente NestingBoard
+const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
+
   const workerRef = useRef<Worker | null>(null);
   const thumbnailRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
@@ -645,7 +649,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       );
     },
     [setNestingResult]
-  );
+  ); 
 
   // --- NOVA FUNÇÃO: ADICIONAR CHAPA VAZIA ---
   const handleAddBin = useCallback(() => {
@@ -843,6 +847,42 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     },
     [setNestingResult]
   );
+
+  // --- COLE AQUI AS FUNÇÕES DE COLISÃO (PARA FICAREM DEPOIS DO MOVER) ---
+
+  const handleCheckCollisions = useCallback(() => {
+    if (currentPlacedParts.length < 2) {
+        alert("É necessário ter pelo menos 2 peças na mesa para verificar colisão.");
+        return;
+    }
+    // --- ATUALIZE ESTA LINHA ---
+    const collisions = detectCollisions(
+        currentPlacedParts, 
+        parts, 
+        binSize.width, 
+        binSize.height, 
+        margin
+    );
+    // ----------------------------
+
+    setCollidingPartIds(collisions);
+
+    if (collisions.length > 0) {
+        alert(`⚠️ ALERTA DE PROBLEMAS!\n\nForam detectadas ${collisions.length} falhas.\n(Peças sobrepostas OU fora da área de corte).\n\nElas estão marcadas em VERMELHO.`);
+    } else {
+        alert("✅ Verificação Completa.\nTodas as peças estão dentro da margem e sem colisão.");
+    }
+  }, [currentPlacedParts, parts, binSize, margin]); // Adicionei binSize e margin nas dependências
+  
+  const handlePartsMoveWithClear = useCallback((moves: any) => {
+      handlePartsMove(moves); // Agora isso funciona, pois handlePartsMove já foi declarada acima
+      if (collidingPartIds.length > 0) {
+          setCollidingPartIds([]); // Limpa o vermelho ao mover
+      }
+  }, [handlePartsMove, collidingPartIds]);
+
+  // ---------------------------------------------------------------------
+  
 
   const handlePartSelect = useCallback((ids: string[], append: boolean) => {
     setSelectedPartIds((prev) =>
@@ -1492,6 +1532,27 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           Ver Box
         </label>
 
+        <button
+        onClick={handleCheckCollisions}
+        title="Verificar se há peças sobrepostas"
+        style={{
+            background: "#dc3545", // Vermelho para chamar atenção à segurança
+            border: `1px solid ${theme.border}`,
+            color: "#fff",
+            padding: "5px 10px",
+            borderRadius: "4px",
+            cursor: "pointer",
+            fontWeight: "bold",
+            fontSize: "12px",
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+            marginLeft: "10px"
+        }}
+    >
+        💥 Verificar Colisão
+    </button>
+
         {/* --- NOVO BOTÃO: ADICIONAR CHAPA --- */}
         <button
           onClick={handleAddBin}
@@ -1508,7 +1569,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             display: "flex",
             alignItems: "center",
             gap: "5px",
-            marginLeft: "70px",
+            marginLeft: "10px",
           }}
         >
           <span
@@ -1674,7 +1735,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             strategy={strategy}
             theme={theme}
             selectedPartIds={selectedPartIds}
-            onPartsMove={handlePartsMove}
+            onPartsMove={handlePartsMoveWithClear}  
+            
+            collidingPartIds={collidingPartIds}     
             onPartRotate={handlePartRotate}
             onPartSelect={handlePartSelect}
             onContextMenu={handlePartContextMenu}
