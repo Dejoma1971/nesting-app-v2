@@ -35,6 +35,8 @@ interface InteractiveCanvasProps {
   onRedo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+
+  onCanvasDrop?: (partId: string, x: number, y: number) => void;
 }
 
 interface BoundingBoxCache {
@@ -260,7 +262,8 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   parts, placedParts, binWidth, binHeight, margin, showDebug, strategy, selectedPartIds, 
   onPartsMove, onPartRotate, onLabelDrag, onPartSelect, onContextMenu, onEntityContextMenu, theme,
   onPartReturn, onUndo, onRedo, canUndo, canRedo,
-  collidingPartIds = [] // Default array vazio
+  collidingPartIds = [], // Default array vazio
+  onCanvasDrop // <--- ADICIONADO AQUI
 }) => {
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
   
@@ -578,6 +581,31 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     };
   }, [dragMode, getSVGPoint, calculateSnap, onLabelDrag, onPartRotate, onPartReturn, onPartsMove, draggingLabel]); // Fim do useEffect
 
+  // --- LÓGICA DE DROP EXTERNO ---
+  const handleNativeDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    const partId = e.dataTransfer.getData("application/react-dnd-part-id");
+    
+    // Verifica se onCanvasDrop existe antes de chamar
+    if (!partId || !onCanvasDrop) return;
+
+    const svgPos = getSVGPoint(e.clientX, e.clientY);
+    
+    // Agora ele consegue acessar 'transform' e 'binHeight' porque está dentro do componente
+    const visualX = (svgPos.x - transform.x) / transform.k;
+    const visualY = (svgPos.y - transform.y) / transform.k;
+
+    const cncX = visualX;
+    const cncY = binHeight - visualY;
+
+    onCanvasDrop(partId, cncX, cncY);
+  }, [getSVGPoint, transform, binHeight, onCanvasDrop]);
+
+  const handleNativeDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }, []);
+
     const binViewBox = useMemo(() => {
     const pX = binWidth * 0.05, pY = binHeight * 0.05;
     return `${-pX} ${-pY} ${binWidth + pX * 2} ${binHeight + pY * 2}`;
@@ -605,6 +633,8 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     <div ref={svgContainerRef} style={{ flex: 2, position: "relative", background: "transparent", display: "flex", flexDirection: "column", cursor: dragMode === "label" || dragMode === "parts" ? "grabbing" : "default", overflow: "hidden", width: "100%", height: "100%" }}
       onMouseDown={handleMouseDownContainer} 
       onDoubleClick={handleDoubleClickContainer}
+      onDrop={handleNativeDrop}       // <--- Novo evento
+      onDragOver={handleNativeDragOver} // <--- Novo evento
       // Note que removemos onMouseMove, onMouseUp e onMouseLeave daqui!
     >
         

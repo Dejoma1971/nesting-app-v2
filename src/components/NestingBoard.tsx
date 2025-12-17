@@ -23,7 +23,6 @@ import { textToVectorLines } from "../utils/vectorFont";
 import { useProductionManager } from "../hooks/useProductionManager";
 import { useNestingSaveStatus } from "../hooks/useNestingSaveStatus";
 
-
 interface Size {
   width: number;
   height: number;
@@ -361,7 +360,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   );
 
   // Dentro do componente NestingBoard
-const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
+  const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
 
   // Dentro do componente NestingBoard
   const collisionWorkerRef = useRef<Worker | null>(null);
@@ -372,27 +371,30 @@ const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
   // Inicializa o Worker de Colisão
   useEffect(() => {
     // Cria o worker
-    collisionWorkerRef.current = new Worker(new URL('../workers/collision.worker.ts', import.meta.url));
-    
+    collisionWorkerRef.current = new Worker(
+      new URL("../workers/collision.worker.ts", import.meta.url)
+    );
+
     // Configura o ouvinte de mensagens
     // Adicionamos ': MessageEvent' para corrigir o erro de 'implicitly any'
     collisionWorkerRef.current.onmessage = (e: MessageEvent) => {
-        const collisions = e.data as string[];
-        setCollidingPartIds(collisions);
-        
-        if (collisions.length > 0) {
-             alert(`⚠️ ALERTA DE COLISÃO!\n\n${collisions.length} peças com problemas marcadas em VERMELHO.`);
-        } else {
-             alert("✅ Verificação Completa! Nenhuma colisão.");
-        }
+      const collisions = e.data as string[];
+      setCollidingPartIds(collisions);
+
+      if (collisions.length > 0) {
+        alert(
+          `⚠️ ALERTA DE COLISÃO!\n\n${collisions.length} peças com problemas marcadas em VERMELHO.`
+        );
+      } else {
+        alert("✅ Verificação Completa! Nenhuma colisão.");
+      }
     };
 
     // Limpeza ao desmontar
     return () => {
-        collisionWorkerRef.current?.terminate();
+      collisionWorkerRef.current?.terminate();
     };
   }, []);
-
 
   const thumbnailRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
@@ -679,7 +681,7 @@ const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
       );
     },
     [setNestingResult]
-  ); 
+  );
 
   // --- NOVA FUNÇÃO: ADICIONAR CHAPA VAZIA ---
   const handleAddBin = useCallback(() => {
@@ -691,7 +693,7 @@ const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
     });
   }, []);
 
- const handleCalculate = useCallback(() => {
+  const handleCalculate = useCallback(() => {
     if (displayedParts.length === 0) {
       alert("Nenhuma peça disponível no filtro atual!");
       return;
@@ -713,11 +715,11 @@ const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
 
     // CORREÇÃO AQUI: Usar nestingWorkerRef em vez de workerRef
     if (nestingWorkerRef.current) nestingWorkerRef.current.terminate();
-    
-    // Aqui assumo que NestingWorker é a classe importada do worker. 
+
+    // Aqui assumo que NestingWorker é a classe importada do worker.
     // Se der erro no 'new NestingWorker()', use a sintaxe de URL como fizemos no outro:
     // nestingWorkerRef.current = new Worker(new URL('../workers/nesting.worker.ts', import.meta.url));
-    nestingWorkerRef.current = new NestingWorker(); 
+    nestingWorkerRef.current = new NestingWorker();
 
     nestingWorkerRef.current.onmessage = (e) => {
       const result = e.data;
@@ -872,57 +874,62 @@ const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
   );
 
   // 1. PRIMEIRO: A função original que calcula a matemática do movimento
-  const handlePartsMove = useCallback((moves: { partId: string; dx: number; dy: number }[]) => {
-    // ... (sua lógica existente aqui dentro, mantenha como estava) ...
-    // Se você não tiver o código dela fácil, é aquele que faz setNestingResult com map...
-    setNestingResult((prev) => {
-      const newPlaced = [...prev];
-      moves.forEach(({ partId, dx, dy }) => {
-        const index = newPlaced.findIndex((p) => p.uuid === partId);
-        if (index !== -1) {
-          // Atualiza posição
-          newPlaced[index] = {
-            ...newPlaced[index],
-            x: newPlaced[index].x + dx,
-            y: newPlaced[index].y + dy,
-          };
-        }
+  const handlePartsMove = useCallback(
+    (moves: { partId: string; dx: number; dy: number }[]) => {
+      // ... (sua lógica existente aqui dentro, mantenha como estava) ...
+      // Se você não tiver o código dela fácil, é aquele que faz setNestingResult com map...
+      setNestingResult((prev) => {
+        const newPlaced = [...prev];
+        moves.forEach(({ partId, dx, dy }) => {
+          const index = newPlaced.findIndex((p) => p.uuid === partId);
+          if (index !== -1) {
+            // Atualiza posição
+            newPlaced[index] = {
+              ...newPlaced[index],
+              x: newPlaced[index].x + dx,
+              y: newPlaced[index].y + dy,
+            };
+          }
+        });
+        return newPlaced;
       });
-      return newPlaced;
-    });
-  }, [setNestingResult] ); 
+    },
+    [setNestingResult]
+  );
 
   // 2. SEGUNDO: A função wrapper que limpa o erro e chama a primeira
   // (Esta deve vir DEPOIS da handlePartsMove)
-  const handlePartsMoveWithClear = useCallback((moves: any) => {
+  const handlePartsMoveWithClear = useCallback(
+    (moves: any) => {
       // Chama a função original definida acima
-      handlePartsMove(moves); 
-      
+      handlePartsMove(moves);
+
       // Limpa as marcas vermelhas se houver
       if (collidingPartIds.length > 0) {
-          setCollidingPartIds([]); 
+        setCollidingPartIds([]);
       }
-  }, [handlePartsMove, collidingPartIds]);
+    },
+    [handlePartsMove, collidingPartIds]
+  );
   // --- COLE AQUI AS FUNÇÕES DE COLISÃO (PARA FICAREM DEPOIS DO MOVER) ---
 
   const handleCheckCollisions = useCallback(() => {
     if (currentPlacedParts.length < 1) {
-        alert("A mesa está vazia.");
-        return;
+      alert("A mesa está vazia.");
+      return;
     }
 
     // Verifica se o worker existe antes de enviar
     if (collisionWorkerRef.current) {
-        collisionWorkerRef.current.postMessage({
-            placedParts: currentPlacedParts,
-            partsData: parts,
-            binWidth: binSize.width,
-            binHeight: binSize.height,
-            margin: margin
-        });
+      collisionWorkerRef.current.postMessage({
+        placedParts: currentPlacedParts,
+        partsData: parts,
+        binWidth: binSize.width,
+        binHeight: binSize.height,
+        margin: margin,
+      });
     }
   }, [currentPlacedParts, parts, binSize, margin]);
-  
 
   const handlePartSelect = useCallback((ids: string[], append: boolean) => {
     setSelectedPartIds((prev) =>
@@ -951,32 +958,28 @@ const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
     e.dataTransfer.effectAllowed = "copy";
   };
 
-  const handleCanvasDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const partId = e.dataTransfer.getData("application/react-dnd-part-id");
-    if (!partId) return;
-    const part = parts.find((p) => p.id === partId);
-    if (!part) return;
+  // --- LÓGICA SIMPLIFICADA (Recebe X/Y já em milímetros do Canvas) ---
+  const handleExternalDrop = useCallback(
+    (partId: string, x: number, y: number) => {
+      const part = parts.find((p) => p.id === partId);
+      if (!part) return;
 
-    const containerRect = e.currentTarget.getBoundingClientRect();
-    const mouseX = e.clientX - containerRect.left;
-    const mouseY = e.clientY - containerRect.top;
+      // Ajuste para centralizar a peça no mouse (opcional)
+      const finalX = x - part.width / 2;
+      const finalY = y - part.height / 2;
 
-    const newPlacedPart: PlacedPart = {
-      partId: part.id,
-      x: mouseX,
-      y: binSize.height - mouseY,
-      rotation: 0,
-      binId: currentBinIndex,
-      uuid: crypto.randomUUID(),
-    };
-    setNestingResult((prev) => [...prev, newPlacedPart]);
-  };
-
-  const handleCanvasDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-  };
+      const newPlacedPart: PlacedPart = {
+        partId: part.id,
+        x: finalX,
+        y: finalY,
+        rotation: 0,
+        binId: currentBinIndex,
+        uuid: crypto.randomUUID(),
+      };
+      setNestingResult((prev) => [...prev, newPlacedPart]);
+    },
+    [parts, currentBinIndex, setNestingResult]
+  );
 
   const formatArea = useCallback(
     (mm2: number) =>
@@ -1573,9 +1576,9 @@ const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
         </label>
 
         <button
-        onClick={handleCheckCollisions}
-        title="Verificar se há peças sobrepostas"
-        style={{
+          onClick={handleCheckCollisions}
+          title="Verificar se há peças sobrepostas"
+          style={{
             background: "#dc3545", // Vermelho para chamar atenção à segurança
             border: `1px solid ${theme.border}`,
             color: "#fff",
@@ -1587,11 +1590,11 @@ const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
             display: "flex",
             alignItems: "center",
             gap: "5px",
-            marginLeft: "10px"
-        }}
-    >
-        💥 Verificar Colisão
-    </button>
+            marginLeft: "10px",
+          }}
+        >
+          💥 Verificar Colisão
+        </button>
 
         {/* --- NOVO BOTÃO: ADICIONAR CHAPA --- */}
         <button
@@ -1653,8 +1656,6 @@ const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
             overflow: "hidden",
           }}
           onMouseDown={() => setContextMenu(null)}
-          onDrop={handleCanvasDrop}
-          onDragOver={handleCanvasDragOver}
         >
           {/* --- NAVEGADOR DE CHAPAS (VERTICAL, DISCRETO E COM TOOLTIPS) --- */}
           {totalBins > 1 && (
@@ -1766,6 +1767,7 @@ const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
           )}
 
           <InteractiveCanvas
+            onCanvasDrop={handleExternalDrop} // <--- CONECTADO AQUI
             parts={displayedParts}
             placedParts={currentPlacedParts}
             binWidth={binSize.width}
@@ -1775,9 +1777,8 @@ const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
             strategy={strategy}
             theme={theme}
             selectedPartIds={selectedPartIds}
-            onPartsMove={handlePartsMoveWithClear}  
-            
-            collidingPartIds={collidingPartIds}     
+            onPartsMove={handlePartsMoveWithClear}
+            collidingPartIds={collidingPartIds}
             onPartRotate={handlePartRotate}
             onPartSelect={handlePartSelect}
             onContextMenu={handlePartContextMenu}

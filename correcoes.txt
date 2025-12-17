@@ -7,7 +7,7 @@ CORREÇÕES
 
 2 as peças que não foram para arranjo devem ficar sempre em destaque no banco de peças
 
-3. as peças movidas para a mesa manualmente devem ficar onde foram soltas 
+3. as peças movidas para a mesa manualmente devem ficar onde foram soltas - CORRIGIDO
 
 4. velocidade de movimentação com o zomm proximo - CORRIGIDO
 
