@@ -502,7 +502,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           let deltaY = currentSvgPos.y - dragRef.current.startSvgY;
           const currentZoom = transformRef.current.k;
           if (currentZoom > 1.5) {
-              const dampFactor = 1 / Math.pow(currentZoom, 0.3);
+              const dampFactor = 1 / Math.pow(currentZoom, 0.6); // controle de velocidade de movimentar peças
               deltaX *= dampFactor; deltaY *= dampFactor;
           }
           const machineDeltaY = -deltaY; 
