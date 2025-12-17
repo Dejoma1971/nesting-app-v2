@@ -140,7 +140,7 @@ const chainAllLoops = (segments: GeometrySegment[]): Point[][] => {
 
 const getBaseGeometry = (part: PartData): PartGeometry => {
   const rawSegments: GeometrySegment[] = [];
-  const CURVE_SEGMENTS = 12; // Precisão para furos
+  const CURVE_SEGMENTS = 24; // Precisão para furos
 
   const traverse = (
     entities: EntityData[],

@@ -7,11 +7,11 @@ CORREÇÕES
 
 2 as peças que não foram para arranjo devem ficar sempre em destaque no banco de peças
 
-3. as peças movidas para a mesa manualmente devem ficar onde foram soltas
+3. as peças movidas para a mesa manualmente devem ficar onde foram soltas 
 
-4. velocidade de movimentação com o zomm proximo
+4. velocidade de movimentação com o zomm proximo - CORRIGIDO
 
-5 verificar se as peças no arranjo é do mesmo material e tem a mesma espessura
+5 verificar se as peças no arranjo é do mesmo material e tem a mesma espessura  XXXX
 
 
 

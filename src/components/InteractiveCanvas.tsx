@@ -465,98 +465,120 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     return { snapedDx: deltaX + snapDx, snapedDy: deltaY + snapDy, guides };
   }, [placedParts, partTransforms, binWidth, binHeight]);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+  // --- CORREÇÃO: Listeners Globais para Arraste ---
+  useEffect(() => {
+    // Se não estiver arrastando nada, não faz nada
     if (dragMode === "none") return;
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    
-    rafRef.current = requestAnimationFrame(() => {
-      const currentSvgPos = getSVGPoint(e.clientX, e.clientY);
 
-      if (dragMode === "label" && draggingLabel && onLabelDrag) {
-          const dx = currentSvgPos.x - dragRef.current.startSvgX;
-          const dy = currentSvgPos.y - dragRef.current.startSvgY;
-          onLabelDrag(draggingLabel.partId, draggingLabel.type, dx, -dy); 
-          dragRef.current.startSvgX = currentSvgPos.x;
-          dragRef.current.startSvgY = currentSvgPos.y;
-      }
-      else if (dragMode === "rotate") {
-          const { activePartId, startAngle, initialPartRotation, centerX, centerY } = rotationRef.current;
-          
-          const currentAngleRad = Math.atan2(currentSvgPos.y - centerY, currentSvgPos.x - centerX);
-          const currentAngleDeg = currentAngleRad * (180 / Math.PI);
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      
+      rafRef.current = requestAnimationFrame(() => {
+        // Nota: Usamos e.clientX direto do evento global
+        const currentSvgPos = getSVGPoint(e.clientX, e.clientY);
 
-          let deltaRotation = currentAngleDeg - startAngle;
-          
-          if (e.shiftKey) {
-              const snapStep = 15;
-              const rawNewRot = initialPartRotation - deltaRotation; // Direção correta
-              const snappedRot = Math.round(rawNewRot / snapStep) * snapStep;
-              deltaRotation = initialPartRotation - snappedRot;
-          }
+        if (dragMode === "label" && draggingLabel && onLabelDrag) {
+            const dx = currentSvgPos.x - dragRef.current.startSvgX;
+            const dy = currentSvgPos.y - dragRef.current.startSvgY;
+            onLabelDrag(draggingLabel.partId, draggingLabel.type, dx, -dy); 
+            dragRef.current.startSvgX = currentSvgPos.x;
+            dragRef.current.startSvgY = currentSvgPos.y;
+        }
+        else if (dragMode === "rotate") {
+            const { activePartId, startAngle, initialPartRotation, centerX, centerY } = rotationRef.current;
+            const currentAngleRad = Math.atan2(currentSvgPos.y - centerY, currentSvgPos.x - centerX);
+            const currentAngleDeg = currentAngleRad * (180 / Math.PI);
+            let deltaRotation = currentAngleDeg - startAngle;
+            
+            if (e.shiftKey) {
+                const snapStep = 15;
+                const rawNewRot = initialPartRotation - deltaRotation;
+                const snappedRot = Math.round(rawNewRot / snapStep) * snapStep;
+                deltaRotation = initialPartRotation - snappedRot;
+            }
+            const newRotation = (initialPartRotation - deltaRotation + 360) % 360; 
+            onPartRotate(activePartId, newRotation);
+        }
+        else if (dragMode === "parts") {
+            let deltaX = currentSvgPos.x - dragRef.current.startSvgX;
+            let deltaY = currentSvgPos.y - dragRef.current.startSvgY;
+            const currentZoom = transformRef.current.k;
+            if (currentZoom > 1.5) {
+                const dampFactor = 1 / Math.pow(currentZoom, 0.6);
+                deltaX *= dampFactor; deltaY *= dampFactor;
+            }
+            const machineDeltaY = -deltaY; 
+            const { snapedDx, snapedDy, guides } = calculateSnap(deltaX, machineDeltaY);
+            
+            setSnapLines(guides);
+            currentDragDeltaRef.current = { dx: snapedDx, dy: snapedDy };
+            const visualSnapDy = snapedDy; 
 
-          const newRotation = (initialPartRotation - deltaRotation + 360) % 360; 
-          onPartRotate(activePartId, newRotation);
-      }
-      else if (dragMode === "parts") {
-          let deltaX = currentSvgPos.x - dragRef.current.startSvgX;
-          let deltaY = currentSvgPos.y - dragRef.current.startSvgY;
-          const currentZoom = transformRef.current.k;
-          if (currentZoom > 1.5) {
-              const dampFactor = 1 / Math.pow(currentZoom, 0.6); // controle de velocidade de movimentar peças
-              deltaX *= dampFactor; deltaY *= dampFactor;
-          }
-          const machineDeltaY = -deltaY; 
-          const { snapedDx, snapedDy, guides } = calculateSnap(deltaX, machineDeltaY);
-          
-          setSnapLines(guides);
-          currentDragDeltaRef.current = { dx: snapedDx, dy: snapedDy };
-          
-          const visualSnapDy = snapedDy; 
-
-          draggingIdsRef.current.forEach((id) => {
-            const el = partRefs.current[id];
-            if (el) el.style.transform = `translate3d(${snapedDx}px, ${visualSnapDy}px, 0)`;
-          });
-      }
-    });
-  }, [dragMode, getSVGPoint, draggingLabel, onLabelDrag, calculateSnap, onPartRotate]);
-
-  const handleMouseUp = useCallback((e: React.MouseEvent) => {
-    if (dragMode === "none") return;
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    
-    setSnapLines([]);
-
-    if (dragMode === "parts") {
-      if (svgContainerRef.current) {
-          const rect = svgContainerRef.current.getBoundingClientRect();
-          const isOutside = e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom;
-          if (isOutside && draggingIdsRef.current.length > 0) {
-              onPartReturn(draggingIdsRef.current);
-              setDragMode("none"); draggingIdsRef.current = []; currentDragDeltaRef.current = { dx: 0, dy: 0 };
-              return; 
-          }
-      }
-      const finalDx = currentDragDeltaRef.current.dx;
-      const finalDy = currentDragDeltaRef.current.dy;
-      const moves: { partId: string; dx: number; dy: number }[] = [];
-      draggingIdsRef.current.forEach((id) => {
-        const el = partRefs.current[id];
-        if (el) {
-          moves.push({ partId: id, dx: finalDx, dy: finalDy });
-          el.style.transform = ""; el.style.willChange = ""; el.style.cursor = "";
+            draggingIdsRef.current.forEach((id) => {
+              const el = partRefs.current[id];
+              if (el) el.style.transform = `translate3d(${snapedDx}px, ${visualSnapDy}px, 0)`;
+            });
         }
       });
-      if (moves.length > 0) onPartsMove(moves);
-    }
-    
-    setDragMode("none");
-    setDraggingLabel(null);
-    draggingIdsRef.current = [];
-    currentDragDeltaRef.current = { dx: 0, dy: 0 };
-  }, [dragMode, onPartsMove, onPartReturn]);
+    };
 
-  const binViewBox = useMemo(() => {
+    const handleWindowMouseUp = (e: MouseEvent) => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      setSnapLines([]);
+
+      if (dragMode === "parts") {
+        let shouldReturn = false;
+
+        // VERIFICAÇÃO SE SOLTOU FORA DA MESA (BANCO DE PEÇAS)
+        if (svgContainerRef.current) {
+            const rect = svgContainerRef.current.getBoundingClientRect();
+            // Se o mouse estiver fora dos limites do retângulo do canvas
+            const isOutside = 
+                e.clientX < rect.left || 
+                e.clientX > rect.right || 
+                e.clientY < rect.top || 
+                e.clientY > rect.bottom;
+            
+            if (isOutside) shouldReturn = true;
+        }
+
+        if (shouldReturn && draggingIdsRef.current.length > 0) {
+            onPartReturn(draggingIdsRef.current); // Devolve para o banco
+        } else {
+            // Finaliza o movimento normal na mesa
+            const finalDx = currentDragDeltaRef.current.dx;
+            const finalDy = currentDragDeltaRef.current.dy;
+            const moves: { partId: string; dx: number; dy: number }[] = [];
+            draggingIdsRef.current.forEach((id) => {
+              const el = partRefs.current[id];
+              if (el) {
+                moves.push({ partId: id, dx: finalDx, dy: finalDy });
+                el.style.transform = ""; el.style.willChange = ""; el.style.cursor = "";
+              }
+            });
+            if (moves.length > 0) onPartsMove(moves);
+        }
+      }
+      
+      // Limpeza geral
+      setDragMode("none");
+      setDraggingLabel(null);
+      draggingIdsRef.current = [];
+      currentDragDeltaRef.current = { dx: 0, dy: 0 };
+    };
+
+    // Adiciona os ouvintes na JANELA inteira
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [dragMode, getSVGPoint, calculateSnap, onLabelDrag, onPartRotate, onPartReturn, onPartsMove, draggingLabel]); // Fim do useEffect
+
+    const binViewBox = useMemo(() => {
     const pX = binWidth * 0.05, pY = binHeight * 0.05;
     return `${-pX} ${-pY} ${binWidth + pX * 2} ${binHeight + pY * 2}`;
   }, [binWidth, binHeight]);
@@ -579,8 +601,12 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   const cncTransform = `translate(0, ${binHeight}) scale(1, -1)`;
 
   return (
+
     <div ref={svgContainerRef} style={{ flex: 2, position: "relative", background: "transparent", display: "flex", flexDirection: "column", cursor: dragMode === "label" || dragMode === "parts" ? "grabbing" : "default", overflow: "hidden", width: "100%", height: "100%" }}
-      onMouseDown={handleMouseDownContainer} onDoubleClick={handleDoubleClickContainer} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
+      onMouseDown={handleMouseDownContainer} 
+      onDoubleClick={handleDoubleClickContainer}
+      // Note que removemos onMouseMove, onMouseUp e onMouseLeave daqui!
+    >
         
         <div style={{ position: "absolute", left: 20, top: 20, display: "flex", flexDirection: "column", gap: "5px", zIndex: 10 }}>
            <button onClick={onUndo} disabled={!canUndo} style={{ ...btnStyle, opacity: !canUndo ? 0.5 : 1 }} title="Desfazer">↩</button>

@@ -244,7 +244,7 @@ const discretizeArc = (
 
     // Calcula passos baseado na qualidade desejada
     const segments = Math.ceil(Math.abs(sweep) / (2 * Math.acos(1 - ARC_TOLERANCE / r)));
-    const numSegments = Math.max(segments, 12); // Mínimo 12 segmentos
+    const numSegments = Math.max(segments, 24); // Mínimo 12 segmentos
 
     const step = sweep / numSegments;
 
