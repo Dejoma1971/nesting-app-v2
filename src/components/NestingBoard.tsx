@@ -359,6 +359,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
   );
 
+  // Estado para controlar quais peças serão ignoradas no cálculo (Checkbox)
+  const [disabledNestingIds, setDisabledNestingIds] = useState<Set<string>>(
+    new Set()
+  );
+
   // Dentro do componente NestingBoard
   const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
 
@@ -694,10 +699,18 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   }, []);
 
   const handleCalculate = useCallback(() => {
-    if (displayedParts.length === 0) {
-      alert("Nenhuma peça disponível no filtro atual!");
+    // 1. Filtra apenas as peças que NÃO estão na lista de desabilitadas
+    const partsToNest = displayedParts.filter(
+      (p) => !disabledNestingIds.has(p.id)
+    );
+
+    if (partsToNest.length === 0) {
+      alert(
+        "Nenhuma peça selecionada para o cálculo! Marque pelo menos uma peça."
+      );
       return;
     }
+
     if (nestingResult.length > 0) {
       if (
         !window.confirm(
@@ -731,7 +744,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     };
 
     nestingWorkerRef.current.postMessage({
-      parts: JSON.parse(JSON.stringify(displayedParts)),
+      parts: JSON.parse(JSON.stringify(partsToNest)),
       quantities,
       gap,
       margin,
@@ -755,6 +768,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     resetNestingResult,
     nestingResult.length,
     resetAllSaveStatus,
+    disabledNestingIds, // <--- ADICIONE ESTA LINHA
   ]);
 
   const handleClearTable = useCallback(() => {
@@ -1005,18 +1019,44 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const sortedParts = useMemo(() => {
     const sorted = [...displayedParts].sort((a, b) => {
+      // 1. PRIORIDADE MÁXIMA: Selecionado (para o usuário não perder o que clicou)
       const aSel = selectedPartIds.includes(a.id);
       const bSel = selectedPartIds.includes(b.id);
       if (aSel && !bSel) return -1;
       if (!aSel && bSel) return 1;
+
+      // Dados de Quantidade
+      const qtyA = quantities[a.id] || 1;
+      const qtyB = quantities[b.id] || 1;
+      // Usamos totalPlacedCounts (calculado acima no código)
+      // Se não estiver disponível no escopo do useMemo, certifique-se de adicioná-lo nas dependências
+      const placedA = totalPlacedCounts[a.id] || 0;
+      const placedB = totalPlacedCounts[b.id] || 0;
+
+      const isPendingA = placedA < qtyA;
+      const isPendingB = placedB < qtyB;
+
+      // 2. PRIORIDADE DE TRABALHO: Pendentes no topo, Concluídas no fundo
+      if (isPendingA && !isPendingB) return -1; // A sobe (falta fazer)
+      if (!isPendingA && isPendingB) return 1; // B sobe (falta fazer)
+
+      // 3. Critério de Desempate: Se ambos forem pendentes (ou ambos concluídos),
+      // mostra primeiro quem já está na chapa atual (contexto visual)
       const aOnBoard = currentBinPartIds.has(a.id);
       const bOnBoard = currentBinPartIds.has(b.id);
       if (aOnBoard && !bOnBoard) return -1;
       if (!aOnBoard && bOnBoard) return 1;
+
       return 0;
     });
     return sorted;
-  }, [displayedParts, selectedPartIds, currentBinPartIds]);
+  }, [
+    displayedParts,
+    selectedPartIds,
+    currentBinPartIds,
+    quantities,
+    totalPlacedCounts,
+  ]);
 
   // --- 6. RENDERIZAÇÃO ---
   const containerStyle: React.CSSProperties = {
@@ -2006,6 +2046,44 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                         labelState={labelStates}
                         onTogglePartFlag={togglePartFlag}
                       />
+
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: 5,
+                          left: 5,
+                          zIndex: 1000, // Acima do card
+                          background: "rgba(255,255,255,0.7)",
+                          borderRadius: "4px",
+                          padding: "2px",
+                          display: "flex",
+                          alignItems: "center",
+                          boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                        }}
+                        onClick={(e) => e.stopPropagation()} // Impede que selecione a peça ao clicar no check
+                        title="Incluir esta peça no cálculo automático?"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!disabledNestingIds.has(part.id)}
+                          onChange={(e) => {
+                            const newSet = new Set(disabledNestingIds);
+                            if (e.target.checked) {
+                              newSet.delete(part.id); // Marca (remove da lista de ignorados)
+                            } else {
+                              newSet.add(part.id); // Desmarca (adiciona aos ignorados)
+                            }
+                            setDisabledNestingIds(newSet);
+                          }}
+                          style={{
+                            cursor: "pointer",
+                            margin: 0,
+                            width: "14px",
+                            height: "14px",
+                          }}
+                        />
+                      </div>
+
                       <div
                         style={{
                           width: "100%",
