@@ -22,6 +22,9 @@ import type { LabelConfig } from "./labels/LabelTypes";
 import { textToVectorLines } from "../utils/vectorFont";
 import { useProductionManager } from "../hooks/useProductionManager";
 import { useNestingSaveStatus } from "../hooks/useNestingSaveStatus";
+import { useSheetManager } from "../hooks/useSheetManager";
+import { SheetContextMenu } from "./SheetContextMenu"; // <--- NOVO
+
 
 interface Size {
   width: number;
@@ -312,8 +315,22 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // --- 1. DEFINIÇÃO DE ESTADOS ---
   const [parts, setParts] = useState<ImportedPart[]>(initialParts);
   const [binSize, setBinSize] = useState<Size>({ width: 1200, height: 3000 });
-  const [currentBinIndex, setCurrentBinIndex] = useState(0);
-  const [totalBins, setTotalBins] = useState(1);
+  const [sheetMenu, setSheetMenu] = useState<{ x: number; y: number; lineId?: string } | null>(null);
+
+  // INSERIR O HOOK AQUI:
+  const {
+    totalBins,
+    setTotalBins,
+    currentBinIndex,
+    setCurrentBinIndex,
+    handleAddBin,
+    cropLines,
+    moveCropLine,
+    removeCropLine,
+    handleDeleteCurrentBin,
+    addCropLine,
+    
+  } = useSheetManager({ initialBins: 1 });
 
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || "");
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -658,6 +675,38 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     });
   }, [parts]);
 
+  // --- HANDLERS DO MENU DE CONTEXTO DA CHAPA ---
+
+  // 1. Handler do Fundo (já existe, só confirme o setSheetMenu)
+  const handleBackgroundContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    // lineId undefined significa que clicou no fundo
+    setSheetMenu({ x: e.clientX, y: e.clientY, lineId: undefined }); 
+  }, []);
+
+  // 2. NOVO: Handler da Linha
+  const handleLineContextMenu = useCallback((e: React.MouseEvent, lineId: string) => {
+      e.preventDefault();
+      // Passamos o ID da linha para o menu saber o que mostrar
+      setSheetMenu({ x: e.clientX, y: e.clientY, lineId }); 
+  }, []);
+
+  
+  // Adiciona linha (calcula o centro da tela para posicionar)
+  const handleAddCropLineWrapper = useCallback(
+    (type: "horizontal" | "vertical") => {
+      const position =
+        type === "vertical" ? binSize.width / 2 : binSize.height / 2;
+      addCropLine(type, position);
+    },
+    [addCropLine, binSize]
+  );
+
+  // Exclui chapa (passando o setNestingResult necessário)
+  const handleDeleteSheetWrapper = useCallback(() => {
+    handleDeleteCurrentBin(nestingResult, setNestingResult);
+  }, [handleDeleteCurrentBin, nestingResult, setNestingResult]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -732,16 +781,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     [setNestingResult]
   );
 
-  // --- NOVA FUNÇÃO: ADICIONAR CHAPA VAZIA ---
-  const handleAddBin = useCallback(() => {
-    setTotalBins((prev) => {
-      const newTotal = prev + 1;
-      // Move o visualizador para a nova chapa criada imediatamente
-      setCurrentBinIndex(newTotal - 1);
-      return newTotal;
-    });
-  }, []);
-
   const handleCalculate = useCallback(() => {
     // 1. Filtra apenas as peças que NÃO estão na lista de desabilitadas
     const partsToNest = displayedParts.filter(
@@ -799,21 +838,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       rotationStep,
       direction,
     });
-  }, [
-    displayedParts,
-    quantities,
-    gap,
-    margin,
-    binSize,
-    strategy,
-    iterations,
-    rotationStep,
-    direction,
-    resetNestingResult,
-    nestingResult.length,
-    resetAllSaveStatus,
-    disabledNestingIds, // <--- ADICIONE ESTA LINHA
-  ]);
+  }, [displayedParts, nestingResult.length, resetNestingResult, setCurrentBinIndex, setTotalBins, resetAllSaveStatus, quantities, gap, margin, binSize.width, binSize.height, strategy, iterations, rotationStep, direction, disabledNestingIds]);
 
   const handleClearTable = useCallback(() => {
     if (
@@ -832,7 +857,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       resetProduction();
       resetAllSaveStatus();
     }
-  }, [resetNestingResult, resetProduction, resetAllSaveStatus]);
+  }, [
+    resetNestingResult,
+    resetProduction,
+    resetAllSaveStatus,
+    setTotalBins, // <--- Adicionado
+    setCurrentBinIndex, // <--- Adicionado
+    setParts, // <--- Adicionado
+  ]);
 
   const handleDBSearch = async () => {
     if (!searchQuery) return;
@@ -1851,7 +1883,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           )}
 
           <InteractiveCanvas
-            onCanvasDrop={handleExternalDrop} // <--- CONECTADO AQUI
             parts={displayedParts}
             placedParts={currentPlacedParts}
             binWidth={binSize.width}
@@ -1861,18 +1892,25 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             strategy={strategy}
             theme={theme}
             selectedPartIds={selectedPartIds}
-            onPartsMove={handlePartsMoveWithClear}
             collidingPartIds={collidingPartIds}
+            
+            // --- LINHAS NOVAS AQUI: ---
+            cropLines={cropLines}
+            onCropLineMove={moveCropLine}
+            onCropLineContextMenu={handleLineContextMenu} // <--- A linha que faltava
+            onBackgroundContextMenu={handleBackgroundContextMenu}
+            // --------------------------
+
+            onPartsMove={handlePartsMoveWithClear}
             onPartRotate={handlePartRotate}
             onPartSelect={handlePartSelect}
             onContextMenu={handlePartContextMenu}
             onPartReturn={handleReturnToBank}
-            // --- NOVAS PROPRIEDADES ADICIONADAS ---
             onUndo={undo}
             onRedo={redo}
             canUndo={canUndo}
             canRedo={canRedo}
-            // --------------------------------------
+            onCanvasDrop={handleExternalDrop}
           />
 
           {/* --- RODAPÉ FIXO (MODIFICADO) --- */}
@@ -2289,6 +2327,23 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 })}
               </div>
             )}
+            {/* ... (código existente do ContextControl das peças) ... */}
+
+            {/* <--- INSERIR ESTE BLOCO PARA O MENU DA CHAPA: */}
+            
+      {sheetMenu && (
+        <SheetContextMenu
+          x={sheetMenu.x}
+          y={sheetMenu.y}
+          targetLineId={sheetMenu.lineId} // Passa o ID se for uma linha
+          onDeleteLine={removeCropLine}   // Passa a função de deletar
+          onClose={() => setSheetMenu(null)}
+          onDeleteSheet={handleDeleteSheetWrapper}
+          onAddCropLine={handleAddCropLineWrapper}
+        />
+      )}
+      {/* -------------------------------------------------- */}
+
             {activeTab === "list" && (
               <div
                 style={{
