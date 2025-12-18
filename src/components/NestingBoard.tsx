@@ -514,26 +514,70 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     [nestingResult, currentBinIndex]
   );
 
-  // --- CÁLCULO DE APROVEITAMENTO (REAL/NET AREA) ---
-  const currentEfficiency = useMemo(() => {
-    // 1. Calcula a área líquida total das peças nesta chapa
+  // --- CÁLCULO DE APROVEITAMENTO DUPLO (REAL vs EFETIVO) ---
+  const currentEfficiencies = useMemo(() => {
+    // 1. Pega peças da chapa atual
     const partsInSheet = nestingResult.filter(
       (p) => p.binId === currentBinIndex
     );
-    if (partsInSheet.length === 0) return "0,0";
+    if (partsInSheet.length === 0) return { real: "0,0", effective: "0,0" };
 
-    const usedNetArea = partsInSheet.reduce((acc, placed) => {
+    // 2. FILTRO DE VALIDADE (Sem colisão e dentro da chapa)
+    const validParts = partsInSheet.filter((placed) => {
+      if (collidingPartIds.includes(placed.uuid)) return false;
+
       const original = displayedParts.find((dp) => dp.id === placed.partId);
-      // Prioriza netArea, fallback para grossArea se netArea não existir (segurança)
+      if (!original) return false;
+
+      const isRotated = Math.abs(placed.rotation) % 180 !== 0;
+      const currentW = isRotated ? original.height : original.width;
+      const currentH = isRotated ? original.width : original.height;
+
+      return (
+        placed.x >= 0 &&
+        placed.y >= 0 &&
+        placed.x + currentW <= binSize.width + 0.1 &&
+        placed.y + currentH <= binSize.height + 0.1
+      );
+    });
+
+    if (validParts.length === 0) return { real: "0,0", effective: "0,0" };
+
+    // 3. Soma das Áreas ÚTEIS
+    const usedNetArea = validParts.reduce((acc, placed) => {
+      const original = displayedParts.find((dp) => dp.id === placed.partId);
       return acc + (original ? original.netArea || original.grossArea : 0);
     }, 0);
 
+    // 4. Denominador 1: CUSTO (Área Total da Chapa)
     const totalBinArea = binSize.width * binSize.height;
-    // Calcula porcentagem e formata
-    return totalBinArea > 0
-      ? ((usedNetArea / totalBinArea) * 100).toFixed(1).replace(".", ",")
-      : "0,0";
-  }, [nestingResult, currentBinIndex, displayedParts, binSize]);
+
+    // 5. Denominador 2: DENSIDADE (Altura Máxima Usada)
+    let maxUsedY = 0;
+    validParts.forEach((placed) => {
+      const original = displayedParts.find((dp) => dp.id === placed.partId);
+      if (original) {
+        const isRotated = Math.abs(placed.rotation) % 180 !== 0;
+        const visualHeight = isRotated ? original.width : original.height;
+        const topY = placed.y + visualHeight;
+        if (topY > maxUsedY) maxUsedY = topY;
+      }
+    });
+    const effectiveBinArea = binSize.width * Math.max(maxUsedY, 1);
+
+    return {
+      real: ((usedNetArea / totalBinArea) * 100).toFixed(1).replace(".", ","),
+      effective: ((usedNetArea / effectiveBinArea) * 100)
+        .toFixed(1)
+        .replace(".", ","),
+    };
+  }, [
+    nestingResult,
+    currentBinIndex,
+    displayedParts,
+    binSize,
+    collidingPartIds,
+  ]);
 
   const activeSelectedPartIds = useMemo(() => {
     const ids = new Set<string>();
@@ -1852,27 +1896,51 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               Peças
             </span>
 
-            {/* CENTRO: Aproveitamento Líquido */}
-            <span
+            {/* CENTRO: Aproveitamento Duplo (Engenharia + PCP) */}
+            <div
               style={{
-                fontSize: "13px",
-                fontWeight: "bold",
-                color: theme.text,
-                marginLeft: "100px",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                marginLeft: "auto",
+                marginRight: "auto",
               }}
             >
-              Aproveitamento:{" "}
+              {/* 1. Indicador Principal: CUSTO REAL (Da Chapa Inteira) */}
               <span
                 style={{
-                  color:
-                    Number(currentEfficiency.replace(",", ".")) > 70
-                      ? "#28a745"
-                      : "inherit",
+                  fontSize: "14px",
+                  fontWeight: "bold",
+                  color: theme.text,
                 }}
               >
-                {currentEfficiency}%
+                Aprov. Real:{" "}
+                <span
+                  style={{
+                    color:
+                      Number(currentEfficiencies.real.replace(",", ".")) > 70
+                        ? "#28a745"
+                        : theme.text,
+                  }}
+                >
+                  {currentEfficiencies.real}%
+                </span>
               </span>
-            </span>
+
+              {/* 2. Indicador Secundário: DENSIDADE (Do Espaço Usado) */}
+              <span
+                style={{
+                  fontSize: "11px",
+                  color: theme.label,
+                  marginTop: "-2px",
+                }}
+              >
+                Densidade de Encaixe:{" "}
+                <span style={{ color: "#007bff" }}>
+                  {currentEfficiencies.effective}%
+                </span>
+              </span>
+            </div>
 
             {/* DIREITA: Status */}
             <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
