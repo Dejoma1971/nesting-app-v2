@@ -25,7 +25,6 @@ import { useNestingSaveStatus } from "../hooks/useNestingSaveStatus";
 import { useSheetManager } from "../hooks/useSheetManager";
 import { SheetContextMenu } from "./SheetContextMenu"; // <--- NOVO
 
-
 interface Size {
   width: number;
   height: number;
@@ -315,7 +314,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // --- 1. DEFINIÇÃO DE ESTADOS ---
   const [parts, setParts] = useState<ImportedPart[]>(initialParts);
   const [binSize, setBinSize] = useState<Size>({ width: 1200, height: 3000 });
-  const [sheetMenu, setSheetMenu] = useState<{ x: number; y: number; lineId?: string } | null>(null);
+  const [sheetMenu, setSheetMenu] = useState<{
+    x: number;
+    y: number;
+    lineId?: string;
+  } | null>(null);
 
   // INSERIR O HOOK AQUI:
   const {
@@ -329,7 +332,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     removeCropLine,
     handleDeleteCurrentBin,
     addCropLine,
-    
   } = useSheetManager({ initialBins: 1 });
 
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || "");
@@ -681,17 +683,19 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const handleBackgroundContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     // lineId undefined significa que clicou no fundo
-    setSheetMenu({ x: e.clientX, y: e.clientY, lineId: undefined }); 
+    setSheetMenu({ x: e.clientX, y: e.clientY, lineId: undefined });
   }, []);
 
   // 2. NOVO: Handler da Linha
-  const handleLineContextMenu = useCallback((e: React.MouseEvent, lineId: string) => {
+  const handleLineContextMenu = useCallback(
+    (e: React.MouseEvent, lineId: string) => {
       e.preventDefault();
       // Passamos o ID da linha para o menu saber o que mostrar
-      setSheetMenu({ x: e.clientX, y: e.clientY, lineId }); 
-  }, []);
+      setSheetMenu({ x: e.clientX, y: e.clientY, lineId });
+    },
+    []
+  );
 
-  
   // Adiciona linha (calcula o centro da tela para posicionar)
   const handleAddCropLineWrapper = useCallback(
     (type: "horizontal" | "vertical") => {
@@ -762,12 +766,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   );
 
   const handleSaveClick = async () => {
+    // Permitir salvar se tiver peças OU linhas de corte
     const partsInBin = nestingResult.filter((p) => p.binId === currentBinIndex);
-    if (partsInBin.length === 0) return;
+    if (partsInBin.length === 0 && cropLines.length === 0) return; // Só sai se estiver totalmente vazia
+
     await handleProductionDownload(
       nestingResult,
       currentBinIndex,
-      displayedParts
+      displayedParts,
+      cropLines // <--- ADICIONAR ESTA LINHA
     );
     markBinAsSaved(currentBinIndex);
   };
@@ -838,7 +845,24 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       rotationStep,
       direction,
     });
-  }, [displayedParts, nestingResult.length, resetNestingResult, setCurrentBinIndex, setTotalBins, resetAllSaveStatus, quantities, gap, margin, binSize.width, binSize.height, strategy, iterations, rotationStep, direction, disabledNestingIds]);
+  }, [
+    displayedParts,
+    nestingResult.length,
+    resetNestingResult,
+    setCurrentBinIndex,
+    setTotalBins,
+    resetAllSaveStatus,
+    quantities,
+    gap,
+    margin,
+    binSize.width,
+    binSize.height,
+    strategy,
+    iterations,
+    rotationStep,
+    direction,
+    disabledNestingIds,
+  ]);
 
   const handleClearTable = useCallback(() => {
     if (
@@ -1017,9 +1041,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         binWidth: binSize.width,
         binHeight: binSize.height,
         margin: margin,
+
+        // --- ADICIONE ESTA LINHA AQUI ---
+        cropLines: cropLines, // Envia as linhas atuais para o Worker
       });
     }
-  }, [currentPlacedParts, parts, binSize, margin]);
+
+    // --- ADICIONE cropLines NO ARRAY ABAIXO ---
+  }, [currentPlacedParts, parts, binSize, margin, cropLines]);
 
   const handlePartSelect = useCallback((ids: string[], append: boolean) => {
     setSelectedPartIds((prev) =>
@@ -1893,7 +1922,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             theme={theme}
             selectedPartIds={selectedPartIds}
             collidingPartIds={collidingPartIds}
-            
             // --- LINHAS NOVAS AQUI: ---
             cropLines={cropLines}
             onCropLineMove={moveCropLine}
@@ -2152,19 +2180,19 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                         labelState={labelStates}
                         onTogglePartFlag={togglePartFlag}
                       />
-
+                      
                       <div
                         style={{
                           position: "absolute",
                           top: 5,
-                          left: 5,
+                          left: 8,
                           zIndex: 1000, // Acima do card
                           background: "rgba(255,255,255,0.7)",
                           borderRadius: "4px",
                           padding: "2px",
                           display: "flex",
                           alignItems: "center",
-                          boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                          boxShadow: "0 1px 1px rgba(0,0,0,0.2)",
                         }}
                         onClick={(e) => e.stopPropagation()} // Impede que selecione a peça ao clicar no check
                         title="Incluir esta peça no cálculo automático?"
@@ -2184,8 +2212,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                           style={{
                             cursor: "pointer",
                             margin: 0,
-                            width: "14px",
-                            height: "14px",
+                            width: "16px",
+                            height: "16px",
                           }}
                         />
                       </div>
@@ -2330,19 +2358,19 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             {/* ... (código existente do ContextControl das peças) ... */}
 
             {/* <--- INSERIR ESTE BLOCO PARA O MENU DA CHAPA: */}
-            
-      {sheetMenu && (
-        <SheetContextMenu
-          x={sheetMenu.x}
-          y={sheetMenu.y}
-          targetLineId={sheetMenu.lineId} // Passa o ID se for uma linha
-          onDeleteLine={removeCropLine}   // Passa a função de deletar
-          onClose={() => setSheetMenu(null)}
-          onDeleteSheet={handleDeleteSheetWrapper}
-          onAddCropLine={handleAddCropLineWrapper}
-        />
-      )}
-      {/* -------------------------------------------------- */}
+
+            {sheetMenu && (
+              <SheetContextMenu
+                x={sheetMenu.x}
+                y={sheetMenu.y}
+                targetLineId={sheetMenu.lineId} // Passa o ID se for uma linha
+                onDeleteLine={removeCropLine} // Passa a função de deletar
+                onClose={() => setSheetMenu(null)}
+                onDeleteSheet={handleDeleteSheetWrapper}
+                onAddCropLine={handleAddCropLineWrapper}
+              />
+            )}
+            {/* -------------------------------------------------- */}
 
             {activeTab === "list" && (
               <div

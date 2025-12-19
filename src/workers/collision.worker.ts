@@ -38,12 +38,20 @@ interface PlacedPartData {
   rotation: number;
 }
 
+// --- NOVA INTERFACE PARA LINHAS DE RETALHO ---
+interface CropLine {
+  id: string;
+  type: "horizontal" | "vertical";
+  position: number;
+}
+
 interface WorkerData {
   placedParts: PlacedPartData[];
   partsData: PartData[];
   binWidth: number;
   binHeight: number;
   margin: number;
+  cropLines?: CropLine[]; // <--- ADICIONADO AQUI
 }
 
 // Estrutura para suportar Furos e Ilhas
@@ -82,9 +90,8 @@ const chainAllLoops = (segments: GeometrySegment[]): Point[][] => {
   let remaining = [...segments];
 
   while (remaining.length > 0) {
-    // Pega um segmento não usado para começar um novo loop
     const firstSeg = remaining.find((s) => !s.used);
-    if (!firstSeg) break; // Acabaram
+    if (!firstSeg) break;
 
     const currentLoop: Point[] = [];
     firstSeg.used = true;
@@ -95,7 +102,6 @@ const chainAllLoops = (segments: GeometrySegment[]): Point[][] => {
       finding = false;
       const tail = currentLoop[currentLoop.length - 1];
 
-      // Procura continuação apenas nos segmentos não usados
       for (const seg of remaining) {
         if (seg.used) continue;
 
@@ -125,8 +131,6 @@ const chainAllLoops = (segments: GeometrySegment[]): Point[][] => {
     if (currentLoop.length > 2) {
       loops.push(currentLoop);
     }
-
-    // Limpa processados da lista principal
     remaining = remaining.filter((s) => !s.used);
   }
 
@@ -142,7 +146,6 @@ const getPartGeometry = (
   const rawSegments: GeometrySegment[] = [];
   const CURVE_SEGMENTS = 24;
 
-  // 1. Extração dos Segmentos (Igual ao anterior)
   const traverse = (
     entities: EntityData[],
     offsetX: number,
@@ -258,10 +261,8 @@ const getPartGeometry = (
 
   if (part.entities) traverse(part.entities, 0, 0);
 
-  // 2. Costura de Múltiplos Loops
   const allLoops = chainAllLoops(rawSegments);
 
-  // Fallback se não achar nada
   if (allLoops.length === 0) {
     allLoops.push([
       { x: 0, y: 0 },
@@ -271,14 +272,11 @@ const getPartGeometry = (
     ]);
   }
 
-  // 3. Transformação (Rotação/Posição) para cada loop
-  // Precisamos primeiro achar o centro de rotação global (baseado na caixa de todos os loops)
   let minX = Infinity,
     minY = Infinity,
     maxX = -Infinity,
     maxY = -Infinity;
 
-  // Calcula bounds globais (considerando todos os loops)
   allLoops.forEach((loop) => {
     loop.forEach((p) => {
       if (p.x < minX) minX = p.x;
@@ -312,14 +310,10 @@ const getPartGeometry = (
     });
   });
 
-  // 4. Classificação: Quem é Borda e Quem é Furo?
-  // Heurística: O loop com maior área (ou maior caixa delimitadora) é o Externo. O resto são furos.
-
   let outerLoop: Point[] = transformedLoops[0];
   let holes: Point[][] = [];
 
   if (transformedLoops.length > 1) {
-    // Calcula "área" aproximada (diagonal da caixa) para encontrar o maior
     let maxDiag = -1;
     let outerIndex = 0;
 
@@ -342,13 +336,11 @@ const getPartGeometry = (
     });
 
     outerLoop = transformedLoops[outerIndex];
-    // Todos os outros são furos
     holes = transformedLoops.filter((_, idx) => idx !== outerIndex);
   } else {
     outerLoop = transformedLoops[0];
   }
 
-  // Recalcula bounds finais do Outer Loop para Broad Phase
   let fMinX = Infinity,
     fMinY = Infinity,
     fMaxX = -Infinity,
@@ -386,19 +378,14 @@ const isPointInPolygon = (p: Point, polygon: Point[]) => {
   return isInside;
 };
 
-// NOVA LÓGICA DE PONTO EM MATERIAL (Com furos)
 const isPointInMaterial = (p: Point, geom: PartGeometry) => {
-  // 1. Tem que estar dentro da borda externa
   if (!isPointInPolygon(p, geom.outer)) return false;
-
-  // 2. NÃO pode estar dentro de nenhum furo
   for (const hole of geom.holes) {
     if (isPointInPolygon(p, hole)) {
-      return false; // Caiu no buraco (Vazio) -> Sem colisão com material
+      return false;
     }
   }
-
-  return true; // Está na massa da peça
+  return true;
 };
 
 const doLineSegmentsIntersect = (
@@ -425,10 +412,10 @@ const doLineSegmentsIntersect = (
 // --- LÓGICA PRINCIPAL DO WORKER ---
 
 self.onmessage = (e: MessageEvent<WorkerData>) => {
-  const { placedParts, partsData, binWidth, binHeight, margin } = e.data;
+  const { placedParts, partsData, binWidth, binHeight, margin, cropLines } =
+    e.data;
   const collidingIds: string[] = [];
 
-  // Cache de Geometrias Processadas
   const geometries = new Map<string, PartGeometry>();
 
   // 1. PREPARAÇÃO
@@ -440,7 +427,7 @@ self.onmessage = (e: MessageEvent<WorkerData>) => {
     }
   });
 
-  // 2. CHECK DE FRONTEIRA
+  // 2. CHECK DE FRONTEIRA (MESA)
   const minSafeX = margin;
   const maxSafeX = binWidth - margin;
   const minSafeY = margin;
@@ -456,28 +443,78 @@ self.onmessage = (e: MessageEvent<WorkerData>) => {
       geom.bounds.minY >= minSafeY &&
       geom.bounds.maxY <= maxSafeY
     ) {
-      return;
-    }
-
-    // Verifica apenas o contorno externo contra a mesa
-    for (const p of geom.outer) {
-      if (
-        p.x < minSafeX - 0.01 ||
-        p.x > maxSafeX + 0.01 ||
-        p.y < minSafeY - 0.01 ||
-        p.y > maxSafeY + 0.01
-      ) {
-        if (!collidingIds.includes(placed.uuid)) collidingIds.push(placed.uuid);
-        break;
+      // Se a caixa inteira está dentro, não verifica vértices
+    } else {
+      // Verifica apenas o contorno externo contra a mesa
+      for (const p of geom.outer) {
+        if (
+          p.x < minSafeX - 0.01 ||
+          p.x > maxSafeX + 0.01 ||
+          p.y < minSafeY - 0.01 ||
+          p.y > maxSafeY + 0.01
+        ) {
+          if (!collidingIds.includes(placed.uuid))
+            collidingIds.push(placed.uuid);
+          break;
+        }
       }
     }
   });
+
+  // --- 2.1 CHECK DE LINHAS DE RETALHO (NOVO) ---
+  if (cropLines && cropLines.length > 0) {
+    placedParts.forEach((placed) => {
+      // Se já colidiu (ex: fora da mesa), pula para economizar
+      if (collidingIds.includes(placed.uuid)) return;
+
+      const geom = geometries.get(placed.uuid);
+      if (!geom) return;
+
+      for (const line of cropLines) {
+        let q1: Point, q2: Point;
+
+        // Define o segmento da linha de retalho
+        if (line.type === "vertical") {
+          q1 = { x: line.position, y: 0 };
+          q2 = { x: line.position, y: binHeight };
+        } else {
+          q1 = { x: 0, y: line.position };
+          q2 = { x: binWidth, y: line.position };
+        }
+
+        // Verifica intersecção com todas as arestas da peça (externo e furos)
+        const allLoops = [geom.outer, ...geom.holes];
+        let hitLine = false;
+
+        loopCheck: for (const loop of allLoops) {
+          for (let k = 0; k < loop.length; k++) {
+            const p1 = loop[k];
+            const p2 = loop[(k + 1) % loop.length];
+
+            if (doLineSegmentsIntersect(p1, p2, q1, q2)) {
+              hitLine = true;
+              break loopCheck;
+            }
+          }
+        }
+
+        if (hitLine) {
+          collidingIds.push(placed.uuid);
+          break; // Se bateu em uma linha, já é colisão
+        }
+      }
+    });
+  }
 
   // 3. CHECK PEÇA x PEÇA
   for (let i = 0; i < placedParts.length; i++) {
     for (let j = i + 1; j < placedParts.length; j++) {
       const pA = placedParts[i];
       const pB = placedParts[j];
+
+      // Se ambos já estão colidindo (ex: fora da mesa ou na linha), não precisa testar entre si
+      if (collidingIds.includes(pA.uuid) && collidingIds.includes(pB.uuid))
+        continue;
 
       const geomA = geometries.get(pA.uuid);
       const geomB = geometries.get(pB.uuid);
@@ -498,8 +535,6 @@ self.onmessage = (e: MessageEvent<WorkerData>) => {
       let collision = false;
 
       // TESTE 1: Interseção de Arestas
-      // Agora temos que testar TODAS as arestas de A (externas e furos)
-      // contra TODAS as arestas de B (externas e furos)
       const allLoopsA = [geomA.outer, ...geomA.holes];
       const allLoopsB = [geomB.outer, ...geomB.holes];
 
@@ -524,15 +559,10 @@ self.onmessage = (e: MessageEvent<WorkerData>) => {
 
       // TESTE 2: Inclusão (Um dentro do outro sem tocar bordas)
       if (!collision) {
-        // Testa um ponto arbitrário de A (o primeiro do externo) para ver se está na massa de B
-        // E vice-versa.
-
-        // Pega ponto válido de A (primeiro vértice do contorno externo)
         const sampleA = geomA.outer[0];
         if (isPointInMaterial(sampleA, geomB)) {
           collision = true;
         } else {
-          // Pega ponto válido de B
           const sampleB = geomB.outer[0];
           if (isPointInMaterial(sampleB, geomA)) {
             collision = true;

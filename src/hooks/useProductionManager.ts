@@ -3,6 +3,7 @@ import { useState, useCallback } from 'react';
 import type { ImportedPart } from '../components/types';
 import type { PlacedPart } from '../utils/nestingCore';
 import { generateDxfContent } from '../utils/dxfWriter';
+import type { CropLine } from '../hooks/useSheetManager'; // <--- IMPORTADO
 
 interface ProductionState {
   producedQuantities: Record<string, number>; // ID -> Qtd acumulada na sessão
@@ -29,7 +30,8 @@ export const useProductionManager = (
   const handleProductionDownload = useCallback(async (
     nestingResult: PlacedPart[],
     currentBinIndex: number,
-    displayedParts: ImportedPart[]
+    displayedParts: ImportedPart[],
+    cropLines: CropLine[] = [] // <--- NOVO PARÂMETRO (Opcional para compatibilidade)
   ) => {
     // 1. Validação se já foi baixado
     if (state.lockedBins.includes(currentBinIndex)) {
@@ -39,7 +41,7 @@ export const useProductionManager = (
     }
 
     const currentBinParts = nestingResult.filter(p => p.binId === currentBinIndex);
-    if (currentBinParts.length === 0) {
+    if (currentBinParts.length === 0 && cropLines.length === 0) { // Permite salvar se tiver apenas linhas de corte
       alert("Esta chapa está vazia.");
       return;
     }
@@ -60,19 +62,19 @@ export const useProductionManager = (
     });
 
     const totalBinArea = binSize.width * binSize.height;
-    // Evita divisão por zero e formata para 2 casas decimais (ex: 85.50)
     const efficiency = totalBinArea > 0 ? Number(((usedArea / totalBinArea) * 100).toFixed(2)) : 0;
 
     // 3. Montar Mensagem de Confirmação
     let confirmMessage = `Confirma a produção desta chapa?\n`;
-    confirmMessage += `📊 Aproveitamento: ${efficiency}%\n\n`;
+    confirmMessage += `📊 Aproveitamento: ${efficiency}%\n`;
+    if (cropLines.length > 0) confirmMessage += `✂️ Linhas de Retalho: ${cropLines.length}\n\n`;
+    else confirmMessage += `\n`;
     
     Object.entries(partsCount).forEach(([pId, qty]) => {
       const partName = displayedParts.find(dp => dp.id === pId)?.name || "Item";
       confirmMessage += `- ${partName}: ${qty} un.\n`;
     });
 
-    // Só pede confirmação e salva no banco se for a primeira vez
     const isFirstTime = !state.lockedBins.includes(currentBinIndex);
 
     if (isFirstTime) {
@@ -80,8 +82,14 @@ export const useProductionManager = (
         if (!confirm) return;
     }
 
-    // 4. Preparar Arquivo DXF
-    const dxfString = generateDxfContent(currentBinParts, displayedParts, binSize);
+    // 4. Preparar Arquivo DXF (PASSANDO AS LINHAS AQUI)
+    const dxfString = generateDxfContent(
+        currentBinParts, 
+        displayedParts, 
+        binSize, 
+        cropLines // <--- INTEGRADO AQUI
+    );
+    
     const blob = new Blob([dxfString], { type: "application/dxf" });
     const suggestedName = `Nesting_Chapa_${currentBinIndex + 1}_${new Date().toISOString().slice(0, 10)}.dxf`;
 
@@ -99,27 +107,28 @@ export const useProductionManager = (
       }
     }
 
-    // 6. Enviar para o Banco (Apenas se for primeira vez)
+    // 6. Enviar para o Banco
     setState(prev => ({ ...prev, isSaving: true }));
 
     try {
       if (isFirstTime) {
-          // Prepara o payload para a nova rota
           const itensPayload = Object.entries(partsCount).map(([id, qtd]) => ({ id, qtd }));
           
-          const response = await fetch('http://localhost:3001/api/producao/registrar', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                chapaIndex: currentBinIndex,
-                aproveitamento: efficiency,
-                itens: itensPayload
-            })
-          });
+          // Se tiver peças, registra. Se for só chapa de retalho, talvez não precise registrar produção, mas o código aceita array vazio.
+          if (itensPayload.length > 0) {
+              const response = await fetch('http://localhost:3001/api/producao/registrar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    chapaIndex: currentBinIndex,
+                    aproveitamento: efficiency,
+                    itens: itensPayload
+                })
+              });
 
-          if (!response.ok) throw new Error("Erro ao registrar no banco.");
+              if (!response.ok) throw new Error("Erro ao registrar no banco.");
+          }
           
-          // Sucesso: Atualiza estado local
           setState(prev => {
             const newQuantities = { ...prev.producedQuantities };
             Object.entries(partsCount).forEach(([id, qty]) => {
@@ -140,7 +149,6 @@ export const useProductionManager = (
         await writable.close();
         alert("✅ Produção Registrada e Arquivo Salvo!");
       } else {
-        // Fallback Download
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url; a.download = suggestedName;
@@ -156,7 +164,6 @@ export const useProductionManager = (
       setState(prev => ({ ...prev, isSaving: false }));
     }
 
-  // CORREÇÃO AQUI EMBAIXO: removido state.producedQuantities
   }, [binSize, state.lockedBins]); 
 
   const resetProduction = useCallback(() => {

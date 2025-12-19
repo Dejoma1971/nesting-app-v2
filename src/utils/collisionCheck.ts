@@ -1,6 +1,13 @@
 import type { ImportedPart } from "../components/types";
 import type { PlacedPart } from "./nestingCore";
 
+// Adicionei a definição simples da CropLine aqui para não depender de imports circulares
+interface CropLine {
+    id: string;
+    type: 'horizontal' | 'vertical';
+    position: number;
+}
+
 const toRad = (deg: number) => (deg * Math.PI) / 180;
 
 interface Point { x: number; y: number; }
@@ -18,7 +25,7 @@ const getTransformedPolygon = (part: ImportedPart, placed: PlacedPart): Point[] 
         else if (ent.type === 'CIRCLE' || ent.type === 'ARC') {
              const r = ent.radius;
              const c = ent.center;
-             // Cria um quadrado envolvente simples para o círculo
+             // Cria um quadrado envolvente simples para o círculo para simplificar colisão
              points.push({ x: c.x - r, y: c.y - r });
              points.push({ x: c.x + r, y: c.y + r });
              points.push({ x: c.x - r, y: c.y + r });
@@ -100,13 +107,13 @@ const doLineSegmentsIntersect = (p1: Point, p2: Point, q1: Point, q2: Point): bo
 };
 
 // --- FUNÇÃO PRINCIPAL ---
-// Agora aceita dimensões da mesa e margem
 export const detectCollisions = (
     placedParts: PlacedPart[], 
     partsData: ImportedPart[],
     binWidth: number,
     binHeight: number,
-    margin: number
+    margin: number,
+    cropLines: CropLine[] = [] // <--- NOVO PARÂMETRO
 ): string[] => {
     
     const collidingIds: string[] = [];
@@ -120,8 +127,7 @@ export const detectCollisions = (
         }
     });
 
-    // --- 1. VERIFICAÇÃO DE FRONTEIRA (NOVO) ---
-    // Verifica se a peça sai da área de corte (Width/Height - Margem)
+    // --- 1. VERIFICAÇÃO DE FRONTEIRA (MARGENS DA CHAPA) ---
     const minSafeX = margin;
     const maxSafeX = binWidth - margin;
     const minSafeY = margin;
@@ -133,10 +139,7 @@ export const detectCollisions = (
 
         let isOutOfBounds = false;
         
-        // Verifica cada vértice do polígono da peça
         for (const p of poly) {
-            // Se o ponto for menor que a margem esquerda/inferior
-            // OU maior que a margem direita/superior
             // Tolerância pequena (0.01) para erros de float
             if (p.x < minSafeX - 0.01 || p.x > maxSafeX + 0.01 || 
                 p.y < minSafeY - 0.01 || p.y > maxSafeY + 0.01) {
@@ -150,13 +153,55 @@ export const detectCollisions = (
         }
     });
 
-    // --- 2. VERIFICAÇÃO PEÇA X PEÇA (EXISTENTE) ---
+    // --- 2. VERIFICAÇÃO DE LINHAS DE RETALHO (CROP LINES) ---
+    // Verifica se alguma aresta da peça cruza uma linha de retalho
+    if (cropLines.length > 0) {
+        placedParts.forEach(placed => {
+            // Se já está colidindo (ex: fora da mesa), pula para economizar processamento
+            if (collidingIds.includes(placed.uuid)) return;
+
+            const poly = partPolygons.get(placed.uuid);
+            if (!poly) return;
+
+            let hitsLine = false;
+
+            for (const line of cropLines) {
+                // Define os pontos inicial e final da linha de retalho
+                let q1: Point, q2: Point;
+
+                if (line.type === 'vertical') {
+                    q1 = { x: line.position, y: 0 };
+                    q2 = { x: line.position, y: binHeight };
+                } else {
+                    q1 = { x: 0, y: line.position };
+                    q2 = { x: binWidth, y: line.position };
+                }
+
+                // Verifica intersecção com cada aresta do polígono da peça
+                for (let k = 0; k < poly.length; k++) {
+                    const p1 = poly[k];
+                    const p2 = poly[(k + 1) % poly.length]; // Ponto seguinte (fecha o loop)
+
+                    if (doLineSegmentsIntersect(p1, p2, q1, q2)) {
+                        hitsLine = true;
+                        break;
+                    }
+                }
+                if (hitsLine) break;
+            }
+
+            if (hitsLine) {
+                if (!collidingIds.includes(placed.uuid)) collidingIds.push(placed.uuid);
+            }
+        });
+    }
+
+    // --- 3. VERIFICAÇÃO PEÇA X PEÇA ---
     for (let i = 0; i < placedParts.length; i++) {
         for (let j = i + 1; j < placedParts.length; j++) {
             const pA = placedParts[i];
             const pB = placedParts[j];
             
-            // Se ambos já estão marcados como colisão (por estarem fora da mesa), não precisa testar intersecção pesada
             if (collidingIds.includes(pA.uuid) && collidingIds.includes(pB.uuid)) continue;
 
             const polyA = partPolygons.get(pA.uuid);
@@ -176,7 +221,7 @@ export const detectCollisions = (
             if (boxA.maxX < boxB.minX || boxA.minX > boxB.maxX || boxA.maxY < boxB.minY || boxA.minY > boxB.maxY) {
                 collision = false;
             } else {
-                // SAT/Interseção
+                // SAT/Interseção detalhada
                 for (let a = 0; a < polyA.length; a++) {
                     const p1 = polyA[a]; const p2 = polyA[(a + 1) % polyA.length];
                     for (let b = 0; b < polyB.length; b++) {
