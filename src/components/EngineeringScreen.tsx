@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import DxfParser from 'dxf-parser';
 import type { ImportedPart } from './types';
+import { useAuth } from '../context/AuthContext'; // <--- IMPORTANTE: Importamos o AuthContext
 import { 
     calculateBoundingBox, 
     flattenGeometry, 
@@ -166,6 +167,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
     parts, 
     setParts 
 }) => {
+  const { user } = useAuth(); // <--- Hook de Autenticação
+  
   const [loading, setLoading] = useState(false);
   const [processingMsg, setProcessingMsg] = useState('');
   
@@ -283,7 +286,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
       }));
   };
 
- // --- FUNÇÃO DE SALVAR NO BANCO (SIMPLIFICADA - SEM VALIDAÇÃO DE ABERTURA) ---
+  // --- FUNÇÃO DE SALVAR NO BANCO (ATUALIZADA COM TOKEN) ---
   const savePartsToDB = async (silent: boolean = false): Promise<boolean> => {
       // 1. Validação básica de lista vazia
       if (parts.length === 0) {
@@ -291,29 +294,38 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
           return false;
       }
       
-      // 2. Validação estrutural (Blocos): Importante manter para garantir integridade do DXF
+      // 2. Validação de Segurança (Login)
+      if (!user || !user.token) {
+          alert("Erro de Segurança: Você precisa estar logado para salvar no banco.");
+          return false;
+      }
+
+      // 3. Validação estrutural (Blocos)
       const nonBlocks = parts.filter(p => p.entities.length > 1);
       if (nonBlocks.length > 0) {
           alert(`ATENÇÃO: Existem ${nonBlocks.length} peças que ainda não são Blocos.\n\nPor favor, clique em "📦 Insert/Block" antes de enviar.`);
           return false;
       }
 
-      // 3. Preparação para salvar
+      // 4. Preparação para salvar
       setLoading(true);
       if (!silent) setProcessingMsg("Salvando no Banco de Dados...");
 
       try {
           const response = await fetch('http://localhost:3001/api/pecas', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(parts) // Envia as peças diretamente, sem alterações
+              headers: { 
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${user.token}` // <--- Token enviado aqui!
+              },
+              body: JSON.stringify(parts)
           });
           
           const data = await response.json();
           
           if (response.ok) {
               console.log("Resposta do Servidor:", data);
-              if (!silent) alert(`✅ SUCESSO!\n\n${data.count || parts.length} peças foram gravadas.`);
+              if (!silent) alert(`✅ SUCESSO!\n\n${data.count || parts.length} peças foram gravadas na conta de ${user.name}.`);
               return true;
           } else {
               throw new Error(data.error || "Erro desconhecido no servidor");
@@ -339,7 +351,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
           const searchString = uniqueOrders.join(', ');
           onSendToNesting(parts, searchString);
       } 
-      // Se savePartsToDB retornou false, já exibiu alerta ou bloqueio, então não fazemos nada.
   };
 
   const handleGoToNestingEmpty = () => {

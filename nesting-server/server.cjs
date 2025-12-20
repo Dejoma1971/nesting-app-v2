@@ -1,99 +1,87 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const db = require("./db.cjs"); // Importando a conexão configurada
+const db = require("./db.cjs");
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 
-// 1. Configurações
-app.use(cors()); // Permite que o React acesse o servidor
-app.use(express.json({ limit: "50mb" })); // Aumenta limite para suportar desenhos grandes
+// 1. CONFIGURAÇÕES
+app.use(cors());
+app.use(express.json({ limit: "50mb" }));
 
-// 2. Rota de Teste (Para saber se está vivo)
-app.get("/", (req, res) => {
-  res.send("Servidor Nesting Online e Conectado! 🚀");
-});
+const JWT_SECRET = process.env.JWT_SECRET || 'segredo-super-secreto-do-nesting-app';
 
-// 3. Rota de Cadastro de Peças (O Coração do Sistema)
-app.post("/api/pecas", async (req, res) => {
-  const parts = req.body; // O array de peças que vem do React
+// --- MIDDLEWARE DE AUTENTICAÇÃO (O PORTEIRO) ---
+// Essa função verifica se o usuário mandou o token correto antes de deixar entrar na rota
+function authenticateToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    // O token vem no formato "Bearer KJHKSJDH...", então pegamos a segunda parte
+    const token = authHeader && authHeader.split(' ')[1];
 
-  // Validação básica
-  if (!Array.isArray(parts) || parts.length === 0) {
-    return res.status(400).json({ error: "Lista de peças vazia ou inválida." });
-  }
+    if (!token) return res.status(401).json({ error: 'Acesso negado. Faça login.' });
 
-  console.log(`📥 Recebendo lote com ${parts.length} peças...`);
-
-  // --- ALTERAÇÃO 1: Adicionado campo 'quantidade' e ajustado 'status' ---
-  const sql = `
-    INSERT INTO pecas_engenharia 
-    (id, nome_arquivo, pedido, op, material, espessura, autor, quantidade, cliente, largura, altura, area_bruta, geometria, blocos_def, status)
-    VALUES ?
-  `;
-
-  // --- ALTERAÇÃO 2: Mapeando p.quantity ---
-  const values = parts.map((p) => [
-    p.id,
-    p.name,
-    p.pedido || null,
-    p.op || null,
-    p.material,
-    p.espessura,
-    p.autor || null,
-    p.quantity || 1, // <--- AQUI: Pega a quantidade enviada ou define 1
-    p.cliente || null,
-    p.width,
-    p.height,
-    p.grossArea,
-    JSON.stringify(p.entities),
-    JSON.stringify(p.blocks || {}),
-    "AGUARDANDO", // <--- AQUI: Status atualizado conforme banco de dados
-  ]);
-
-  try {
-    // Executa a inserção de todas as linhas de uma vez
-    const [result] = await db.query(sql, [values]);
-
-    console.log(
-      `✅ Sucesso! ${result.affectedRows} peças foram gravadas no banco.`
-    );
-
-    res.status(201).json({
-      message: "Lote salvo com sucesso!",
-      count: result.affectedRows,
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) return res.status(403).json({ error: 'Token inválido ou expirado.' });
+        req.user = user; // Salva os dados do usuário dentro da requisição
+        next(); // Pode passar!
     });
-  } catch (error) {
-    console.error("❌ Erro fatal ao salvar no MySQL:", error);
-    res
-      .status(500)
-      .json({ error: "Erro interno ao salvar dados.", details: error.message });
-  }
+}
+
+// ==========================================================
+// 2. ROTAS
+// ==========================================================
+
+// Rota de Login (Não precisa de token para entrar nela)
+app.post('/api/login', async (req, res) => {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: 'Dados incompletos.' });
+
+    try {
+        const [rows] = await db.execute(
+            'SELECT id, nome, email, senha_hash, plano FROM usuarios WHERE email = ? AND status = "ativo"', 
+            [email]
+        );
+        const user = rows[0];
+
+        if (!user || !(await bcrypt.compare(password, user.senha_hash))) {
+            return res.status(401).json({ error: 'Credenciais inválidas.' });
+        }
+
+        const token = jwt.sign({ id: user.id, plano: user.plano }, JWT_SECRET, { expiresIn: '24h' });
+
+        res.json({
+            user: { id: user.id, name: user.nome, email: user.email, plan: user.plano },
+            token
+        });
+    } catch (error) {
+        console.error('Erro login:', error);
+        res.status(500).json({ error: 'Erro interno.' });
+    }
 });
 
-// --- Rota de Busca de Peças por Pedido (Suporta múltiplos: "1001,1002") ---
-app.get('/api/pecas/buscar', async (req, res) => {
+// --- Rota de Busca de Peças (AGORA BLINDADA 🔒) ---
+app.get('/api/pecas/buscar', authenticateToken, async (req, res) => {
   const { pedido } = req.query;
+  const usuarioId = req.user.id; // Pegamos o ID do token seguro
 
   if (!pedido) {
-    return res.status(400).json({ error: 'Por favor, forneça o número do pedido.' });
+    return res.status(400).json({ error: 'Forneça o número do pedido.' });
   }
 
-  // Tratamento para múltiplos pedidos (ex: "35905, 35906")
-  // Transforma "35905, 35906" em um array ['35905', '35906']
   const pedidosArray = pedido.split(',').map(p => p.trim()).filter(Boolean);
-
-  console.log(`🔎 Buscando peças dos pedidos: ${pedidosArray.join(', ')}...`);
+  console.log(`🔎 Usuário ${req.user.name} buscando pedidos: ${pedidosArray.join(', ')}...`);
 
   try {
-    // Usamos "IN (?)" e passamos o array. A biblioteca mysql2 trata isso automaticamente.
-    // IMPORTANTE: removemos o ORDER BY para evitar o erro de memória com JSONs grandes
-    const sql = `SELECT * FROM pecas_engenharia WHERE pedido IN (?)`;
+    // AQUI ESTÁ A SEGURANÇA: Adicionamos "AND usuario_id = ?"
+    const sql = `SELECT * FROM pecas_engenharia WHERE pedido IN (?) AND usuario_id = ?`;
     
-    const [rows] = await db.query(sql, [pedidosArray]);
+    // Passamos o array de pedidos E o ID do usuário como parâmetros
+    const [rows] = await db.query(sql, [pedidosArray, usuarioId]);
 
     if (rows.length === 0) {
-      return res.status(404).json({ message: 'Nenhuma peça encontrada para estes pedidos.' });
+      return res.status(404).json({ message: 'Nenhuma peça encontrada (ou você não tem permissão).' });
     }
 
     const formattedParts = rows.map(row => ({
@@ -109,122 +97,59 @@ app.get('/api/pecas/buscar', async (req, res) => {
       width: Number(row.largura),
       height: Number(row.altura),
       grossArea: Number(row.area_bruta),
-      // Validação de JSON seguro
       entities: (typeof row.geometria === 'string') ? JSON.parse(row.geometria) : row.geometria,
       blocks: (typeof row.blocos_def === 'string') ? JSON.parse(row.blocos_def) : (row.blocos_def || {}),
       dataCadastro: row.data_cadastro
     }));
-
-    console.log(`✅ Encontradas ${formattedParts.length} peças.`);
+    
+    console.log(`✅ ${formattedParts.length} peças encontradas para este usuário.`);
     res.json(formattedParts);
 
   } catch (error) {
     console.error('❌ Erro na busca:', error);
-    res.status(500).json({ error: 'Erro ao buscar dados.', details: error.message });
+    res.status(500).json({ error: 'Erro ao buscar.', details: error.message });
   }
 });
 
-// --- Rota para Atualizar Status (Ex: Baixa de Produção) ---
-app.put('/api/pecas/status', async (req, res) => {
-  const { ids, status } = req.body;
-
-  if (!ids || !Array.isArray(ids) || ids.length === 0) {
-    return res.status(400).json({ error: 'Lista de IDs inválida.' });
-  }
-  if (!status) {
-    return res.status(400).json({ error: 'Status não fornecido.' });
-  }
-
-  console.log(`🔄 Atualizando ${ids.length} peças para status: '${status}'...`);
-
-  try {
-    // Atualiza apenas as peças cujos IDs foram passados
-    const sql = `UPDATE pecas_engenharia SET status = ? WHERE id IN (?)`;
+// Busca (Pública ou Privada? Por enquanto pública, mas ideal proteger depois)
+app.get('/api/pecas/buscar', async (req, res) => {
+    // ... (Mantenha o código de busca que você já tem, ele está funcionando)
+    // Se quiser proteger também, adicione authenticateToken e filtre por usuario_id na query SQL
+    const { pedido } = req.query;
+    if (!pedido) return res.status(400).json({ error: 'Falta pedido.' });
     
-    // O mysql2 aceita arrays diretamente no placeholder (?) para cláusulas IN
-    const [result] = await db.query(sql, [status, ids]);
-
-    console.log(`✅ Status atualizado! Linhas afetadas: ${result.affectedRows}`);
+    const pedidosArray = pedido.split(',').map(p => p.trim()).filter(Boolean);
     
-    res.json({ 
-        message: 'Status atualizado com sucesso.', 
-        updatedCount: result.affectedRows 
-    });
-
-  } catch (error) {
-    console.error('❌ Erro ao atualizar status:', error);
-    res.status(500).json({ error: 'Erro interno ao atualizar status.', details: error.message });
-  }
-});
-
-// --- Rota de Registro de Produção (Caminho B) ---
-app.post('/api/producao/registrar', async (req, res) => {
-  const { itens, chapaIndex, aproveitamento } = req.body;
-  // itens espera: [{ id: 'uuid', qtd: 5 }, { id: 'uuid2', qtd: 1 }]
-
-  if (!itens || !Array.isArray(itens) || itens.length === 0) {
-    return res.status(400).json({ error: 'Nenhum item para registrar.' });
-  }
-
-  const connection = await db.getConnection(); // Pega conexão para transação
-
-  try {
-    await connection.beginTransaction();
-
-    console.log(`🏭 Registrando produção da Chapa ${chapaIndex + 1} (Eficiência: ${aproveitamento}%)...`);
-
-    for (const item of itens) {
-      // 1. Inserir no Histórico
-      await connection.query(
-        `INSERT INTO historico_producao (id_peca, quantidade_produzida, numero_chapa, aproveitamento) VALUES (?, ?, ?, ?)`,
-        [item.id, item.qtd, chapaIndex + 1, aproveitamento]
-      );
-
-      // 2. Verificar Totais para Atualizar Status
-      // Soma tudo que já foi feito dessa peça (histórico)
-      const [histRows] = await connection.query(
-        `SELECT SUM(quantidade_produzida) as total_feito FROM historico_producao WHERE id_peca = ?`,
-        [item.id]
-      );
-      const totalFeito = histRows[0].total_feito || 0;
-
-      // Pega a meta original
-      const [pecaRows] = await connection.query(
-        `SELECT quantidade FROM pecas_engenharia WHERE id = ?`,
-        [item.id]
-      );
-      
-      if (pecaRows.length > 0) {
-        const meta = pecaRows[0].quantidade;
-        let novoStatus = 'EM PRODUCAO';
+    try {
+        const sql = `SELECT * FROM pecas_engenharia WHERE pedido IN (?)`;
+        const [rows] = await db.query(sql, [pedidosArray]);
         
-        if (totalFeito >= meta) {
-          novoStatus = 'CONCLUIDO';
-        }
-
-        // Atualiza o status na tabela pai
-        await connection.query(
-          `UPDATE pecas_engenharia SET status = ? WHERE id = ?`,
-          [novoStatus, item.id]
-        );
-      }
+        const formattedParts = rows.map(row => ({
+            id: row.id,
+            name: row.nome_arquivo,
+            pedido: row.pedido,
+            op: row.op,
+            material: row.material,
+            espessura: row.espessura,
+            autor: row.autor,
+            quantity: row.quantidade,
+            cliente: row.cliente,
+            width: Number(row.largura),
+            height: Number(row.altura),
+            grossArea: Number(row.area_bruta),
+            entities: (typeof row.geometria === 'string') ? JSON.parse(row.geometria) : row.geometria,
+            blocks: (typeof row.blocos_def === 'string') ? JSON.parse(row.blocos_def) : (row.blocos_def || {}),
+            dataCadastro: row.data_cadastro
+        }));
+        res.json(formattedParts);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-
-    await connection.commit();
-    console.log("✅ Produção registrada e status atualizados.");
-    res.json({ message: 'Produção registrada com sucesso!' });
-
-  } catch (error) {
-    await connection.rollback();
-    console.error("❌ Erro ao registrar produção:", error);
-    res.status(500).json({ error: 'Erro ao processar produção.', details: error.message });
-  } finally {
-    connection.release();
-  }
 });
 
-// 4. Iniciar Servidor
+// ... (Mantenha as outras rotas de status e produção como estavam)
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log(`🔥 Servidor rodando na porta ${PORT}`);
+  console.log(`🔥 Servidor Seguro rodando na porta ${PORT}`);
 });
