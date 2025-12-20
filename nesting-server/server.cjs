@@ -36,26 +36,37 @@ function authenticateToken(req, res, next) {
 // 2. ROTAS
 // ==========================================================
 
-// Rota de Login (Não precisa de token para entrar nela)
+// --- ROTA DE LOGIN ATUALIZADA (Global & Multi-Tenant) ---
 app.post("/api/login", async (req, res) => {
   const { email, password } = req.body;
+
   if (!email || !password)
     return res.status(400).json({ error: "Dados incompletos." });
 
   try {
+    // Agora buscamos também o empresa_id e o cargo
     const [rows] = await db.execute(
-      'SELECT id, nome, email, senha_hash, plano FROM usuarios WHERE email = ? AND status = "ativo"',
+      'SELECT id, nome, email, senha_hash, plano, empresa_id, cargo FROM usuarios WHERE email = ? AND status = "ativo"',
       [email]
     );
+
     const user = rows[0];
 
     if (!user || !(await bcrypt.compare(password, user.senha_hash))) {
       return res.status(401).json({ error: "Credenciais inválidas." });
     }
 
-    const token = jwt.sign({ id: user.id, plano: user.plano }, JWT_SECRET, {
-      expiresIn: "24h",
-    });
+    // --- MUDANÇA CRUCIAL: O Token carrega a identidade da EMPRESA ---
+    const token = jwt.sign(
+      {
+        id: user.id,
+        empresa_id: user.empresa_id, // <--- Isso permite o compartilhamento
+        plano: user.plano,
+        cargo: user.cargo,
+      },
+      JWT_SECRET,
+      { expiresIn: "24h" }
+    );
 
     res.json({
       user: {
@@ -63,6 +74,8 @@ app.post("/api/login", async (req, res) => {
         name: user.nome,
         email: user.email,
         plan: user.plano,
+        empresa_id: user.empresa_id, // Front pode precisar saber
+        role: user.cargo,
       },
       token,
     });
@@ -72,83 +85,67 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
-// --- Rota de Busca de Peças (AGORA SEGURA 🔒) ---
-// 1. Adicionamos 'authenticateToken' aqui para garantir que temos o usuário
-app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
-  const { pedido } = req.query;
-  const usuarioId = req.user.id; // <--- Pegamos o ID de quem está logado
+// --- SALVAR PEÇAS (Compartilhado na Empresa) ---
+app.post("/api/pecas", authenticateToken, async (req, res) => {
+  const parts = req.body;
+  const usuarioId = req.user.id; // Quem fez (Auditoria)
+  const empresaId = req.user.empresa_id; // Quem é o dono (A Empresa)
 
-  if (!pedido) {
+  if (!Array.isArray(parts) || parts.length === 0)
+    return res.status(400).json({ error: "Lista vazia." });
+
+  // Se o usuário não tiver empresa (erro de cadastro antigo), bloqueia
+  if (!empresaId)
     return res
-      .status(400)
-      .json({ error: "Por favor, forneça o número do pedido." });
-  }
+      .status(403)
+      .json({ error: "Usuário não vinculado a uma organização/empresa." });
 
-  const pedidosArray = pedido
-    .split(",")
-    .map((p) => p.trim())
-    .filter(Boolean);
+  const sql = `
+    INSERT INTO pecas_engenharia 
+    (id, usuario_id, empresa_id, nome_arquivo, pedido, op, material, espessura, autor, quantidade, cliente, 
+    largura, altura, area_bruta, geometria, blocos_def, status)
+    VALUES ?
+  `;
 
-  console.log(
-    `🔎 Usuário ${req.user.name} buscando pedidos: ${pedidosArray.join(
-      ", "
-    )}...`
-  );
+  const values = parts.map((p) => [
+    p.id,
+    usuarioId, // Autor
+    empresaId, // <--- DONO REAL DA PEÇA (A Metalúrgica)
+    p.name,
+    p.pedido || null,
+    p.op || null,
+    p.material,
+    p.espessura,
+    p.autor || null,
+    p.quantity || 1,
+    p.cliente || null,
+    p.width,
+    p.height,
+    p.grossArea,
+    JSON.stringify(p.entities),
+    JSON.stringify(p.blocks || {}),
+    "AGUARDANDO",
+  ]);
 
   try {
-    // 2. O SQL AGORA EXIGE QUE O DONO SEJA O USUÁRIO LOGADO
-    const sql = `SELECT * FROM pecas_engenharia WHERE pedido IN (?) AND usuario_id = ?`;
-
-    // Passamos o array de pedidos E o ID do usuário
-    const [rows] = await db.query(sql, [pedidosArray, usuarioId]);
-
-    if (rows.length === 0) {
-      // Se o pedido existe mas é de outra pessoa, vai cair aqui (lista vazia)
-      return res
-        .status(404)
-        .json({ message: "Nenhuma peça encontrada para você nestes pedidos." });
-    }
-
-    // Formatação dos dados (mantive igual ao seu)
-    const formattedParts = rows.map((row) => ({
-      id: row.id,
-      name: row.nome_arquivo,
-      pedido: row.pedido,
-      op: row.op,
-      material: row.material,
-      espessura: row.espessura,
-      autor: row.autor,
-      quantity: row.quantidade,
-      cliente: row.cliente,
-      width: Number(row.largura),
-      height: Number(row.altura),
-      grossArea: Number(row.area_bruta),
-      entities:
-        typeof row.geometria === "string"
-          ? JSON.parse(row.geometria)
-          : row.geometria,
-      blocks:
-        typeof row.blocos_def === "string"
-          ? JSON.parse(row.blocos_def)
-          : row.blocos_def || {},
-      dataCadastro: row.data_cadastro,
-    }));
-
-    console.log(`✅ ${formattedParts.length} peças encontradas.`);
-    res.json(formattedParts);
-  } catch (error) {
-    console.error("❌ Erro na busca:", error);
+    const [result] = await db.query(sql, [values]);
     res
-      .status(500)
-      .json({ error: "Erro ao buscar dados.", details: error.message });
+      .status(201)
+      .json({
+        message: "Salvo na conta da empresa!",
+        count: result.affectedRows,
+      });
+  } catch (error) {
+    console.error("Erro salvar:", error);
+    res.status(500).json({ error: "Erro ao salvar." });
   }
 });
 
-// Busca (Pública ou Privada? Por enquanto pública, mas ideal proteger depois)
-app.get("/api/pecas/buscar", async (req, res) => {
-  // ... (Mantenha o código de busca que você já tem, ele está funcionando)
-  // Se quiser proteger também, adicione authenticateToken e filtre por usuario_id na query SQL
+// --- BUSCAR PEÇAS (Todos da empresa veem) ---
+app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
   const { pedido } = req.query;
+  const empresaId = req.user.empresa_id; // <--- A Chave Mágica
+
   if (!pedido) return res.status(400).json({ error: "Falta pedido." });
 
   const pedidosArray = pedido
@@ -157,10 +154,19 @@ app.get("/api/pecas/buscar", async (req, res) => {
     .filter(Boolean);
 
   try {
-    const sql = `SELECT * FROM pecas_engenharia WHERE pedido IN (?)`;
-    const [rows] = await db.query(sql, [pedidosArray]);
+    // Busca onde empresa_id bate, não importa qual funcionário salvou
+    const sql = `SELECT * FROM pecas_engenharia WHERE pedido IN (?) AND empresa_id = ?`;
+
+    const [rows] = await db.query(sql, [pedidosArray, empresaId]);
+
+    // ... (restante do código de formatação igual ao anterior) ...
+
+    // Só pra garantir que não quebre se não achar nada
+    if (rows.length === 0)
+      return res.status(404).json({ message: "Não encontrado." });
 
     const formattedParts = rows.map((row) => ({
+      // ... (seus campos de mapeamento normais) ...
       id: row.id,
       name: row.nome_arquivo,
       pedido: row.pedido,
@@ -183,12 +189,12 @@ app.get("/api/pecas/buscar", async (req, res) => {
           : row.blocos_def || {},
       dataCadastro: row.data_cadastro,
     }));
+
     res.json(formattedParts);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
-
 // ... (Mantenha as outras rotas de status e produção como estavam)
 
 const PORT = process.env.PORT || 3001;
