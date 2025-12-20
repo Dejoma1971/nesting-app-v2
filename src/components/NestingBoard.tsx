@@ -23,7 +23,8 @@ import { textToVectorLines } from "../utils/vectorFont";
 import { useProductionManager } from "../hooks/useProductionManager";
 import { useNestingSaveStatus } from "../hooks/useNestingSaveStatus";
 import { useSheetManager } from "../hooks/useSheetManager";
-import { SheetContextMenu } from "./SheetContextMenu"; // <--- NOVO
+import { SheetContextMenu } from "./SheetContextMenu";
+import { useAuth } from "../context/AuthContext"; // <--- 1. IMPORTAÇÃO DE SEGURANÇA
 
 interface Size {
   width: number;
@@ -311,7 +312,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   initialSearchQuery,
   onBack,
 }) => {
-  // --- 1. DEFINIÇÃO DE ESTADOS ---
+  // --- 2. PEGAR O USUÁRIO DO CONTEXTO DE SEGURANÇA ---
+  const { user } = useAuth(); 
+
+  // --- DEFINIÇÃO DE ESTADOS ---
   const [parts, setParts] = useState<ImportedPart[]>(initialParts);
   const [binSize, setBinSize] = useState<Size>({ width: 1200, height: 3000 });
   const [sheetMenu, setSheetMenu] = useState<{
@@ -320,7 +324,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     lineId?: string;
   } | null>(null);
 
-  // INSERIR O HOOK AQUI:
   const {
     totalBins,
     setTotalBins,
@@ -379,29 +382,19 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
   );
 
-  // Estado para controlar quais peças serão ignoradas no cálculo (Checkbox)
   const [disabledNestingIds, setDisabledNestingIds] = useState<Set<string>>(
     new Set()
   );
 
-  // Dentro do componente NestingBoard
   const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
-
-  // Dentro do componente NestingBoard
   const collisionWorkerRef = useRef<Worker | null>(null);
-
   const nestingWorkerRef = useRef<Worker | null>(null);
 
-  // Inicializa o Worker uma vez ao montar o componente
-  // Inicializa o Worker de Colisão
   useEffect(() => {
-    // Cria o worker
     collisionWorkerRef.current = new Worker(
       new URL("../workers/collision.worker.ts", import.meta.url)
     );
 
-    // Configura o ouvinte de mensagens
-    // Adicionamos ': MessageEvent' para corrigir o erro de 'implicitly any'
     collisionWorkerRef.current.onmessage = (e: MessageEvent) => {
       const collisions = e.data as string[];
       setCollidingPartIds(collisions);
@@ -415,7 +408,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       }
     };
 
-    // Limpeza ao desmontar
     return () => {
       collisionWorkerRef.current?.terminate();
     };
@@ -423,7 +415,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const thumbnailRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
-  // --- 2. HOOKS ---
+  // --- HOOKS ---
   const [
     nestingResult,
     setNestingResult,
@@ -454,7 +446,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const { isBinSaved, markBinAsSaved, resetAllSaveStatus } =
     useNestingSaveStatus(nestingResult);
 
-  // --- 3. VARIÁVEIS DERIVADAS ---
+  // --- VARIÁVEIS DERIVADAS ---
   const isCurrentSheetSaved = isBinSaved(currentBinIndex);
 
   const displayedParts = useMemo(() => {
@@ -534,15 +526,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     [nestingResult, currentBinIndex]
   );
 
-  // --- CÁLCULO DE APROVEITAMENTO DUPLO (REAL vs EFETIVO) ---
   const currentEfficiencies = useMemo(() => {
-    // 1. Pega peças da chapa atual
     const partsInSheet = nestingResult.filter(
       (p) => p.binId === currentBinIndex
     );
     if (partsInSheet.length === 0) return { real: "0,0", effective: "0,0" };
 
-    // 2. FILTRO DE VALIDADE (Sem colisão e dentro da chapa)
     const validParts = partsInSheet.filter((placed) => {
       if (collidingPartIds.includes(placed.uuid)) return false;
 
@@ -563,16 +552,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
     if (validParts.length === 0) return { real: "0,0", effective: "0,0" };
 
-    // 3. Soma das Áreas ÚTEIS
     const usedNetArea = validParts.reduce((acc, placed) => {
       const original = displayedParts.find((dp) => dp.id === placed.partId);
       return acc + (original ? original.netArea || original.grossArea : 0);
     }, 0);
 
-    // 4. Denominador 1: CUSTO (Área Total da Chapa)
     const totalBinArea = binSize.width * binSize.height;
 
-    // 5. Denominador 2: DENSIDADE (Altura Máxima Usada)
     let maxUsedY = 0;
     validParts.forEach((placed) => {
       const original = displayedParts.find((dp) => dp.id === placed.partId);
@@ -608,18 +594,28 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     return ids;
   }, [selectedPartIds, nestingResult]);
 
-  // --- 4. EFEITOS ---
+  // --- 4. EFEITOS (COM SEGURANÇA AGORA) ---
   useEffect(() => {
     if (initialSearchQuery && parts.length === 0) {
       const timer = setTimeout(() => {
         const doAutoSearch = async () => {
           if (!initialSearchQuery) return;
+          // SEGURANÇA: Se não estiver logado ou carregando usuário, não faz a busca ainda
+          if (!user || !user.token) return;
+
           setIsSearching(true);
           try {
             const params = new URLSearchParams();
             params.append("pedido", initialSearchQuery);
             const response = await fetch(
-              `http://localhost:3001/api/pecas/buscar?${params.toString()}`
+              `http://localhost:3001/api/pecas/buscar?${params.toString()}`,
+              {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${user.token}` // <--- TOKEN ADICIONADO
+                }
+              }
             );
             if (response.status === 404) {
               alert(
@@ -661,7 +657,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, []); // eslint-disable-line
+  }, [initialSearchQuery, user]); // eslint-disable-line
 
   useEffect(() => {
     setQuantities((prev) => {
@@ -678,26 +674,19 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     });
   }, [parts]);
 
-  // --- HANDLERS DO MENU DE CONTEXTO DA CHAPA ---
-
-  // 1. Handler do Fundo (já existe, só confirme o setSheetMenu)
   const handleBackgroundContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    // lineId undefined significa que clicou no fundo
     setSheetMenu({ x: e.clientX, y: e.clientY, lineId: undefined });
   }, []);
 
-  // 2. NOVO: Handler da Linha
   const handleLineContextMenu = useCallback(
     (e: React.MouseEvent, lineId: string) => {
       e.preventDefault();
-      // Passamos o ID da linha para o menu saber o que mostrar
       setSheetMenu({ x: e.clientX, y: e.clientY, lineId });
     },
     []
   );
 
-  // Adiciona linha (calcula o centro da tela para posicionar)
   const handleAddCropLineWrapper = useCallback(
     (type: "horizontal" | "vertical") => {
       const position =
@@ -707,7 +696,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     [addCropLine, binSize]
   );
 
-  // Exclui chapa (passando o setNestingResult necessário)
   const handleDeleteSheetWrapper = useCallback(() => {
     handleDeleteCurrentBin(nestingResult, setNestingResult);
   }, [handleDeleteCurrentBin, nestingResult, setNestingResult]);
@@ -744,7 +732,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
   }, [selectedPartIds, nestingResult]);
 
-  // --- 5. HANDLERS ---
   const handleReturnToBank = useCallback(
     (uuidsToRemove: string[]) => {
       const targetPlaced = nestingResult.find((p) =>
@@ -767,15 +754,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   );
 
   const handleSaveClick = async () => {
-    // Permitir salvar se tiver peças OU linhas de corte
     const partsInBin = nestingResult.filter((p) => p.binId === currentBinIndex);
-    if (partsInBin.length === 0 && cropLines.length === 0) return; // Só sai se estiver totalmente vazia
+    if (partsInBin.length === 0 && cropLines.length === 0) return;
 
     await handleProductionDownload(
       nestingResult,
       currentBinIndex,
       displayedParts,
-      cropLines // <--- ADICIONAR ESTA LINHA
+      cropLines 
     );
     markBinAsSaved(currentBinIndex);
   };
@@ -790,7 +776,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   );
 
   const handleCalculate = useCallback(() => {
-    // 1. Filtra apenas as peças que NÃO estão na lista de desabilitadas
     const partsToNest = displayedParts.filter(
       (p) => !disabledNestingIds.has(p.id)
     );
@@ -817,12 +802,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     setSelectedPartIds([]);
     resetAllSaveStatus();
 
-    // CORREÇÃO AQUI: Usar nestingWorkerRef em vez de workerRef
     if (nestingWorkerRef.current) nestingWorkerRef.current.terminate();
 
-    // Aqui assumo que NestingWorker é a classe importada do worker.
-    // Se der erro no 'new NestingWorker()', use a sintaxe de URL como fizemos no outro:
-    // nestingWorkerRef.current = new Worker(new URL('../workers/nesting.worker.ts', import.meta.url));
     nestingWorkerRef.current = new NestingWorker();
 
     nestingWorkerRef.current.onmessage = (e) => {
@@ -886,19 +867,34 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     resetNestingResult,
     resetProduction,
     resetAllSaveStatus,
-    setTotalBins, // <--- Adicionado
-    setCurrentBinIndex, // <--- Adicionado
-    setParts, // <--- Adicionado
+    setTotalBins,
+    setCurrentBinIndex,
+    setParts,
   ]);
 
+  // --- FUNÇÃO DE BUSCA MANUAL BLINDADA ---
   const handleDBSearch = async () => {
     if (!searchQuery) return;
+    
+    // SEGURANÇA: Bloqueia busca sem login
+    if (!user || !user.token) {
+        alert("Erro de segurança: Você precisa estar logado para buscar no banco.");
+        return;
+    }
+
     setIsSearching(true);
     try {
       const params = new URLSearchParams();
       params.append("pedido", searchQuery);
       const response = await fetch(
-        `http://localhost:3001/api/pecas/buscar?${params.toString()}`
+        `http://localhost:3001/api/pecas/buscar?${params.toString()}`,
+        {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${user.token}` // <--- TOKEN ADICIONADO
+            }
+        }
       );
       if (response.status === 404) {
         alert("Nenhum pedido encontrado.");
@@ -988,17 +984,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     [selectedPartIds, setNestingResult]
   );
 
-  // 1. PRIMEIRO: A função original que calcula a matemática do movimento
   const handlePartsMove = useCallback(
     (moves: { partId: string; dx: number; dy: number }[]) => {
-      // ... (sua lógica existente aqui dentro, mantenha como estava) ...
-      // Se você não tiver o código dela fácil, é aquele que faz setNestingResult com map...
       setNestingResult((prev) => {
         const newPlaced = [...prev];
         moves.forEach(({ partId, dx, dy }) => {
           const index = newPlaced.findIndex((p) => p.uuid === partId);
           if (index !== -1) {
-            // Atualiza posição
             newPlaced[index] = {
               ...newPlaced[index],
               x: newPlaced[index].x + dx,
@@ -1012,21 +1004,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     [setNestingResult]
   );
 
-  // 2. SEGUNDO: A função wrapper que limpa o erro e chama a primeira
-  // (Esta deve vir DEPOIS da handlePartsMove)
   const handlePartsMoveWithClear = useCallback(
     (moves: any) => {
-      // Chama a função original definida acima
       handlePartsMove(moves);
-
-      // Limpa as marcas vermelhas se houver
       if (collidingPartIds.length > 0) {
         setCollidingPartIds([]);
       }
     },
     [handlePartsMove, collidingPartIds]
   );
-  // --- COLE AQUI AS FUNÇÕES DE COLISÃO (PARA FICAREM DEPOIS DO MOVER) ---
 
   const handleCheckCollisions = useCallback(() => {
     if (currentPlacedParts.length < 1) {
@@ -1034,7 +1020,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       return;
     }
 
-    // Verifica se o worker existe antes de enviar
     if (collisionWorkerRef.current) {
       collisionWorkerRef.current.postMessage({
         placedParts: currentPlacedParts,
@@ -1042,13 +1027,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         binWidth: binSize.width,
         binHeight: binSize.height,
         margin: margin,
-
-        // --- ADICIONE ESTA LINHA AQUI ---
-        cropLines: cropLines, // Envia as linhas atuais para o Worker
+        cropLines: cropLines,
       });
     }
-
-    // --- ADICIONE cropLines NO ARRAY ABAIXO ---
   }, [currentPlacedParts, parts, binSize, margin, cropLines]);
 
   const handlePartSelect = useCallback((ids: string[], append: boolean) => {
@@ -1078,13 +1059,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     e.dataTransfer.effectAllowed = "copy";
   };
 
-  // --- LÓGICA SIMPLIFICADA (Recebe X/Y já em milímetros do Canvas) ---
   const handleExternalDrop = useCallback(
     (partId: string, x: number, y: number) => {
       const part = parts.find((p) => p.id === partId);
       if (!part) return;
 
-      // Ajuste para centralizar a peça no mouse (opcional)
       const finalX = x - part.width / 2;
       const finalY = y - part.height / 2;
 
@@ -1125,29 +1104,22 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const sortedParts = useMemo(() => {
     const sorted = [...displayedParts].sort((a, b) => {
-      // 1. PRIORIDADE MÁXIMA: Selecionado (para o usuário não perder o que clicou)
       const aSel = selectedPartIds.includes(a.id);
       const bSel = selectedPartIds.includes(b.id);
       if (aSel && !bSel) return -1;
       if (!aSel && bSel) return 1;
 
-      // Dados de Quantidade
       const qtyA = quantities[a.id] || 1;
       const qtyB = quantities[b.id] || 1;
-      // Usamos totalPlacedCounts (calculado acima no código)
-      // Se não estiver disponível no escopo do useMemo, certifique-se de adicioná-lo nas dependências
       const placedA = totalPlacedCounts[a.id] || 0;
       const placedB = totalPlacedCounts[b.id] || 0;
 
       const isPendingA = placedA < qtyA;
       const isPendingB = placedB < qtyB;
 
-      // 2. PRIORIDADE DE TRABALHO: Pendentes no topo, Concluídas no fundo
-      if (isPendingA && !isPendingB) return -1; // A sobe (falta fazer)
-      if (!isPendingA && isPendingB) return 1; // B sobe (falta fazer)
+      if (isPendingA && !isPendingB) return -1;
+      if (!isPendingA && isPendingB) return 1;
 
-      // 3. Critério de Desempate: Se ambos forem pendentes (ou ambos concluídos),
-      // mostra primeiro quem já está na chapa atual (contexto visual)
       const aOnBoard = currentBinPartIds.has(a.id);
       const bOnBoard = currentBinPartIds.has(b.id);
       if (aOnBoard && !bOnBoard) return -1;
@@ -1164,7 +1136,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     totalPlacedCounts,
   ]);
 
-  // --- 6. RENDERIZAÇÃO ---
   const containerStyle: React.CSSProperties = {
     display: "flex",
     flexDirection: "column",
@@ -1725,7 +1696,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           onClick={handleCheckCollisions}
           title="Verificar se há peças sobrepostas"
           style={{
-            background: "#dc3545", // Vermelho para chamar atenção à segurança
+            background: "#dc3545", 
             border: `1px solid ${theme.border}`,
             color: "#fff",
             padding: "5px 10px",
@@ -1742,7 +1713,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           💥 Verificar Colisão
         </button>
 
-        {/* --- NOVO BOTÃO: ADICIONAR CHAPA --- */}
         <button
           onClick={handleAddBin}
           title="Criar uma nova chapa vazia para nesting manual"
@@ -1768,7 +1738,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           </span>{" "}
           Nova Chapa
         </button>
-        {/* ----------------------------------- */}
 
         <button
           onClick={handleCalculate}
@@ -1803,12 +1772,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           }}
           onMouseDown={() => setContextMenu(null)}
         >
-          {/* --- NAVEGADOR DE CHAPAS (VERTICAL, DISCRETO E COM TOOLTIPS) --- */}
           {totalBins > 1 && (
             <div
               style={{
                 position: "absolute",
-                top: 110, // Logo abaixo dos botões de Undo/Redo
+                top: 110,
                 left: 20,
                 zIndex: 20,
                 display: "flex",
@@ -1827,13 +1795,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 transition: "all 0.3s ease",
               }}
             >
-              {/* Botão Anterior */}
               <button
                 onClick={() =>
                   setCurrentBinIndex(Math.max(0, currentBinIndex - 1))
                 }
                 disabled={currentBinIndex === 0}
-                title="Voltar para a chapa anterior" // <--- TOOLTIP AQUI
+                title="Voltar para a chapa anterior"
                 style={{
                   cursor: currentBinIndex === 0 ? "default" : "pointer",
                   border: "none",
@@ -1850,11 +1817,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 ▴
               </button>
 
-              {/* Indicador Numérico */}
               <div
                 title={`Chapa ${currentBinIndex + 1} de ${totalBins} ${
                   isCurrentSheetSaved ? "(Salva)" : "(Não salva)"
-                }`} // <--- TOOLTIP AQUI
+                }`}
                 style={{
                   display: "flex",
                   flexDirection: "column",
@@ -1883,7 +1849,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 <span style={{ opacity: 0.6 }}>{totalBins}</span>
               </div>
 
-              {/* Botão Próximo */}
               <button
                 onClick={() =>
                   setCurrentBinIndex(
@@ -1891,7 +1856,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   )
                 }
                 disabled={currentBinIndex === totalBins - 1}
-                title="Avançar para a próxima chapa" // <--- TOOLTIP AQUI
+                title="Avançar para a próxima chapa"
                 style={{
                   cursor:
                     currentBinIndex === totalBins - 1 ? "default" : "pointer",
@@ -1923,12 +1888,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             theme={theme}
             selectedPartIds={selectedPartIds}
             collidingPartIds={collidingPartIds}
-            // --- LINHAS NOVAS AQUI: ---
             cropLines={cropLines}
             onCropLineMove={moveCropLine}
-            onCropLineContextMenu={handleLineContextMenu} // <--- A linha que faltava
+            onCropLineContextMenu={handleLineContextMenu}
             onBackgroundContextMenu={handleBackgroundContextMenu}
-            // --------------------------
 
             onPartsMove={handlePartsMoveWithClear}
             onPartRotate={handlePartRotate}
@@ -1942,7 +1905,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             onCanvasDrop={handleExternalDrop}
           />
 
-          {/* --- RODAPÉ FIXO (MODIFICADO) --- */}
           <div
             style={{
               padding: "10px 20px",
@@ -1955,7 +1917,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               color: theme.text,
             }}
           >
-            {/* ESQUERDA: Contagem Detalhada */}
             <span
               style={{ opacity: 0.9, fontSize: "12px", fontWeight: "bold" }}
             >
@@ -1963,7 +1924,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               Peças
             </span>
 
-            {/* CENTRO: Aproveitamento Duplo (Engenharia + PCP) */}
             <div
               style={{
                 display: "flex",
@@ -1973,7 +1933,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 marginRight: "auto",
               }}
             >
-              {/* 1. Indicador Principal: CUSTO REAL (Da Chapa Inteira) */}
               <span
                 style={{
                   fontSize: "14px",
@@ -1994,7 +1953,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 </span>
               </span>
 
-              {/* 2. Indicador Secundário: DENSIDADE (Do Espaço Usado) */}
               <span
                 style={{
                   fontSize: "11px",
@@ -2009,9 +1967,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               </span>
             </div>
 
-            {/* DIREITA: Status */}
             <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-              {/* CORRETO: Só mostra se estiver salvo E sem alterações pendentes */}
               {isCurrentSheetSaved && (
                 <span
                   style={{
@@ -2187,7 +2143,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                           position: "absolute",
                           top: 5,
                           left: 8,
-                          zIndex: 1000, // Acima do card
+                          zIndex: 1000,
                           background: "rgba(255,255,255,0.7)",
                           borderRadius: "4px",
                           padding: "2px",
@@ -2195,7 +2151,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                           alignItems: "center",
                           boxShadow: "0 1px 1px rgba(0,0,0,0.2)",
                         }}
-                        onClick={(e) => e.stopPropagation()} // Impede que selecione a peça ao clicar no check
+                        onClick={(e) => e.stopPropagation()}
                         title="Incluir esta peça no cálculo automático?"
                       >
                         <input
@@ -2204,9 +2160,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                           onChange={(e) => {
                             const newSet = new Set(disabledNestingIds);
                             if (e.target.checked) {
-                              newSet.delete(part.id); // Marca (remove da lista de ignorados)
+                              newSet.delete(part.id);
                             } else {
-                              newSet.add(part.id); // Desmarca (adiciona aos ignorados)
+                              newSet.add(part.id);
                             }
                             setDisabledNestingIds(newSet);
                           }}
@@ -2356,22 +2312,18 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 })}
               </div>
             )}
-            {/* ... (código existente do ContextControl das peças) ... */}
-
-            {/* <--- INSERIR ESTE BLOCO PARA O MENU DA CHAPA: */}
 
             {sheetMenu && (
               <SheetContextMenu
                 x={sheetMenu.x}
                 y={sheetMenu.y}
-                targetLineId={sheetMenu.lineId} // Passa o ID se for uma linha
-                onDeleteLine={removeCropLine} // Passa a função de deletar
+                targetLineId={sheetMenu.lineId}
+                onDeleteLine={removeCropLine}
                 onClose={() => setSheetMenu(null)}
                 onDeleteSheet={handleDeleteSheetWrapper}
                 onAddCropLine={handleAddCropLineWrapper}
               />
             )}
-            {/* -------------------------------------------------- */}
 
             {activeTab === "list" && (
               <div
