@@ -332,6 +332,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     removeCropLine,
     handleDeleteCurrentBin,
     addCropLine,
+    
   } = useSheetManager({ initialBins: 1 });
 
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || "");

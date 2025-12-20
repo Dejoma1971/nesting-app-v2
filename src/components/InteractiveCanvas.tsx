@@ -1134,6 +1134,14 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     e.dataTransfer.dropEffect = "copy";
   }, []);
 
+  const handleReturnAll = useCallback(() => {
+      if (placedParts.length === 0) return;
+      if (window.confirm("Deseja recolher todas as peças da mesa de volta para o banco?")) {
+          const allUuids = placedParts.map(p => p.uuid);
+          onPartReturn(allUuids);
+      }
+  }, [placedParts, onPartReturn]);
+
   const binViewBox = useMemo(
     () =>
       `${-binWidth * 0.05} ${-binHeight * 0.05} ${binWidth * 1.1} ${
@@ -1252,6 +1260,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         >
           ⛶
         </button>
+        <button onClick={handleReturnAll} style={{ ...btnStyle, marginTop: "10px", color: "#dc3545", borderColor: "#dc3545" }} title="Recolher Todas para o Banco" disabled={placedParts.length === 0}>📥</button>
       </div>
 
       <div

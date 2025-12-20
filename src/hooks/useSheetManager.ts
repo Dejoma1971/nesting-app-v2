@@ -19,6 +19,8 @@ export const useSheetManager = ({ initialBins = 1 }: UseSheetManagerProps = {}) 
   const [currentBinIndex, setCurrentBinIndex] = useState(0);
   const [cropLines, setCropLines] = useState<CropLine[]>([]);
 
+  
+
   // --- NAVEGAÇÃO E GESTÃO DE CHAPAS ---
 
   const handleAddBin = useCallback(() => {
@@ -75,6 +77,7 @@ export const useSheetManager = ({ initialBins = 1 }: UseSheetManagerProps = {}) 
     // Se estivesse na última, volta uma. Se não, mantém o índice (que agora é a próxima chapa que "caiu" pra cá)
     if (currentBinIndex >= totalBins - 1) {
         setCurrentBinIndex(Math.max(0, totalBins - 2));
+        setCropLines([]);
     }
   }, [totalBins, currentBinIndex]);
 
@@ -131,6 +134,7 @@ export const useSheetManager = ({ initialBins = 1 }: UseSheetManagerProps = {}) 
     removeSelectedCropLines,
     selectCropLine,
     moveCropLine,
-    removeCropLine
+    removeCropLine,
+    
   };
 };
