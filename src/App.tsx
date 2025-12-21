@@ -1,20 +1,22 @@
 import { useState } from 'react';
 import { Home } from './components/Home';
-import { DxfReader } from './components/DxfReader'; // Assumindo que este é o seu wrapper para o NestingBoard
+import { DxfReader } from './components/DxfReader';
 import { EngineeringScreen } from './components/EngineeringScreen';
 import type { ImportedPart } from './components/types';
 
-// --- NOVOS IMPORTS DE AUTENTICAÇÃO ---
+// --- IMPORTS DE AUTENTICAÇÃO ---
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LoginScreen } from './components/LoginScreen';
+import { RegisterScreen } from './components/RegisterScreen'; // <--- 1. Importar a tela de registro
 
 type ScreenType = 'home' | 'engineering' | 'nesting';
+type AuthMode = 'login' | 'register'; // <--- 2. Tipo para controlar qual tela de auth mostrar
 
-// 1. Criamos um componente interno para poder usar o hook useAuth()
 function AppContent() {
-  const { isAuthenticated, loading } = useAuth(); // Verifica se está logado
+  const { isAuthenticated, loading } = useAuth(); 
   
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('home');
+  const [authMode, setAuthMode] = useState<AuthMode>('login'); // <--- 3. Estado de controle (Login vs Cadastro)
   
   // Lista global de peças (Engenharia)
   const [engineeringParts, setEngineeringParts] = useState<ImportedPart[]>([]);
@@ -37,7 +39,6 @@ function AppContent() {
 
   // --- LÓGICA DE PROTEÇÃO (LOGIN) ---
   
-  // Se estiver carregando (verificando localStorage), mostra tela de load simples
   if (loading) {
     return (
       <div style={{
@@ -54,10 +55,21 @@ function AppContent() {
     );
   }
 
-  // Se NÃO estiver autenticado, mostra a tela de Login
+  // Se NÃO estiver autenticado, decide entre Login ou Registro
   if (!isAuthenticated) {
-    // Ao logar com sucesso, mandamos para a Home
-    return <LoginScreen onLoginSuccess={() => setCurrentScreen('home')} />;
+    if (authMode === 'register') {
+       // Se o modo for registro, mostra a RegisterScreen
+       return <RegisterScreen onNavigateToLogin={() => setAuthMode('login')} />;
+    }
+    
+    // Caso contrário, mostra LoginScreen (passando a função para ir pro cadastro)
+    // OBS: Você precisará atualizar o seu LoginScreen para aceitar a prop 'onNavigateToRegister'
+    return (
+        <LoginScreen 
+            onLoginSuccess={() => setCurrentScreen('home')} 
+            onNavigateToRegister={() => setAuthMode('register')} // <--- Nova prop
+        />
+    );
   }
 
   // Se estiver autenticado, mostra o fluxo normal do aplicativo
@@ -87,7 +99,7 @@ function AppContent() {
   );
 }
 
-// 2. O componente App principal apenas fornece o Contexto
+// O componente App principal apenas fornece o Contexto
 function App() {
   return (
     <AuthProvider>

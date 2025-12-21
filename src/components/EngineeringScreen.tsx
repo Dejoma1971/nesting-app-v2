@@ -13,6 +13,8 @@ import {
     isContained    
 } from '../utils/geometryCore';
 
+import { SubscriptionPanel } from './SubscriptionPanel';
+
 // --- CONSTANTES ---
 const THICKNESS_OPTIONS = [
     "28", "26", "24", "22", "20", "18", "16", "14", 
@@ -474,6 +476,15 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
             <h2 style={{ margin: 0, fontSize: '18px', color: '#007bff' }}>Engenharia & Projetos</h2>
             {loading && <span style={{fontSize:'12px', color:'#ffd700'}}>⏳ {processingMsg}</span>}
         </div>
+
+        {/* --- AQUI: INSERÇÃO DO PAINEL DE ASSINATURA --- */}
+        {/* Criamos uma div centralizada para o painel não esticar demais */}
+        <div style={{ flex: 1, margin: '0 40px', maxWidth: '500px', fontSize: '12px' }}>
+             <SubscriptionPanel />
+        </div>
+        {/* ------------------------------------------------ */}
+
+
         <div style={{display:'flex', gap:'15px', alignItems:'center'}}>
              <button onClick={handleGoToNestingEmpty} title="Ir para a Mesa de Nesting (Buscar peças lá)" style={{background: 'transparent', color: theme.text, border: `1px solid ${theme.border}`, padding: '8px 12px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', marginRight: '10px'}}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>

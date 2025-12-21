@@ -1,160 +1,93 @@
 import React, { useState } from 'react';
-import { useAuth } from '../context/AuthContext.tsx';
+import { useAuth } from '../context/AuthContext';
 
 interface LoginScreenProps {
-  onLoginSuccess: () => void;
+    onLoginSuccess: () => void;
+    onNavigateToRegister: () => void; // <--- 1. ADICIONADO AQUI
 }
 
-export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
-  const { signIn } = useAuth();
-  const [isDarkMode, setIsDarkMode] = useState(true);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onNavigateToRegister }) => {
+    const { login } = useAuth();
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [loading, setLoading] = useState(false);
 
-  // --- TEMAS (Reaproveitando sua identidade visual) ---
-  const theme = {
-    bg: isDarkMode ? '#1e1e1e' : '#f0f2f5',
-    text: isDarkMode ? '#e0e0e0' : '#333',
-    cardBg: isDarkMode ? '#2d2d2d' : '#fff',
-    cardBorder: isDarkMode ? '#444' : '#ddd',
-    inputBg: isDarkMode ? '#1e1e1e' : '#fff',
-    accent: '#007bff',
-  };
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError('');
+        try {
+            const response = await fetch('http://localhost:3001/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
 
-    try {
-      await signIn(email, password);
-      onLoginSuccess();
-    } catch (err) {
-        console.error(err);
-      setError('Falha no login. Verifique suas credenciais.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+            const data = await response.json();
 
-  const styles = {
-    container: {
-      display: 'flex',
-      flexDirection: 'column' as const,
-      alignItems: 'center',
-      justifyContent: 'center',
-      height: '100vh',
-      background: theme.bg,
-      color: theme.text,
-      fontFamily: 'Segoe UI, Roboto, Helvetica, Arial, sans-serif',
-      transition: '0.3s'
-    },
-    card: {
-      background: theme.cardBg,
-      border: `1px solid ${theme.cardBorder}`,
-      borderRadius: '12px',
-      padding: '40px',
-      width: '100%',
-      maxWidth: '400px',
-      boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
-      display: 'flex',
-      flexDirection: 'column' as const,
-      gap: '20px'
-    },
-    input: {
-      width: '100%',
-      padding: '12px',
-      borderRadius: '6px',
-      border: `1px solid ${theme.cardBorder}`,
-      background: theme.inputBg,
-      color: theme.text,
-      fontSize: '16px',
-      boxSizing: 'border-box' as const,
-      outline: 'none'
-    },
-    button: {
-      width: '100%',
-      padding: '12px',
-      borderRadius: '6px',
-      border: 'none',
-      background: theme.accent,
-      color: '#fff',
-      fontSize: '16px',
-      fontWeight: 'bold',
-      cursor: isLoading ? 'not-allowed' : 'pointer',
-      opacity: isLoading ? 0.7 : 1,
-      marginTop: '10px'
-    },
-    logo: {
-      fontSize: '3rem',
-      marginBottom: '10px',
-      color: theme.accent,
-      textAlign: 'center' as const
-    }
-  };
+            if (response.ok) {
+                // --- CORREÇÃO AQUI ---
+                // O servidor manda o token separado do objeto user.
+                // Precisamos juntar os dois antes de salvar no contexto.
+                const userDataCompleto = {
+                    ...data.user, 
+                    token: data.token // <--- A PEÇA QUE FALTAVA
+                };
 
-  return (
-    <div style={styles.container}>
-      <div style={{ position: 'absolute', top: 20, right: 20 }}>
-        <button 
-          onClick={() => setIsDarkMode(!isDarkMode)}
-          style={{
-            background: 'transparent',
-            border: `1px solid ${theme.cardBorder}`,
-            color: theme.text,
-            padding: '8px 12px',
-            borderRadius: '20px',
-            cursor: 'pointer'
-          }}
-        >
-          {isDarkMode ? '☀️' : '🌙'}
-        </button>
-      </div>
+                login(userDataCompleto);
+                onLoginSuccess();
+            } else {
+                alert(data.error || "Erro ao entrar.");
+            }
+        } catch (error) {
+            console.error(error);
+            alert("Erro de conexão com o servidor.");
+        } finally {
+            setLoading(false);
+        }
+    };
 
-      <div style={styles.card}>
-        <div style={{textAlign: 'center'}}>
-            <div style={styles.logo}>⬡</div>
-            <h1 style={{margin: 0, fontSize: '1.5rem'}}>Acesso ao Sistema</h1>
-            <p style={{opacity: 0.7, fontSize: '0.9rem'}}>Faça login para acessar seus projetos</p>
-        </div>
+    // Estilos inline simples (Tema Escuro)
+    const styles = {
+        container: { display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#1e1e1e', color: '#fff' },
+        form: { display: 'flex', flexDirection: 'column' as const, width: '300px', gap: '15px', background: '#2d2d2d', padding: '30px', borderRadius: '8px', border: '1px solid #444' },
+        input: { padding: '10px', borderRadius: '4px', border: '1px solid #555', background: '#1e1e1e', color: '#fff' },
+        button: { padding: '10px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' as const },
+        linkBtn: { marginTop: '15px', background: 'transparent', border: 'none', color: '#007bff', textDecoration: 'underline', cursor: 'pointer', fontSize: '14px' }
+    };
 
-        <form onSubmit={handleSubmit} style={{display: 'flex', flexDirection: 'column', gap: '15px'}}>
-            <div>
-                <label style={{display: 'block', marginBottom: '5px', fontSize: '0.9rem', fontWeight: 'bold'}}>E-mail</label>
+    return (
+        <div style={styles.container}>
+            <h2 style={{color: '#007bff'}}>autoNest Hub</h2>
+            <p style={{opacity: 0.6, marginTop: -10}}>Faça login para continuar</p>
+            
+            <form onSubmit={handleSubmit} style={styles.form}>
                 <input 
                     type="email" 
-                    required
+                    placeholder="E-mail" 
+                    value={email} 
+                    onChange={e => setEmail(e.target.value)} 
                     style={styles.input}
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    placeholder="seu@email.com"
+                    required 
                 />
-            </div>
-            <div>
-                <label style={{display: 'block', marginBottom: '5px', fontSize: '0.9rem', fontWeight: 'bold'}}>Senha</label>
                 <input 
                     type="password" 
-                    required
+                    placeholder="Senha" 
+                    value={password} 
+                    onChange={e => setPassword(e.target.value)} 
                     style={styles.input}
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    placeholder="••••••••"
+                    required 
                 />
-            </div>
+                
+                <button type="submit" disabled={loading} style={{...styles.button, background: loading ? '#555' : '#007bff'}}>
+                    {loading ? 'Entrando...' : 'Entrar'}
+                </button>
+            </form>
 
-            {error && <div style={{color: '#ff4d4d', fontSize: '0.9rem', textAlign: 'center'}}>{error}</div>}
-
-            <button type="submit" style={styles.button}>
-                {isLoading ? 'Entrando...' : 'Entrar'}
+            {/* 2. BOTÃO PARA IR PARA O CADASTRO */}
+            <button onClick={onNavigateToRegister} style={styles.linkBtn}>
+                Não tem uma conta? Crie agora (Teste Grátis)
             </button>
-        </form>
-
-        <div style={{textAlign: 'center', fontSize: '0.85rem', opacity: 0.7, marginTop: '10px'}}>
-            Ainda não tem conta? <a href="#" style={{color: theme.accent, textDecoration: 'none'}}>Crie uma grátis</a>
         </div>
-      </div>
-    </div>
-  );
+    );
 };
