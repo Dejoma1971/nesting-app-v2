@@ -313,10 +313,29 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   onBack,
 }) => {
   // --- 2. PEGAR O USUÁRIO DO CONTEXTO DE SEGURANÇA ---
-  const { user } = useAuth(); 
+  const { user } = useAuth();
 
   // --- DEFINIÇÃO DE ESTADOS ---
   const [parts, setParts] = useState<ImportedPart[]>(initialParts);
+
+  // --- NOVO: Sincroniza quando a Engenharia manda peças (Botão Cortar Agora) ---
+  useEffect(() => {
+    // Se initialParts mudar e não for vazio, atualizamos a mesa
+    if (initialParts && initialParts.length > 0) {
+      setParts(initialParts);
+
+      // Também resetamos as quantidades para bater com a nova lista
+      const newQuantities: { [key: string]: number } = {};
+      initialParts.forEach((p) => {
+        newQuantities[p.id] = p.quantity || 1;
+      });
+      setQuantities(newQuantities);
+
+      // Opcional: Se quiser limpar o arranjo anterior ao trazer novas peças
+      // resetNestingResult([]);
+    }
+  }, [initialParts]);
+
   const [binSize, setBinSize] = useState<Size>({ width: 1200, height: 3000 });
   const [sheetMenu, setSheetMenu] = useState<{
     x: number;
@@ -335,7 +354,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     removeCropLine,
     handleDeleteCurrentBin,
     addCropLine,
-    
   } = useSheetManager({ initialBins: 1 });
 
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || "");
@@ -610,11 +628,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             const response = await fetch(
               `http://localhost:3001/api/pecas/buscar?${params.toString()}`,
               {
-                method: 'GET',
+                method: "GET",
                 headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${user.token}` // <--- TOKEN ADICIONADO
-                }
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${user.token}`, // <--- TOKEN ADICIONADO
+                },
               }
             );
             if (response.status === 404) {
@@ -761,7 +779,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       nestingResult,
       currentBinIndex,
       displayedParts,
-      cropLines 
+      cropLines
     );
     markBinAsSaved(currentBinIndex);
   };
@@ -875,11 +893,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // --- FUNÇÃO DE BUSCA MANUAL BLINDADA ---
   const handleDBSearch = async () => {
     if (!searchQuery) return;
-    
+
     // SEGURANÇA: Bloqueia busca sem login
     if (!user || !user.token) {
-        alert("Erro de segurança: Você precisa estar logado para buscar no banco.");
-        return;
+      alert(
+        "Erro de segurança: Você precisa estar logado para buscar no banco."
+      );
+      return;
     }
 
     setIsSearching(true);
@@ -889,11 +909,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       const response = await fetch(
         `http://localhost:3001/api/pecas/buscar?${params.toString()}`,
         {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${user.token}` // <--- TOKEN ADICIONADO
-            }
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${user.token}`, // <--- TOKEN ADICIONADO
+          },
         }
       );
       if (response.status === 404) {
@@ -1696,7 +1716,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           onClick={handleCheckCollisions}
           title="Verificar se há peças sobrepostas"
           style={{
-            background: "#dc3545", 
+            background: "#dc3545",
             border: `1px solid ${theme.border}`,
             color: "#fff",
             padding: "5px 10px",
@@ -1892,7 +1912,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             onCropLineMove={moveCropLine}
             onCropLineContextMenu={handleLineContextMenu}
             onBackgroundContextMenu={handleBackgroundContextMenu}
-
             onPartsMove={handlePartsMoveWithClear}
             onPartRotate={handlePartRotate}
             onPartSelect={handlePartSelect}
@@ -2137,7 +2156,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                         labelState={labelStates}
                         onTogglePartFlag={togglePartFlag}
                       />
-                      
+
                       <div
                         style={{
                           position: "absolute",
