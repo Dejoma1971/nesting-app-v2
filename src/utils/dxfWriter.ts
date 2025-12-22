@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { PlacedPart } from "./nestingCore";
 import type { ImportedPart } from "../components/types";
+import type { CropLine } from "../hooks/useSheetManager"; // <--- IMPORTANTE: Importar o tipo
 
 // --- HELPERS MATEMÁTICOS ---
 const rotatePointBasic = (x: number, y: number, angleRad: number) => {
@@ -197,13 +198,15 @@ const writeEntitiesToDxf = (entities: any[], dx = 0, dy = 0): string => {
 export const generateDxfContent = (
   placedParts: PlacedPart[],
   allParts: ImportedPart[],
-  binSize?: { width: number; height: number }
+  binSize?: { width: number; height: number },
+  cropLines: CropLine[] = [] // <--- NOVO PARÂMETRO OPCIONAL
 ): string => {
   handleCount = 1;
   let dxf = "";
 
   const rawW = binSize?.width || 1200;
   const rawH = binSize?.height || 3000;
+  // Lógica de rotação da mesa para o cabeçalho (Portrait vs Landscape)
   const shouldRotate = rawW > rawH;
   const W = shouldRotate ? rawH : rawW;
   const H = shouldRotate ? rawW : rawH;
@@ -215,10 +218,11 @@ export const generateDxfContent = (
   dxf += "0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n";
   const layers = [
     { name: "0", color: 7 },
-    { name: "CORTE", color: 3 },
+    { name: "CORTE", color: 3 }, // Verde
     { name: "GRAVACAO", color: 6 },
     { name: "ETIQUETAS", color: 7 },
     { name: "CHAPA", color: 7 },
+    { name: "RETALHO", color: 3 }, // Novo Layer para linhas de retalho (Verde também)
   ];
   layers.forEach((l) => {
     dxf += `0\nLAYER\n5\n${nextHandle()}\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n${l.name}\n70\n0\n62\n${l.color}\n6\nCONTINUOUS\n`;
@@ -237,7 +241,7 @@ export const generateDxfContent = (
   dxf += `0\nLINE\n5\n${nextHandle()}\n100\nAcDbEntity\n8\nCHAPA\n62\n7\n100\nAcDbLine\n10\n0.0\n20\n${H.toFixed(4)}\n30\n0.0\n11\n0.0\n21\n0.0\n31\n0.0\n`;
   dxf += "0\nENDBLK\n";
 
-  // B. Blocos das PEÇAS (Apenas CORTE)
+  // B. Blocos das PEÇAS
   const usedPartIds = Array.from(new Set(placedParts.map(p => p.partId)));
   const blockOffsets: { [partId: string]: { cx: number, cy: number } } = {};
 
@@ -247,16 +251,11 @@ export const generateDxfContent = (
 
       const blockName = `PART_${partId.substring(0, 8).toUpperCase()}`;
       const flatEntities = flattenGeometry(originalPart.entities, originalPart.blocks);
-      
-      // Filtra APENAS geometria de corte para dentro do bloco
       const cutEntities = flatEntities.filter(e => !e.isLabel);
-      
-      // Calcula centro baseado na geometria (corte)
       const centerData = calculateTrueCenter(cutEntities);
       blockOffsets[partId] = { cx: centerData.cx, cy: centerData.cy };
 
       dxf += `0\nBLOCK\n5\n${nextHandle()}\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n${blockName}\n70\n0\n10\n0.0\n20\n0.0\n30\n0.0\n3\n${blockName}\n1\n\n`;
-      // Escreve apenas as entidades de corte dentro do bloco
       dxf += writeEntitiesToDxf(cutEntities, -centerData.cx, -centerData.cy);
       dxf += "0\nENDBLK\n";
   });
@@ -268,7 +267,7 @@ export const generateDxfContent = (
   // A. Mesa
   dxf += `0\nINSERT\n5\n${nextHandle()}\n100\nAcDbEntity\n8\nCHAPA\n100\nAcDbBlockReference\n2\n${mesaBlockName}\n10\n0.0\n20\n0.0\n30\n0.0\n`;
 
-  // B. Peças + Etiquetas Soltas
+  // B. Peças
   placedParts.forEach((placed) => {
     const originalPart = allParts.find((p) => p.id === placed.partId);
     if (!originalPart) return;
@@ -277,15 +276,11 @@ export const generateDxfContent = (
     const offset = blockOffsets[placed.partId];
     if (!offset) return;
 
-    // --- CÁLCULO DE POSIÇÃO ---
-    // Recalcula geometria para saber dimensões (usando apenas corte para consistência)
     const flatAll = flattenGeometry(originalPart.entities, originalPart.blocks);
     const flatCut = flatAll.filter(e => !e.isLabel);
     const flatLabels = flatAll.filter(e => e.isLabel);
-
     const dims = calculateTrueCenter(flatCut);
     
-    // Dimensões ocupadas na mesa (já rotacionada)
     const occupiedW = placed.rotation % 180 !== 0 ? dims.height : dims.width;
     const occupiedH = placed.rotation % 180 !== 0 ? dims.width : dims.height;
 
@@ -296,31 +291,26 @@ export const generateDxfContent = (
     let insertY = centerY;
     let insertRotation = placed.rotation;
 
+    // Se a mesa foi rotacionada no DXF, rotacionamos as coordenadas das peças
     if (shouldRotate) {
         insertX = centerY;
         insertY = centerX;
         insertRotation = placed.rotation - 90;
     }
 
-    // 1. INSERE O BLOCO (CORTE)
+    // Peça (Referência de Bloco)
     dxf += `0\nINSERT\n5\n${nextHandle()}\n100\nAcDbEntity\n8\nCORTE\n100\nAcDbBlockReference\n2\n${blockName}\n`;
     dxf += `10\n${insertX.toFixed(4)}\n20\n${insertY.toFixed(4)}\n30\n0.0\n`;
     dxf += `41\n1.0\n42\n1.0\n43\n1.0\n`;
     dxf += `50\n${insertRotation.toFixed(4)}\n`;
 
-    // 2. DESENHA ETIQUETAS "SOLTAS" (ACOMPANHANDO A PEÇA)
+    // Etiquetas (Vetores)
     const rad = (insertRotation * Math.PI) / 180;
-    
-    // As etiquetas precisam ser transformadas manualmente:
-    // Posição Original -> Move p/ Centro Relativo (offset) -> Rotaciona -> Move p/ Posição Final (insertX/Y)
     flatLabels.forEach(lbl => {
         const transformPoint = (px: number, py: number) => {
-            // 1. Centraliza relativo ao bloco
             const relX = px - offset.cx;
             const relY = py - offset.cy;
-            // 2. Rotaciona
             const rot = rotatePointBasic(relX, relY, rad);
-            // 3. Translada para posição final
             return { x: rot.x + insertX, y: rot.y + insertY };
         };
 
@@ -334,8 +324,39 @@ export const generateDxfContent = (
             dxf += `10\n${p1.x.toFixed(4)}\n20\n${p1.y.toFixed(4)}\n30\n0.0\n`;
             dxf += `11\n${p2.x.toFixed(4)}\n21\n${p2.y.toFixed(4)}\n31\n0.0\n`;
         }
-        // Adicione aqui outros tipos se suas etiquetas usarem (ex: TEXT, ARC), mas vetores de texto viram LINE.
     });
+  });
+
+  // C. --- LINHAS DE RETALHO (CROP LINES) ---
+  cropLines.forEach(line => {
+      // Coordenadas originais na mesa
+      let x1, y1, x2, y2;
+
+      if (line.type === 'vertical') {
+          // Linha vertical na posição X, vai do topo ao chão
+          x1 = line.position;
+          y1 = 0;
+          x2 = line.position;
+          y2 = rawH;
+      } else {
+          // Linha horizontal na posição Y, vai da esq à dir
+          x1 = 0;
+          y1 = line.position;
+          x2 = rawW;
+          y2 = line.position;
+      }
+
+      // Aplica a rotação da mesa se necessário (para bater com o Cabeçalho)
+      if (shouldRotate) {
+          // Troca eixos (similar à rotação das peças)
+          const tempX1 = x1; x1 = y1; y1 = tempX1;
+          const tempX2 = x2; x2 = y2; y2 = tempX2;
+      }
+
+      const common = `5\n${nextHandle()}\n100\nAcDbEntity\n8\nRETALHO\n62\n3\n`;
+      dxf += `0\nLINE\n${common}100\nAcDbLine\n`;
+      dxf += `10\n${x1.toFixed(4)}\n20\n${y1.toFixed(4)}\n30\n0.0\n`;
+      dxf += `11\n${x2.toFixed(4)}\n21\n${y2.toFixed(4)}\n31\n0.0\n`;
   });
 
   dxf += "0\nENDSEC\n0\nEOF\n";

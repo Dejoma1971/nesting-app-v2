@@ -1,0 +1,19 @@
+CORREÇÕES
+
+1 -A contagem de peças na parte inferior esquerda da tela esta contando 
+  a variação de peças e não seu total. Ex: 11 peças com total de corte de 1 peça
+  e 1 peça que deve ser cortada 30 vezes, esta contando como 12 peças total 
+  correto seria 11 + 30= 41 peças (12 modelos de peças).
+
+2 as peças que não foram para arranjo devem ficar sempre em destaque no banco de peças
+
+3. as peças movidas para a mesa manualmente devem ficar onde foram soltas - CORRIGIDO
+
+4. velocidade de movimentação com o zomm proximo - CORRIGIDO
+
+5 verificar se as peças no arranjo é do mesmo material e tem a mesma espessura  XXXX
+
+
+
+
+

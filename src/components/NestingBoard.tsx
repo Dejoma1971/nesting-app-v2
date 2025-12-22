@@ -8,29 +8,32 @@ import React, {
 } from "react";
 import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
-import { generateDxfContent } from "../utils/dxfWriter";
 import { ContextControl } from "./ContextControl";
 import { InteractiveCanvas } from "./InteractiveCanvas";
 import { useUndoRedo } from "../hooks/useUndoRedo";
-import { getTheme } from "../styles/theme";
 import { PartFilter, type FilterState } from "./PartFilter";
 import NestingWorker from "../workers/nesting.worker?worker";
-
+import { useTheme } from "../context/ThemeContext";
 import { useLabelManager } from "../hooks/useLabelManager";
 import { GlobalLabelPanel, ThumbnailFlags } from "./labels/LabelControls";
 import { LabelEditorModal } from "./labels/LabelEditorModal";
 import type { LabelConfig } from "./labels/LabelTypes";
 import { textToVectorLines } from "../utils/vectorFont";
+import { useProductionManager } from "../hooks/useProductionManager";
+import { useNestingSaveStatus } from "../hooks/useNestingSaveStatus";
+import { useSheetManager } from "../hooks/useSheetManager";
+import { SheetContextMenu } from "./SheetContextMenu";
+import { useAuth } from "../context/AuthContext"; // <--- 1. IMPORTAÇÃO DE SEGURANÇA
+import { SubscriptionPanel } from "./SubscriptionPanel";
 
 interface Size {
   width: number;
   height: number;
 }
 
-// --- CORREÇÃO 1: Adicionado initialSearchQuery na Interface ---
 interface NestingBoardProps {
   initialParts: ImportedPart[];
-  initialSearchQuery?: string; 
+  initialSearchQuery?: string;
   onBack?: () => void;
 }
 
@@ -39,12 +42,19 @@ const cleanTextContent = (text: string): string => {
   return text.replace(/[^a-zA-Z0-9-]/g, "");
 };
 
-// --- MATEMÁTICA DE ARCOS ---
-const bulgeToArc = (
-  p1: { x: number; y: number },
-  p2: { x: number; y: number },
-  bulge: number
-) => {
+// --- FUNÇÃO AUXILIAR: GERAR COR BASEADA NO TEXTO (PEDIDO) ---
+const stringToColor = (str: string) => {
+  if (!str) return "#999999";
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const c = (hash & 0x00ffffff).toString(16).toUpperCase();
+  return "#" + "00000".substring(0, 6 - c.length) + c;
+};
+
+// --- MATEMÁTICA DE ARCOS E BOUNDING BOX ---
+const bulgeToArc = (p1: any, p2: any, bulge: number) => {
   const chordDx = p2.x - p1.x;
   const chordDy = p2.y - p1.y;
   const chordLen = Math.sqrt(chordDx * chordDx + chordDy * chordDy);
@@ -54,7 +64,6 @@ const bulgeToArc = (
   return { radius, cx, cy };
 };
 
-// --- CÁLCULO DE BOUNDING BOX ROBUSTO ---
 const calculateBoundingBox = (
   entities: any[],
   blocks: any = {}
@@ -183,7 +192,6 @@ const calculateBoundingBox = (
   };
 };
 
-// --- RENDER ENTITY (Local) ---
 const renderEntityFunction = (
   entity: any,
   index: number,
@@ -239,9 +247,9 @@ const renderEntityFunction = (
           const ry = radius * scale;
           const largeArc = Math.abs(v1.bulge) > 1 ? 1 : 0;
           const sweep = v1.bulge > 0 ? 1 : 0;
-          const x = v2.x * scale;
-          const y = v2.y * scale;
-          d += ` A ${rx} ${ry} 0 ${largeArc} ${sweep} ${x} ${y}`;
+          d += ` A ${rx} ${ry} 0 ${largeArc} ${sweep} ${v2.x * scale} ${
+            v2.y * scale
+          }`;
         } else {
           d += ` L ${v2.x * scale} ${v2.y * scale}`;
         }
@@ -280,8 +288,9 @@ const renderEntityFunction = (
       const y2 = center.y * scale + r * Math.sin(endAngle);
       let da = endAngle - startAngle;
       if (da < 0) da += 2 * Math.PI;
-      const largeArc = da > Math.PI ? 1 : 0;
-      const d = `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`;
+      const d = `M ${x1} ${y1} A ${r} ${r} 0 ${
+        da > Math.PI ? 1 : 0
+      } 1 ${x2} ${y2}`;
       return (
         <path
           key={index}
@@ -300,44 +309,107 @@ const renderEntityFunction = (
 
 export const NestingBoard: React.FC<NestingBoardProps> = ({
   initialParts,
-  initialSearchQuery, // Recebido
+  initialSearchQuery,
   onBack,
 }) => {
-  // Estado local das peças (acumulativo)
+  // --- 2. PEGAR O USUÁRIO DO CONTEXTO DE SEGURANÇA ---
+  const { user } = useAuth();
+
+  // --- NOVO: Estado para bloquear recursos do Trial ---
+  const [isTrial, setIsTrial] = useState(false);
+
+  useEffect(() => {
+    if (user && user.token) {
+      fetch('http://localhost:3001/api/subscription/status', {
+        headers: { 'Authorization': `Bearer ${user.token}` }
+      })
+      .then(res => res.json())
+      .then(data => {
+         // Normaliza para garantir que 'trial' ou 'TRIAL' funcione
+         if (data.status && data.status.toLowerCase() === 'trial') {
+             setIsTrial(true);
+         }
+      })
+      .catch(err => console.error("Erro ao verificar status:", err));
+    }
+  }, [user]);
+
+  // --- DEFINIÇÃO DE ESTADOS ---
   const [parts, setParts] = useState<ImportedPart[]>(initialParts);
 
-  // --- NOVOS ESTADOS PARA A BUSCA ---
-  // Inicializa o input de busca com o valor que veio da engenharia (se houver)
+  // --- NOVO: Sincroniza quando a Engenharia manda peças (Botão Cortar Agora) ---
+  useEffect(() => {
+    // Se initialParts mudar e não for vazio, atualizamos a mesa
+    if (initialParts && initialParts.length > 0) {
+      setParts(initialParts);
+
+      // Também resetamos as quantidades para bater com a nova lista
+      const newQuantities: { [key: string]: number } = {};
+      initialParts.forEach((p) => {
+        newQuantities[p.id] = p.quantity || 1;
+      });
+      setQuantities(newQuantities);
+
+      // Opcional: Se quiser limpar o arranjo anterior ao trazer novas peças
+      // resetNestingResult([]);
+    }
+  }, [initialParts]);
+
+  const [binSize, setBinSize] = useState<Size>({ width: 1200, height: 3000 });
+  const [sheetMenu, setSheetMenu] = useState<{
+    x: number;
+    y: number;
+    lineId?: string;
+  } | null>(null);
+
+  const {
+    totalBins,
+    setTotalBins,
+    currentBinIndex,
+    setCurrentBinIndex,
+    handleAddBin,
+    cropLines,
+    moveCropLine,
+    removeCropLine,
+    handleDeleteCurrentBin,
+    addCropLine,
+  } = useSheetManager({ initialBins: 1 });
+
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || "");
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
-  // ----------------------------------
+  const [searchMode, setSearchMode] = useState<"replace" | "append">("append");
+  const [filters, setFilters] = useState<FilterState>({
+    pedido: [],
+    op: [],
+    material: "",
+    espessura: "",
+  });
 
-  const [isDarkMode, setIsDarkMode] = useState(true);
-  const theme = getTheme(isDarkMode);
-
-  const [binSize, setBinSize] = useState<Size>({ width: 1200, height: 3000 });
-  const [gap, setGap] = useState(5);
-  const [margin, setMargin] = useState(5);
-  const [strategy, setStrategy] = useState<"rect" | "true-shape">("rect");
-  const [direction, setDirection] = useState<
-    "auto" | "vertical" | "horizontal"
-  >("auto");
-  const [iterations] = useState(50);
-  const [rotationStep, setRotationStep] = useState(90);
-
-  const {
-    labelStates,
-    globalWhiteEnabled,
-    globalPinkEnabled,
-    toggleGlobal,
-    togglePartFlag,
-    updateLabelConfig,
-  } = useLabelManager(parts);
+  const { isDarkMode, toggleTheme, theme } = useTheme();
+  // const [isDarkMode, setIsDarkMode] = useState(true);
+  // const theme = getTheme(isDarkMode);
+  const [activeTab, setActiveTab] = useState<"grid" | "list">("grid");
+  const [showDebug, setShowDebug] = useState(true);
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+  } | null>(null);
   const [editingPartId, setEditingPartId] = useState<string | null>(null);
 
-  const thumbnailRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
+  const [gap, setGap] = useState(5);
+  const [margin, setMargin] = useState(5);
+  const [strategy, setStrategy] = useState<"rect" | "true-shape">("true-shape");
+  const [direction, setDirection] = useState<
+    "auto" | "vertical" | "horizontal"
+  >("horizontal");
+  const [iterations] = useState(50);
+  const [rotationStep, setRotationStep] = useState(90);
+  const [isComputing, setIsComputing] = useState(false);
+  const [failedCount, setFailedCount] = useState(0);
 
+  const [selectedPartIds, setSelectedPartIds] = useState<string[]>([]);
   const [quantities, setQuantities] = useState<{ [key: string]: number }>(
     () => {
       const initialQ: { [key: string]: number } = {};
@@ -348,86 +420,110 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
   );
 
-  // --- EFEITO: BUSCA AUTOMÁTICA AO ENTRAR ---
-  // Se initialSearchQuery existir (vindo do "Cortar Agora"), dispara a busca no banco
+  const [disabledNestingIds, setDisabledNestingIds] = useState<Set<string>>(
+    new Set()
+  );
+
+  const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
+  const collisionWorkerRef = useRef<Worker | null>(null);
+  const nestingWorkerRef = useRef<Worker | null>(null);
+  // --- NOVO: Estados para o Checklist de Pedidos ---
+  const [availableOrders, setAvailableOrders] = useState<string[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+
   useEffect(() => {
-      if (initialSearchQuery && parts.length === 0) {
-          // Precisamos chamar a busca aqui. 
-          // Como handleDBSearch depende do estado 'searchQuery' e 'parts', 
-          // a forma mais segura é chamar a lógica diretamente ou via função.
-          // Para simplificar, vou criar um trigger.
-          const timer = setTimeout(() => {
-             // Chama a busca apenas se houver query
-             const doAutoSearch = async () => {
-                if (!initialSearchQuery) return;
-                setIsSearching(true);
-                try {
-                    const params = new URLSearchParams();
-                    params.append("pedido", initialSearchQuery);
-                    const response = await fetch(`http://localhost:3001/api/pecas/buscar?${params.toString()}`);
-                    
-                    if (response.status === 404) {
-                        alert(`Nenhuma peça encontrada para o pedido: ${initialSearchQuery}`);
-                        setIsSearching(false);
-                        return;
-                    }
-                    if (!response.ok) throw new Error("Erro ao buscar.");
+    collisionWorkerRef.current = new Worker(
+      new URL("../workers/collision.worker.ts", import.meta.url)
+    );
 
-                    const data = await response.json();
-                    if (Array.isArray(data) && data.length > 0) {
-                        const dbParts: ImportedPart[] = data.map((item: any) => ({
-                            id: item.id,
-                            name: item.name,
-                            entities: item.entities,
-                            blocks: item.blocks || {},
-                            width: Number(item.width),
-                            height: Number(item.height),
-                            grossArea: Number(item.grossArea),
-                            netArea: Number(item.grossArea),
-                            quantity: Number(item.quantity) || 1,
-                            pedido: item.pedido,
-                            op: item.op,
-                            material: item.material,
-                            espessura: item.espessura,
-                            autor: item.autor,
-                            dataCadastro: item.dataCadastro,
-                        }));
-                        setParts(dbParts); // Na carga inicial, substitui
-                    }
-                } catch(e) { console.error(e); alert("Erro ao buscar dados iniciais."); }
-                finally { setIsSearching(false); }
-             };
-             doAutoSearch();
-          }, 100);
-          return () => clearTimeout(timer);
+    collisionWorkerRef.current.onmessage = (e: MessageEvent) => {
+      const collisions = e.data as string[];
+      setCollidingPartIds(collisions);
+
+      if (collisions.length > 0) {
+        alert(
+          `⚠️ ALERTA DE COLISÃO!\n\n${collisions.length} peças com problemas marcadas em VERMELHO.`
+        );
+      } else {
+        alert("✅ Verificação Completa! Nenhuma colisão.");
       }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Executa apenas uma vez
+    };
 
-  // --- CORREÇÃO 2: Removido comentário ESLint desnecessário ---
-  // Atualiza quantities quando novas peças chegam
+    return () => {
+      collisionWorkerRef.current?.terminate();
+    };
+  }, []);
+
+  const thumbnailRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
+
+  // --- HOOKS ---
+  const [
+    nestingResult,
+    setNestingResult,
+    undo,
+    redo,
+    resetNestingResult,
+    canUndo,
+    canRedo,
+  ] = useUndoRedo<PlacedPart[]>([]);
+
+  const {
+    isSaving,
+    lockedBins,
+    handleProductionDownload,
+    getPartStatus,
+    resetProduction,
+  } = useProductionManager(binSize);
+
+  // Efeito para carregar a lista quando o modal abrir
   useEffect(() => {
-    setQuantities((prev) => {
-      const currentIds = new Set(Object.keys(prev));
-      const missingParts = parts.filter((p) => !currentIds.has(p.id));
+    if (isSearchModalOpen && user?.token) {
+      setLoadingOrders(true);
+      fetch('http://localhost:3001/api/pedidos/disponiveis', {
+        headers: { 'Authorization': `Bearer ${user.token}` }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setAvailableOrders(data);
+      })
+      .catch(err => console.error("Erro ao carregar pedidos:", err))
+      .finally(() => setLoadingOrders(false));
+    }
+  }, [isSearchModalOpen, user]);
 
-      if (missingParts.length > 0) {
-        const newQ = { ...prev };
-        missingParts.forEach((p) => {
-          newQ[p.id] = p.quantity || 1;
-        });
-        return newQ;
-      }
-      return prev;
-    });
-  }, [parts]);
+  // Função auxiliar para marcar/desmarcar pedidos
+  const toggleOrderSelection = (order: string) => {
+    // 1. Pega o que já está escrito no input e transforma em array
+    const currentList = searchQuery.split(',').map(s => s.trim()).filter(Boolean);
+    const exists = currentList.includes(order);
 
-  const [filters, setFilters] = useState<FilterState>({
-    pedido: [],
-    op: [],
-    material: "",
-    espessura: "",
-  });
+    let newList;
+    if (exists) {
+      // Se já tem, remove
+      newList = currentList.filter(s => s !== order);
+    } else {
+      // Se não tem, adiciona
+      newList = [...currentList, order];
+    }
+
+    // 2. Atualiza o input de busca (separado por vírgula)
+    setSearchQuery(newList.join(', '));
+  };
+
+  const {
+    labelStates,
+    globalWhiteEnabled,
+    globalPinkEnabled,
+    toggleGlobal,
+    togglePartFlag,
+    updateLabelConfig,
+  } = useLabelManager(parts);
+
+  const { isBinSaved, markBinAsSaved, resetAllSaveStatus } =
+    useNestingSaveStatus(nestingResult);
+
+  // --- VARIÁVEIS DERIVADAS ---
+  const isCurrentSheetSaved = isBinSaved(currentBinIndex);
 
   const displayedParts = useMemo(() => {
     const filtered = parts.filter((p) => {
@@ -444,7 +540,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     return filtered.map((part) => {
       const state = labelStates[part.id];
       if (!state) return part;
-
       const bounds = calculateBoundingBox(part.entities, part.blocks);
       const newEntities = [...part.entities];
       const rawText = part.pedido || part.op || part.name;
@@ -452,7 +547,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         typeof cleanTextContent === "function"
           ? cleanTextContent(rawText)
           : rawText;
-
       const addLabelVector = (
         config: LabelConfig,
         color: string,
@@ -461,7 +555,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         if (config.active && finalText) {
           const posX = bounds.cx + config.offsetX;
           const posY = bounds.cy + config.offsetY;
-
           const vectorLines = textToVectorLines(
             finalText,
             posX,
@@ -469,7 +562,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             config.fontSize,
             color
           );
-
           const rotatedLines = vectorLines.map((line: any) => {
             if (config.rotation === 0) return line;
             const rotatePoint = (x: number, y: number) => {
@@ -489,7 +581,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               ],
             };
           });
-
           const taggedLines = rotatedLines.map((line: any) => ({
             ...line,
             isLabel: true,
@@ -500,36 +591,190 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           newEntities.push(...taggedLines);
         }
       };
-
       addLabelVector(state.white, "#FFFFFF", "white");
       addLabelVector(state.pink, "#FF00FF", "pink");
-
       return { ...part, entities: newEntities };
     });
   }, [parts, filters, labelStates]);
 
-  const [activeTab, setActiveTab] = useState<"grid" | "list">("grid");
-  const [showDebug, setShowDebug] = useState(true);
-  const [
+  const currentPlacedParts = useMemo(
+    () => nestingResult.filter((p) => p.binId === currentBinIndex),
+    [nestingResult, currentBinIndex]
+  );
+
+  const currentEfficiencies = useMemo(() => {
+    const partsInSheet = nestingResult.filter(
+      (p) => p.binId === currentBinIndex
+    );
+    if (partsInSheet.length === 0) return { real: "0,0", effective: "0,0" };
+
+    const validParts = partsInSheet.filter((placed) => {
+      if (collidingPartIds.includes(placed.uuid)) return false;
+
+      const original = displayedParts.find((dp) => dp.id === placed.partId);
+      if (!original) return false;
+
+      const isRotated = Math.abs(placed.rotation) % 180 !== 0;
+      const currentW = isRotated ? original.height : original.width;
+      const currentH = isRotated ? original.width : original.height;
+
+      return (
+        placed.x >= 0 &&
+        placed.y >= 0 &&
+        placed.x + currentW <= binSize.width + 0.1 &&
+        placed.y + currentH <= binSize.height + 0.1
+      );
+    });
+
+    if (validParts.length === 0) return { real: "0,0", effective: "0,0" };
+
+    const usedNetArea = validParts.reduce((acc, placed) => {
+      const original = displayedParts.find((dp) => dp.id === placed.partId);
+      return acc + (original ? original.netArea || original.grossArea : 0);
+    }, 0);
+
+    const totalBinArea = binSize.width * binSize.height;
+
+    let maxUsedY = 0;
+    validParts.forEach((placed) => {
+      const original = displayedParts.find((dp) => dp.id === placed.partId);
+      if (original) {
+        const isRotated = Math.abs(placed.rotation) % 180 !== 0;
+        const visualHeight = isRotated ? original.width : original.height;
+        const topY = placed.y + visualHeight;
+        if (topY > maxUsedY) maxUsedY = topY;
+      }
+    });
+    const effectiveBinArea = binSize.width * Math.max(maxUsedY, 1);
+
+    return {
+      real: ((usedNetArea / totalBinArea) * 100).toFixed(1).replace(".", ","),
+      effective: ((usedNetArea / effectiveBinArea) * 100)
+        .toFixed(1)
+        .replace(".", ","),
+    };
+  }, [
     nestingResult,
-    setNestingResult,
-    undo,
-    redo,
-    resetNestingResult,
-    canUndo,
-    canRedo,
-  ] = useUndoRedo<PlacedPart[]>([]);
-  const [isComputing, setIsComputing] = useState(false);
-  const [failedCount, setFailedCount] = useState(0);
-  const [totalBins, setTotalBins] = useState(1);
-  const [currentBinIndex, setCurrentBinIndex] = useState(0);
-  const [selectedPartIds, setSelectedPartIds] = useState<string[]>([]);
-  const [contextMenu, setContextMenu] = useState<{
-    visible: boolean;
-    x: number;
-    y: number;
-  } | null>(null);
-  const workerRef = useRef<Worker | null>(null);
+    currentBinIndex,
+    displayedParts,
+    binSize,
+    collidingPartIds,
+  ]);
+
+  const activeSelectedPartIds = useMemo(() => {
+    const ids = new Set<string>();
+    selectedPartIds.forEach((id) => ids.add(id));
+    nestingResult.forEach((placed) => {
+      if (selectedPartIds.includes(placed.uuid)) ids.add(placed.partId);
+    });
+    return ids;
+  }, [selectedPartIds, nestingResult]);
+
+  // --- 4. EFEITOS (COM SEGURANÇA AGORA) ---
+  useEffect(() => {
+    if (initialSearchQuery && parts.length === 0) {
+      const timer = setTimeout(() => {
+        const doAutoSearch = async () => {
+          if (!initialSearchQuery) return;
+          // SEGURANÇA: Se não estiver logado ou carregando usuário, não faz a busca ainda
+          if (!user || !user.token) return;
+
+          setIsSearching(true);
+          try {
+            const params = new URLSearchParams();
+            params.append("pedido", initialSearchQuery);
+            const response = await fetch(
+              `http://localhost:3001/api/pecas/buscar?${params.toString()}`,
+              {
+                method: "GET",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${user.token}`, // <--- TOKEN ADICIONADO
+                },
+              }
+            );
+            if (response.status === 404) {
+              alert(
+                `Nenhuma peça encontrada para o pedido: ${initialSearchQuery}`
+              );
+              setIsSearching(false);
+              return;
+            }
+            if (!response.ok) throw new Error("Erro ao buscar.");
+            const data = await response.json();
+            if (Array.isArray(data) && data.length > 0) {
+              const dbParts: ImportedPart[] = data.map((item: any) => ({
+                id: item.id,
+                name: item.name,
+                entities: item.entities,
+                blocks: item.blocks || {},
+                width: Number(item.width),
+                height: Number(item.height),
+                grossArea: Number(item.grossArea),
+                netArea: Number(item.grossArea),
+                quantity: Number(item.quantity) || 1,
+                pedido: item.pedido,
+                op: item.op,
+                material: item.material,
+                espessura: item.espessura,
+                autor: item.autor,
+                dataCadastro: item.dataCadastro,
+              }));
+              setParts(dbParts);
+            }
+          } catch (e) {
+            console.error(e);
+            alert("Erro ao buscar dados iniciais.");
+          } finally {
+            setIsSearching(false);
+          }
+        };
+        doAutoSearch();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [initialSearchQuery, user]); // eslint-disable-line
+
+  useEffect(() => {
+    setQuantities((prev) => {
+      const currentIds = new Set(Object.keys(prev));
+      const missingParts = parts.filter((p) => !currentIds.has(p.id));
+      if (missingParts.length > 0) {
+        const newQ = { ...prev };
+        missingParts.forEach((p) => {
+          newQ[p.id] = p.quantity || 1;
+        });
+        return newQ;
+      }
+      return prev;
+    });
+  }, [parts]);
+
+  const handleBackgroundContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setSheetMenu({ x: e.clientX, y: e.clientY, lineId: undefined });
+  }, []);
+
+  const handleLineContextMenu = useCallback(
+    (e: React.MouseEvent, lineId: string) => {
+      e.preventDefault();
+      setSheetMenu({ x: e.clientX, y: e.clientY, lineId });
+    },
+    []
+  );
+
+  const handleAddCropLineWrapper = useCallback(
+    (type: "horizontal" | "vertical") => {
+      const position =
+        type === "vertical" ? binSize.width / 2 : binSize.height / 2;
+      addCropLine(type, position);
+    },
+    [addCropLine, binSize]
+  );
+
+  const handleDeleteSheetWrapper = useCallback(() => {
+    handleDeleteCurrentBin(nestingResult, setNestingResult);
+  }, [handleDeleteCurrentBin, nestingResult, setNestingResult]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -552,38 +797,189 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [undo, redo]);
 
-  // SCROLL AUTOMÁTICO
   useEffect(() => {
     if (selectedPartIds.length > 0) {
       const lastUUID = selectedPartIds[selectedPartIds.length - 1];
       const placed = nestingResult.find((p) => p.uuid === lastUUID);
       if (placed) {
         const el = thumbnailRefs.current[placed.partId];
-        if (el) {
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
       }
     }
   }, [selectedPartIds, nestingResult]);
 
-  // --- NOVA FUNÇÃO DE BUSCA NO BANCO ---
+  const handleReturnToBank = useCallback(
+    (uuidsToRemove: string[]) => {
+      const targetPlaced = nestingResult.find((p) =>
+        uuidsToRemove.includes(p.uuid)
+      );
+      const partIdToScroll = targetPlaced?.partId;
+      setNestingResult((prev) =>
+        prev.filter((p) => !uuidsToRemove.includes(p.uuid))
+      );
+      setSelectedPartIds([]);
+      if (partIdToScroll) {
+        setTimeout(() => {
+          const element = thumbnailRefs.current[partIdToScroll];
+          if (element)
+            element.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 100);
+      }
+    },
+    [nestingResult, setNestingResult]
+  );
+
+  const handleSaveClick = async () => {
+    const partsInBin = nestingResult.filter((p) => p.binId === currentBinIndex);
+    if (partsInBin.length === 0 && cropLines.length === 0) return;
+
+    await handleProductionDownload(
+      nestingResult,
+      currentBinIndex,
+      displayedParts,
+      cropLines
+    );
+    markBinAsSaved(currentBinIndex);
+  };
+
+  const handlePartRotate = useCallback(
+    (uuid: string, newRotation: number) => {
+      setNestingResult((prev) =>
+        prev.map((p) => (p.uuid === uuid ? { ...p, rotation: newRotation } : p))
+      );
+    },
+    [setNestingResult]
+  );
+
+  const handleCalculate = useCallback(() => {
+    const partsToNest = displayedParts.filter(
+      (p) => !disabledNestingIds.has(p.id)
+    );
+
+    if (partsToNest.length === 0) {
+      alert(
+        "Nenhuma peça selecionada para o cálculo! Marque pelo menos uma peça."
+      );
+      return;
+    }
+
+    if (nestingResult.length > 0) {
+      if (
+        !window.confirm(
+          "O cálculo automático irá REORGANIZAR TODA A MESA... Deseja continuar?"
+        )
+      )
+        return;
+    }
+    setIsComputing(true);
+    resetNestingResult([]);
+    setCurrentBinIndex(0);
+    setTotalBins(1);
+    setSelectedPartIds([]);
+    resetAllSaveStatus();
+
+    if (nestingWorkerRef.current) nestingWorkerRef.current.terminate();
+
+    nestingWorkerRef.current = new NestingWorker();
+
+    nestingWorkerRef.current.onmessage = (e) => {
+      const result = e.data;
+      resetNestingResult(result.placed);
+      setFailedCount(result.failed.length);
+      setTotalBins(result.totalBins || 1);
+      setIsComputing(false);
+      if (result.placed.length === 0) alert("Nenhuma peça coube!");
+    };
+
+    nestingWorkerRef.current.postMessage({
+      parts: JSON.parse(JSON.stringify(partsToNest)),
+      quantities,
+      gap,
+      margin,
+      binWidth: binSize.width,
+      binHeight: binSize.height,
+      strategy,
+      iterations,
+      rotationStep,
+      direction,
+    });
+  }, [
+    displayedParts,
+    nestingResult.length,
+    resetNestingResult,
+    setCurrentBinIndex,
+    setTotalBins,
+    resetAllSaveStatus,
+    quantities,
+    gap,
+    margin,
+    binSize.width,
+    binSize.height,
+    strategy,
+    iterations,
+    rotationStep,
+    direction,
+    disabledNestingIds,
+  ]);
+
+  const handleClearTable = useCallback(() => {
+    if (
+      window.confirm(
+        "ATENÇÃO: Isso limpará a mesa de corte E O BANCO DE PEÇAS. Deseja reiniciar?"
+      )
+    ) {
+      resetNestingResult([]);
+      setParts([]);
+      setFailedCount(0);
+      setTotalBins(1);
+      setCurrentBinIndex(0);
+      setSelectedPartIds([]);
+      setQuantities({});
+      setSearchQuery("");
+      resetProduction();
+      resetAllSaveStatus();
+    }
+  }, [
+    resetNestingResult,
+    resetProduction,
+    resetAllSaveStatus,
+    setTotalBins,
+    setCurrentBinIndex,
+    setParts,
+  ]);
+
+  // --- FUNÇÃO DE BUSCA MANUAL BLINDADA ---
   const handleDBSearch = async () => {
     if (!searchQuery) return;
+
+    // SEGURANÇA: Bloqueia busca sem login
+    if (!user || !user.token) {
+      alert(
+        "Erro de segurança: Você precisa estar logado para buscar no banco."
+      );
+      return;
+    }
+
     setIsSearching(true);
     try {
       const params = new URLSearchParams();
       params.append("pedido", searchQuery);
       const response = await fetch(
-        `http://localhost:3001/api/pecas/buscar?${params.toString()}`
+        `http://localhost:3001/api/pecas/buscar?${params.toString()}`,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${user.token}`, // <--- TOKEN ADICIONADO
+          },
+        }
       );
-
       if (response.status === 404) {
         alert("Nenhum pedido encontrado.");
         setIsSearching(false);
         return;
       }
       if (!response.ok) throw new Error("Erro ao buscar.");
-
       const data = await response.json();
       if (Array.isArray(data) && data.length > 0) {
         const dbParts: ImportedPart[] = data.map((item: any) => ({
@@ -604,18 +1000,31 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           dataCadastro: item.dataCadastro,
         }));
 
-        setParts((prev) => {
-          const currentIds = new Set(prev.map((p) => p.id));
-          const newUnique = dbParts.filter((p) => !currentIds.has(p.id));
-          if (newUnique.length === 0) {
-            alert("Peças já carregadas!");
-            return prev;
+        if (searchMode === "replace") {
+          if (
+            nestingResult.length > 0 &&
+            !window.confirm("Isso limpará o arranjo atual. Continuar?")
+          ) {
+            setIsSearching(false);
+            return;
           }
-          return [...prev, ...newUnique];
-        });
-
+          setParts(dbParts);
+          resetNestingResult([]);
+          resetProduction();
+          resetAllSaveStatus();
+        } else {
+          setParts((prev) => {
+            const currentIds = new Set(prev.map((p) => p.id));
+            const newUnique = dbParts.filter((p) => !currentIds.has(p.id));
+            if (newUnique.length === 0) {
+              alert("Peças já estão na lista!");
+              return prev;
+            }
+            return [...prev, ...newUnique];
+          });
+        }
         setSearchQuery("");
-        setIsSearchModalOpen(false); // Fecha modal
+        setIsSearchModalOpen(false);
       }
     } catch (err) {
       console.error(err);
@@ -655,17 +1064,51 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const handlePartsMove = useCallback(
     (moves: { partId: string; dx: number; dy: number }[]) => {
-      if (moves.length === 0) return;
       setNestingResult((prev) => {
-        const moveMap = new Map(moves.map((m) => [m.partId, m]));
-        return prev.map((p) => {
-          const move = moveMap.get(p.uuid);
-          return move ? { ...p, x: p.x + move.dx, y: p.y + move.dy } : p;
+        const newPlaced = [...prev];
+        moves.forEach(({ partId, dx, dy }) => {
+          const index = newPlaced.findIndex((p) => p.uuid === partId);
+          if (index !== -1) {
+            newPlaced[index] = {
+              ...newPlaced[index],
+              x: newPlaced[index].x + dx,
+              y: newPlaced[index].y + dy,
+            };
+          }
         });
+        return newPlaced;
       });
     },
     [setNestingResult]
   );
+
+  const handlePartsMoveWithClear = useCallback(
+    (moves: any) => {
+      handlePartsMove(moves);
+      if (collidingPartIds.length > 0) {
+        setCollidingPartIds([]);
+      }
+    },
+    [handlePartsMove, collidingPartIds]
+  );
+
+  const handleCheckCollisions = useCallback(() => {
+    if (currentPlacedParts.length < 1) {
+      alert("A mesa está vazia.");
+      return;
+    }
+
+    if (collisionWorkerRef.current) {
+      collisionWorkerRef.current.postMessage({
+        placedParts: currentPlacedParts,
+        partsData: parts,
+        binWidth: binSize.width,
+        binHeight: binSize.height,
+        margin: margin,
+        cropLines: cropLines,
+      });
+    }
+  }, [currentPlacedParts, parts, binSize, margin, cropLines]);
 
   const handlePartSelect = useCallback((ids: string[], append: boolean) => {
     setSelectedPartIds((prev) =>
@@ -689,82 +1132,32 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     setEditingPartId(partId);
   };
 
-  const handleCalculate = useCallback(() => {
-    if (displayedParts.length === 0) {
-      alert("Nenhuma peça disponível no filtro atual!");
-      return;
-    }
-    setIsComputing(true);
-    resetNestingResult([]);
-    setCurrentBinIndex(0);
-    setTotalBins(1);
-    setSelectedPartIds([]);
-    if (workerRef.current) workerRef.current.terminate();
-    workerRef.current = new NestingWorker();
-    workerRef.current.onmessage = (e) => {
-      const result = e.data;
-      resetNestingResult(result.placed);
-      setFailedCount(result.failed.length);
-      setTotalBins(result.totalBins || 1);
-      setIsComputing(false);
-      if (result.placed.length === 0) alert("Nenhuma peça coube!");
-    };
-    workerRef.current.postMessage({
-      parts: JSON.parse(JSON.stringify(displayedParts)),
-      quantities,
-      gap,
-      margin,
-      binWidth: binSize.width,
-      binHeight: binSize.height,
-      strategy,
-      iterations,
-      rotationStep,
-      direction,
-    });
-  }, [
-    displayedParts,
-    quantities,
-    gap,
-    margin,
-    binSize,
-    strategy,
-    iterations,
-    rotationStep,
-    direction,
-    resetNestingResult,
-  ]);
+  const handleDragStart = (e: React.DragEvent, part: ImportedPart) => {
+    e.dataTransfer.setData("application/react-dnd-part-id", part.id);
+    e.dataTransfer.effectAllowed = "copy";
+  };
 
-  const handleClearTable = useCallback(() => {
-    if (window.confirm("Deseja limpar todos os arranjos da mesa?")) {
-      resetNestingResult([]);
-      setFailedCount(0);
-      setTotalBins(1);
-      setCurrentBinIndex(0);
-    }
-  }, [resetNestingResult]);
+  const handleExternalDrop = useCallback(
+    (partId: string, x: number, y: number) => {
+      const part = parts.find((p) => p.id === partId);
+      if (!part) return;
 
-  const handleDownload = useCallback(() => {
-    if (nestingResult.length === 0) return;
-    const currentBinParts = nestingResult.filter(
-      (p) => p.binId === currentBinIndex
-    );
-    const dxfString = generateDxfContent(currentBinParts, displayedParts, binSize);
-    const blob = new Blob([dxfString], { type: "application/dxf" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `nesting_chapa_${currentBinIndex + 1}.dxf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, [nestingResult, currentBinIndex, displayedParts, binSize]);
+      const finalX = x - part.width / 2;
+      const finalY = y - part.height / 2;
 
-  const updateQty = useCallback(
-    (id: string, val: number) =>
-      setQuantities((prev) => ({ ...prev, [id]: val })),
-    []
+      const newPlacedPart: PlacedPart = {
+        partId: part.id,
+        x: finalX,
+        y: finalY,
+        rotation: 0,
+        binId: currentBinIndex,
+        uuid: crypto.randomUUID(),
+      };
+      setNestingResult((prev) => [...prev, newPlacedPart]);
+    },
+    [parts, currentBinIndex, setNestingResult]
   );
+
   const formatArea = useCallback(
     (mm2: number) =>
       mm2 > 100000
@@ -773,18 +1166,53 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     []
   );
 
-  const currentPlacedParts = useMemo(
-    () => nestingResult.filter((p) => p.binId === currentBinIndex),
-    [nestingResult, currentBinIndex]
-  );
+  const totalPlacedCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    nestingResult.forEach((p) => {
+      counts[p.partId] = (counts[p.partId] || 0) + 1;
+    });
+    return counts;
+  }, [nestingResult]);
 
-  const getThumbnailViewBox = useCallback((part: ImportedPart) => {
-    const box = calculateBoundingBox(part.entities, part.blocks);
-    const w = box.width || 100;
-    const h = box.height || 100;
-    const p = Math.max(w, h) * 0.1;
-    return `${box.minX - p} ${box.minY - p} ${w + p * 2} ${h + p * 2}`;
-  }, []);
+  const currentBinPartIds = useMemo(() => {
+    const ids = new Set<string>();
+    currentPlacedParts.forEach((p) => ids.add(p.partId));
+    return ids;
+  }, [currentPlacedParts]);
+
+  const sortedParts = useMemo(() => {
+    const sorted = [...displayedParts].sort((a, b) => {
+      const aSel = selectedPartIds.includes(a.id);
+      const bSel = selectedPartIds.includes(b.id);
+      if (aSel && !bSel) return -1;
+      if (!aSel && bSel) return 1;
+
+      const qtyA = quantities[a.id] || 1;
+      const qtyB = quantities[b.id] || 1;
+      const placedA = totalPlacedCounts[a.id] || 0;
+      const placedB = totalPlacedCounts[b.id] || 0;
+
+      const isPendingA = placedA < qtyA;
+      const isPendingB = placedB < qtyB;
+
+      if (isPendingA && !isPendingB) return -1;
+      if (!isPendingA && isPendingB) return 1;
+
+      const aOnBoard = currentBinPartIds.has(a.id);
+      const bOnBoard = currentBinPartIds.has(b.id);
+      if (aOnBoard && !bOnBoard) return -1;
+      if (!aOnBoard && bOnBoard) return 1;
+
+      return 0;
+    });
+    return sorted;
+  }, [
+    displayedParts,
+    selectedPartIds,
+    currentBinPartIds,
+    quantities,
+    totalPlacedCounts,
+  ]);
 
   const containerStyle: React.CSSProperties = {
     display: "flex",
@@ -809,7 +1237,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     gap: "15px",
     alignItems: "center",
     backgroundColor: theme.panelBg,
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
+    overflowX: "auto",
   };
   const inputStyle: React.CSSProperties = {
     padding: 5,
@@ -856,94 +1285,150 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     maxWidth: "120px",
   };
 
-  const modalOverlayStyle: React.CSSProperties = {
-    position: "fixed",
-    top: 0,
-    left: 0,
-    width: "100%",
-    height: "100%",
-    backgroundColor: "rgba(0,0,0,0.6)",
-    zIndex: 9999,
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-  };
-  const modalContentStyle: React.CSSProperties = {
-    backgroundColor: theme.panelBg,
-    padding: "25px",
-    borderRadius: "8px",
-    width: "350px",
-    border: `1px solid ${theme.border}`,
-    boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
+  const renderProgressBar = (
+    produced: number,
+    total: number,
+    color: string
+  ) => {
+    const pct = Math.min(100, Math.round((produced / total) * 100));
+    return (
+      <div
+        style={{
+          width: "100%",
+          background: theme.border,
+          height: "6px",
+          borderRadius: "3px",
+          marginTop: "5px",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            width: `${pct}%`,
+            background: pct >= 100 ? "#28a745" : color,
+            height: "100%",
+          }}
+        ></div>
+      </div>
+    );
   };
 
   return (
     <div style={containerStyle}>
-      {/* --- MODAL DE BUSCA --- */}
       {isSearchModalOpen && (
         <div
-          style={modalOverlayStyle}
+          style={{
+            position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+            backgroundColor: "rgba(0,0,0,0.6)", zIndex: 9999,
+            display: "flex", justifyContent: "center", alignItems: "center",
+          }}
           onClick={() => setIsSearchModalOpen(false)}
         >
-          <div style={modalContentStyle} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0, color: theme.text }}>
-              🔍 Buscar Pedido(s)
-            </h3>
-            <p style={{ fontSize: "13px", color: theme.label }}>
-              Separe múltiplos pedidos por vírgula.
-            </p>
-            <input
-              autoFocus
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleDBSearch()}
-              placeholder="Ex: 35905, 35906"
-              style={{
-                width: "100%",
-                padding: "10px",
-                marginTop: "10px",
-                marginBottom: "20px",
-                background: theme.inputBg,
-                color: theme.text,
-                border: `1px solid ${theme.border}`,
-                borderRadius: "4px",
-                boxSizing: "border-box",
-              }}
-            />
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: "10px",
-              }}
-            >
+          <div
+            style={{
+              backgroundColor: theme.panelBg,
+              padding: "25px", borderRadius: "8px",
+              width: "400px", // Aumentei um pouco a largura
+              maxHeight: "85vh", // Limite de altura para telas pequenas
+              display: "flex", flexDirection: "column",
+              border: `1px solid ${theme.border}`,
+              boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 15}}>
+                 <h3 style={{ margin: 0, color: theme.text }}>🔍 Buscar Pedido(s)</h3>
+                 <button onClick={() => setIsSearchModalOpen(false)} style={{background:'transparent', border:'none', color: theme.text, fontSize: 20, cursor:'pointer'}}>✕</button>
+            </div>
+
+            {/* --- LISTA DE CHECKBOX (ESTILO EXCEL) --- */}
+            <div style={{ marginBottom: "15px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+                <span style={{ fontSize: "12px", fontWeight: "bold", color: theme.label, marginBottom: "5px" }}>
+                    SELECIONE OS PEDIDOS DISPONÍVEIS:
+                </span>
+                
+                <div style={{
+                    flex: 1, 
+                    overflowY: "auto", 
+                    background: theme.inputBg, 
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: "4px",
+                    padding: "5px",
+                    minHeight: "150px", // Altura mínima para a lista
+                    maxHeight: "250px"  // Altura máxima antes de scrollar
+                }}>
+                    {loadingOrders ? (
+                        <div style={{padding: 10, fontSize: 12, color: theme.label}}>Carregando lista...</div>
+                    ) : availableOrders.length === 0 ? (
+                        <div style={{padding: 10, fontSize: 12, color: theme.label}}>Nenhum pedido encontrado no banco.</div>
+                    ) : (
+                        availableOrders.map(order => {
+                            // Verifica se este pedido está no input de texto
+                            const isChecked = searchQuery.split(',').map(s => s.trim()).includes(order);
+                            return (
+                                <label key={order} style={{
+                                    display: "flex", alignItems: "center", padding: "6px",
+                                    cursor: "pointer", borderBottom: `1px solid ${theme.hoverRow}`,
+                                    fontSize: "13px", color: theme.text
+                                }}>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={isChecked}
+                                        onChange={() => toggleOrderSelection(order)}
+                                        style={{ marginRight: "8px" }}
+                                    />
+                                    {order}
+                                </label>
+                            );
+                        })
+                    )}
+                </div>
+            </div>
+
+            {/* INPUT MANUAL (Mantido para ver o resultado ou digitar avulso) */}
+            <div style={{marginBottom: 15}}>
+                 <span style={{ fontSize: "11px", fontWeight: "bold", opacity: 0.7, color: theme.label }}>SELEÇÃO ATUAL:</span>
+                 <input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Selecione acima ou digite (Ex: 35040, 35041)"
+                  style={{
+                    width: "100%", padding: "10px", marginTop: "5px",
+                    background: theme.inputBg, color: theme.text,
+                    border: `1px solid ${theme.border}`, borderRadius: "4px",
+                    boxSizing: "border-box", fontWeight: 'bold'
+                  }}
+                />
+            </div>
+
+            {/* OPÇÕES DE MODO */}
+            <div style={{
+                marginBottom: "20px", padding: "10px", background: theme.inputBg,
+                borderRadius: "4px", display: "flex", gap: "15px", alignItems: 'center'
+            }}>
+                <span style={{ fontSize: "11px", fontWeight: "bold", opacity: 0.7, color: theme.label }}>MODO:</span>
+                <label style={{ display: "flex", alignItems: "center", cursor: "pointer", fontSize: "12px", color: theme.text }}>
+                  <input type="radio" name="searchMode" checked={searchMode === "replace"} onChange={() => setSearchMode("replace")} style={{ marginRight: "5px" }} />
+                  Limpar Mesa
+                </label>
+                <label style={{ display: "flex", alignItems: "center", cursor: "pointer", fontSize: "12px", fontWeight: "bold", color: "#28a745" }}>
+                  <input type="radio" name="searchMode" checked={searchMode === "append"} onChange={() => setSearchMode("append")} style={{ marginRight: "5px" }} />
+                  Adicionar (Mix)
+                </label>
+            </div>
+
+            {/* BOTÕES DE AÇÃO */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
               <button
-                onClick={() => setIsSearchModalOpen(false)}
+                onClick={handleDBSearch} // Chama a função original
+                disabled={isSearching || !searchQuery}
                 style={{
-                  padding: "8px 15px",
-                  background: "transparent",
-                  border: `1px solid ${theme.border}`,
-                  color: theme.text,
-                  borderRadius: "4px",
-                  cursor: "pointer",
+                  padding: "10px 20px", background: "#6f42c1", border: "none",
+                  color: "white", borderRadius: "4px", cursor: "pointer",
+                  fontWeight: "bold", width: '100%'
                 }}
               >
-                Cancelar
-              </button>
-              <button
-                onClick={handleDBSearch}
-                disabled={isSearching}
-                style={{
-                  padding: "8px 15px",
-                  background: "#28a745",
-                  border: "none",
-                  color: "white",
-                  borderRadius: "4px",
-                  cursor: "pointer",
-                  fontWeight: "bold",
-                }}
-              >
-                {isSearching ? "Buscando..." : "Buscar"}
+                {isSearching ? "Buscando Peças..." : "📥 Importar Selecionados"}
               </button>
             </div>
           </div>
@@ -1003,91 +1488,460 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             Planejamento de Corte
           </h2>
         </div>
-        
-        {/* Lado Direito: Ações + Tema */}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "10px" }}>
-            
-            {/* BOTÕES DE AÇÃO (MOVIDOS PARA CÁ) */}
-            <button onClick={() => setIsSearchModalOpen(true)} style={{ background: "#6f42c1", color: "white", border: "none", padding: "6px 12px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", gap: "5px", fontSize: "13px" }}>
-                🔍 Buscar Pedido
-            </button>
-            <button style={{ background: isComputing ? "#666" : "#28a745", color: "white", border: "none", padding: "6px 12px", cursor: isComputing ? "wait" : "pointer", borderRadius: "4px", fontWeight: "bold", fontSize: "13px" }} onClick={handleCalculate} disabled={isComputing}>
-                {isComputing ? "..." : "▶ Calcular"}
-            </button>
-            <button onClick={handleDownload} disabled={nestingResult.length === 0} style={{ background: "#007bff", color: "white", border: "none", padding: "6px 12px", cursor: nestingResult.length === 0 ? "not-allowed" : "pointer", borderRadius: "4px", opacity: nestingResult.length === 0 ? 0.5 : 1, fontSize: "13px" }}>
-                💾 DXF
-            </button>
-            <button onClick={handleClearTable} title="Limpar Mesa" style={{ background: "transparent", color: "#dc3545", border: `1px solid #dc3545`, padding: "5px 10px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>
-                🗑️
-            </button>
+        {/* --- NOVO: PAINEL DE ASSINATURA CENTRALIZADO --- */}
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', margin: '0 20px' }}>
+             <div style={{ maxWidth: '400px' }}>
+                 <SubscriptionPanel isDarkMode={isDarkMode} />
+             </div>
+        </div>
+        {/* ----------------------------------------------- */}
+        <div
+          style={{
+            marginLeft: "auto",
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+          }}
+        >
+          {/* BOTÃO BUSCAR PEDIDO (ALTERADO) */}
+          <button
+            onClick={() => {
+                if (isTrial) return; // Bloqueio funcional
+                setIsSearchModalOpen(true);
+            }}
+            title={isTrial ? "Recurso indisponível no modo Trial" : "Buscar peças salvas no banco"}
+            style={{
+              background: isTrial ? "#6c757d" : "#6f42c1", // Cinza se Trial, Roxo se Premium
+              color: "white",
+              border: "none",
+              padding: "6px 12px",
+              borderRadius: "4px",
+              cursor: isTrial ? "not-allowed" : "pointer", // Cursor de proibido
+              opacity: isTrial ? 0.6 : 1, // Visual "desabilitado"
+              fontWeight: "bold",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              fontSize: "13px",
+              transition: "all 0.3s ease"
+            }}
+          >
+            🔍 Buscar Pedido {isTrial && "🔒"}
+          </button>
 
-            {/* Divisor Visual */}
-            <div style={{ width: 1, height: 24, background: theme.border, margin: '0 5px' }}></div>
+          <button
+            onClick={handleSaveClick}
+            disabled={
+              nestingResult.length === 0 || isSaving || isCurrentSheetSaved
+            }
+            style={{
+              background: isCurrentSheetSaved
+                ? "#28a745"
+                : lockedBins.includes(currentBinIndex)
+                ? "#17a2b8"
+                : "#007bff",
+              color: "white",
+              border: "none",
+              padding: "6px 12px",
+              cursor:
+                nestingResult.length === 0 || isSaving || isCurrentSheetSaved
+                  ? "not-allowed"
+                  : "pointer",
+              borderRadius: "4px",
+              opacity:
+                nestingResult.length === 0 || isSaving || isCurrentSheetSaved
+                  ? 0.6
+                  : 1,
+              fontSize: "13px",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              transition: "all 0.3s ease",
+            }}
+          >
+            {isSaving
+              ? "⏳ Salvando..."
+              : isCurrentSheetSaved
+              ? "✅ Chapa Salva"
+              : "💾 Salvar DXF"}
+          </button>
 
-            {/* Botão de Tema */}
-            <button onClick={() => setIsDarkMode(!isDarkMode)} title="Alternar Tema" style={{ background: "transparent", border: `1px solid ${theme.border}`, color: theme.text, padding: "6px 12px", borderRadius: "20px", cursor: "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {isDarkMode ? "☀️" : "🌙"}
-            </button>
+          <button
+            onClick={handleClearTable}
+            title="Reiniciar Página"
+            style={{
+              background: "transparent",
+              color: "#dc3545",
+              border: `1px solid #dc3545`,
+              padding: "5px 10px",
+              borderRadius: "4px",
+              cursor: "pointer",
+              fontWeight: "bold",
+              fontSize: "13px",
+            }}
+          >
+            🗑️
+          </button>
+          <div
+            style={{
+              width: 1,
+              height: 24,
+              background: theme.border,
+              margin: "0 5px",
+            }}
+          ></div>
+          <button
+            onClick={toggleTheme}
+            title="Alternar Tema"
+            style={{
+              background: "transparent",
+              border: `1px solid ${theme.border}`,
+              color: theme.text,
+              padding: "6px 12px",
+              borderRadius: "20px",
+              cursor: "pointer",
+              fontSize: "16px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {isDarkMode ? "☀️" : "🌙"}
+          </button>
         </div>
       </div>
 
       <div style={toolbarStyle}>
-        <div style={{ display: "flex", alignItems: "center", borderRight: `1px solid ${theme.border}`, paddingRight: "15px" }}>
-          <span style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}>Motor:</span>
-          <select value={strategy} onChange={(e) => setStrategy(e.target.value as any)} style={inputStyle}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            borderRight: `1px solid ${theme.border}`,
+            paddingRight: "15px",
+          }}
+        >
+          <span
+            style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}
+          >
+            Motor:
+          </span>
+          <select
+            value={strategy}
+            onChange={(e) => setStrategy(e.target.value as any)}
+            style={inputStyle}
+          >
             <option value="rect">🔳 Retangular</option>
             <option value="true-shape">🧩 True Shape</option>
           </select>
         </div>
-        <div style={{ display: "flex", alignItems: "center", borderRight: `1px solid ${theme.border}`, paddingRight: "15px" }}>
-          <span style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}>Dir:</span>
-          <div style={{ display: "flex", gap: "2px", background: theme.inputBg, borderRadius: "4px", padding: "2px" }}>
-            <button title="Auto" onClick={() => setDirection("auto")} style={btnStyle(direction === "auto")}>Auto</button>
-            <button title="Vertical" onClick={() => setDirection("vertical")} style={btnStyle(direction === "vertical")}>⬇️</button>
-            <button title="Horizontal" onClick={() => setDirection("horizontal")} style={btnStyle(direction === "horizontal")}>➡️</button>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            borderRight: `1px solid ${theme.border}`,
+            paddingRight: "15px",
+          }}
+        >
+          <span
+            style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}
+          >
+            Dir:
+          </span>
+          <div
+            style={{
+              display: "flex",
+              gap: "2px",
+              background: theme.inputBg,
+              borderRadius: "4px",
+              padding: "2px",
+            }}
+          >
+            <button
+              title="Auto"
+              onClick={() => setDirection("auto")}
+              style={btnStyle(direction === "auto")}
+            >
+              Auto
+            </button>
+            <button
+              title="Vertical"
+              onClick={() => setDirection("vertical")}
+              style={btnStyle(direction === "vertical")}
+            >
+              ⬇️
+            </button>
+            <button
+              title="Horizontal"
+              onClick={() => setDirection("horizontal")}
+              style={btnStyle(direction === "horizontal")}
+            >
+              ➡️
+            </button>
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", background: theme.hoverRow, padding: "5px", borderRadius: "4px", gap: "5px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            background: theme.hoverRow,
+            padding: "5px",
+            borderRadius: "4px",
+            gap: "5px",
+          }}
+        >
           <label style={{ fontSize: 12 }}>L:</label>
-          <input type="number" value={binSize.width} onChange={(e) => setBinSize((p) => ({ ...p, width: Number(e.target.value) }))} style={{ ...inputStyle, width: 50 }} />
+          <input
+            type="number"
+            value={binSize.width}
+            onChange={(e) =>
+              setBinSize((p) => ({ ...p, width: Number(e.target.value) }))
+            }
+            style={{ ...inputStyle, width: 50 }}
+          />
           <label style={{ fontSize: 12 }}>A:</label>
-          <input type="number" value={binSize.height} onChange={(e) => setBinSize((p) => ({ ...p, height: Number(e.target.value) }))} style={{ ...inputStyle, width: 50 }} />
+          <input
+            type="number"
+            value={binSize.height}
+            onChange={(e) =>
+              setBinSize((p) => ({ ...p, height: Number(e.target.value) }))
+            }
+            style={{ ...inputStyle, width: 50 }}
+          />
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <label style={{ fontSize: 12 }}>Gap:</label>
-          <input type="number" value={gap} onChange={(e) => setGap(Number(e.target.value))} style={{ ...inputStyle, width: 40 }} />
+          <input
+            type="number"
+            value={gap}
+            onChange={(e) => setGap(Number(e.target.value))}
+            style={{ ...inputStyle, width: 40 }}
+          />
           <label style={{ fontSize: 12 }}>Margem:</label>
-          <input type="number" value={margin} onChange={(e) => setMargin(Number(e.target.value))} style={{ ...inputStyle, width: 40 }} />
+          <input
+            type="number"
+            value={margin}
+            onChange={(e) => setMargin(Number(e.target.value))}
+            style={{ ...inputStyle, width: 40 }}
+          />
         </div>
+
         {strategy === "true-shape" && (
           <div style={{ display: "flex", alignItems: "center" }}>
             <label style={{ fontSize: 12, marginRight: 5 }}>Rot:</label>
-            <select value={rotationStep} onChange={(e) => setRotationStep(Number(e.target.value))} style={inputStyle}>
+            <select
+              value={rotationStep}
+              onChange={(e) => setRotationStep(Number(e.target.value))}
+              style={inputStyle}
+            >
               <option value="90">90°</option>
               <option value="45">45°</option>
               <option value="10">10°</option>
             </select>
           </div>
         )}
-        <label style={{ fontSize: "12px", display: "flex", alignItems: "center", cursor: "pointer", userSelect: "none" }}>
-          <input type="checkbox" checked={showDebug} onChange={(e) => setShowDebug(e.target.checked)} style={{ marginRight: "5px" }} />
+        <label
+          style={{
+            fontSize: "12px",
+            display: "flex",
+            alignItems: "center",
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={showDebug}
+            onChange={(e) => setShowDebug(e.target.checked)}
+            style={{ marginRight: "5px" }}
+          />{" "}
           Ver Box
         </label>
+
+        <button
+          onClick={handleCheckCollisions}
+          title="Verificar se há peças sobrepostas"
+          style={{
+            background: "#dc3545",
+            border: `1px solid ${theme.border}`,
+            color: "#fff",
+            padding: "5px 10px",
+            borderRadius: "4px",
+            cursor: "pointer",
+            fontWeight: "bold",
+            fontSize: "12px",
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+            marginLeft: "10px",
+          }}
+        >
+          💥 Verificar Colisão
+        </button>
+
+        <button
+          onClick={handleAddBin}
+          title="Criar uma nova chapa vazia para nesting manual"
+          style={{
+            background: theme.buttonBg,
+            border: `1px solid ${theme.border}`,
+            color: theme.text,
+            padding: "5px 10px",
+            borderRadius: "4px",
+            cursor: "pointer",
+            fontWeight: "bold",
+            fontSize: "12px",
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+            marginLeft: "10px",
+          }}
+        >
+          <span
+            style={{ color: "#28a745", fontSize: "14px", marginRight: "3px" }}
+          >
+            +
+          </span>{" "}
+          Nova Chapa
+        </button>
+
+        <button
+          onClick={handleCalculate}
+          disabled={isComputing}
+          style={{
+            marginLeft: "auto",
+            background: isComputing ? "#666" : "#28a745",
+            color: "white",
+            border: "none",
+            padding: "8px 15px",
+            cursor: isComputing ? "wait" : "pointer",
+            borderRadius: "4px",
+            fontWeight: "bold",
+            fontSize: "13px",
+            whiteSpace: "nowrap",
+            boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+          }}
+        >
+          {isComputing ? "..." : "▶ Calcular Nesting"}
+        </button>
       </div>
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        <div style={{ flex: 2, position: "relative", background: theme.canvasBg, display: "flex", flexDirection: "column", overflow: "hidden" }} onMouseDown={() => setContextMenu(null)}>
-          <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 10, zIndex: 20 }}>
-            <button onClick={undo} disabled={!canUndo} style={{ padding: "8px 15px", borderRadius: "20px", border: `1px solid ${theme.buttonBorder}`, background: theme.buttonBg, color: canUndo ? theme.buttonText : "#888", cursor: canUndo ? "pointer" : "default", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", fontWeight: "bold", fontSize: "12px" }}>↩ Desfazer</button>
-            <button onClick={redo} disabled={!canRedo} style={{ padding: "8px 15px", borderRadius: "20px", border: `1px solid ${theme.buttonBorder}`, background: theme.buttonBg, color: canRedo ? theme.buttonText : "#888", cursor: canRedo ? "pointer" : "default", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", fontWeight: "bold", fontSize: "12px" }}>↪ Refazer</button>
-          </div>
+        <div
+          style={{
+            flex: 2,
+            position: "relative",
+            background: theme.canvasBg,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+          }}
+          onMouseDown={() => setContextMenu(null)}
+        >
           {totalBins > 1 && (
-            <div style={{ position: "absolute", bottom: 20, right: 20, zIndex: 20, display: "flex", alignItems: "center", gap: "10px", background: theme.buttonBg, padding: "5px 15px", borderRadius: "20px", boxShadow: "0 2px 5px rgba(0,0,0,0.2)", color: theme.text, border: `1px solid ${theme.buttonBorder}` }}>
-              <button onClick={() => setCurrentBinIndex(Math.max(0, currentBinIndex - 1))} disabled={currentBinIndex === 0} style={{ cursor: "pointer", border: "none", background: "transparent", fontWeight: "bold", color: theme.text }}>◀</button>
-              <span style={{ fontWeight: "bold", fontSize: "13px" }}>Chapa {currentBinIndex + 1} de {totalBins}</span>
-              <button onClick={() => setCurrentBinIndex(Math.min(totalBins - 1, currentBinIndex + 1))} disabled={currentBinIndex === totalBins - 1} style={{ cursor: "pointer", border: "none", background: "transparent", fontWeight: "bold", color: theme.text }}>▶</button>
+            <div
+              style={{
+                position: "absolute",
+                top: 110,
+                left: 20,
+                zIndex: 20,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: "5px",
+                background: "rgba(30, 30, 30, 0.85)",
+                color: theme.text,
+                border: isCurrentSheetSaved
+                  ? "1px solid #28a745"
+                  : `1px solid ${theme.border}`,
+                padding: "8px 4px",
+                borderRadius: "20px",
+                boxShadow: "0 4px 6px rgba(0,0,0,0.3)",
+                width: "32px",
+                transition: "all 0.3s ease",
+              }}
+            >
+              <button
+                onClick={() =>
+                  setCurrentBinIndex(Math.max(0, currentBinIndex - 1))
+                }
+                disabled={currentBinIndex === 0}
+                title="Voltar para a chapa anterior"
+                style={{
+                  cursor: currentBinIndex === 0 ? "default" : "pointer",
+                  border: "none",
+                  background: "transparent",
+                  fontWeight: "bold",
+                  color: currentBinIndex === 0 ? "#555" : theme.text,
+                  fontSize: "20px",
+                  padding: 2,
+                  display: "flex",
+                  justifyContent: "center",
+                  width: "100%",
+                }}
+              >
+                ▴
+              </button>
+
+              <div
+                title={`Chapa ${currentBinIndex + 1} de ${totalBins} ${
+                  isCurrentSheetSaved ? "(Salva)" : "(Não salva)"
+                }`}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                  lineHeight: 2,
+                  gap: "2px",
+                  cursor: "help",
+                }}
+              >
+                <span
+                  style={{
+                    color: isCurrentSheetSaved ? "#28a745" : theme.text,
+                  }}
+                >
+                  {currentBinIndex + 1}
+                </span>
+                <div
+                  style={{
+                    width: "12px",
+                    height: "1px",
+                    background: theme.border,
+                  }}
+                ></div>
+                <span style={{ opacity: 0.6 }}>{totalBins}</span>
+              </div>
+
+              <button
+                onClick={() =>
+                  setCurrentBinIndex(
+                    Math.min(totalBins - 1, currentBinIndex + 1)
+                  )
+                }
+                disabled={currentBinIndex === totalBins - 1}
+                title="Avançar para a próxima chapa"
+                style={{
+                  cursor:
+                    currentBinIndex === totalBins - 1 ? "default" : "pointer",
+                  border: "none",
+                  background: "transparent",
+                  fontWeight: "bold",
+                  color:
+                    currentBinIndex === totalBins - 1 ? "#555" : theme.text,
+                  fontSize: "18px",
+                  padding: 0,
+                  display: "flex",
+                  justifyContent: "center",
+                  width: "100%",
+                }}
+              >
+                ▾
+              </button>
             </div>
           )}
+
           <InteractiveCanvas
             parts={displayedParts}
             placedParts={currentPlacedParts}
@@ -1098,75 +1952,589 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             strategy={strategy}
             theme={theme}
             selectedPartIds={selectedPartIds}
-            onPartsMove={handlePartsMove}
+            collidingPartIds={collidingPartIds}
+            cropLines={cropLines}
+            onCropLineMove={moveCropLine}
+            onCropLineContextMenu={handleLineContextMenu}
+            onBackgroundContextMenu={handleBackgroundContextMenu}
+            onPartsMove={handlePartsMoveWithClear}
+            onPartRotate={handlePartRotate}
             onPartSelect={handlePartSelect}
             onContextMenu={handlePartContextMenu}
+            onPartReturn={handleReturnToBank}
+            onUndo={undo}
+            onRedo={redo}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onCanvasDrop={handleExternalDrop}
           />
-          <div style={{ padding: "10px 20px", display: "flex", gap: "20px", borderTop: `1px solid ${theme.border}`, background: theme.panelBg, zIndex: 5, color: theme.text }}>
-            <span style={{ opacity: 0.6, fontSize: "12px" }}>{nestingResult.length > 0 ? `Total: ${nestingResult.length} Peças` : `Área: ${binSize.width}x${binSize.height}mm`}</span>
-            {failedCount > 0 && <span style={{ color: "#dc3545", fontWeight: "bold", fontSize: "12px", background: "rgba(255,0,0,0.1)", padding: "2px 8px", borderRadius: "4px" }}>⚠️ {failedCount} NÃO COUBERAM</span>}
+
+          <div
+            style={{
+              padding: "10px 20px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              borderTop: `1px solid ${theme.border}`,
+              background: theme.panelBg,
+              zIndex: 5,
+              color: theme.text,
+            }}
+          >
+            <span
+              style={{ opacity: 0.9, fontSize: "12px", fontWeight: "bold" }}
+            >
+              Total: {currentPlacedParts.length} de {displayedParts.length}{" "}
+              Peças
+            </span>
+
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                marginLeft: "auto",
+                marginRight: "auto",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "14px",
+                  fontWeight: "bold",
+                  color: theme.text,
+                }}
+              >
+                Aprov. Real:{" "}
+                <span
+                  style={{
+                    color:
+                      Number(currentEfficiencies.real.replace(",", ".")) > 70
+                        ? "#28a745"
+                        : theme.text,
+                  }}
+                >
+                  {currentEfficiencies.real}%
+                </span>
+              </span>
+
+              <span
+                style={{
+                  fontSize: "11px",
+                  color: theme.label,
+                  marginTop: "-2px",
+                }}
+              >
+                Densidade de Encaixe:{" "}
+                <span style={{ color: "#007bff" }}>
+                  {currentEfficiencies.effective}%
+                </span>
+              </span>
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+              {isCurrentSheetSaved && (
+                <span
+                  style={{
+                    color: "#28a745",
+                    fontWeight: "bold",
+                    fontSize: "13px",
+                    lineHeight: "1",
+                  }}
+                >
+                  ✅ ARRANJO SALVO
+                </span>
+              )}
+
+              {failedCount > 0 && (
+                <span
+                  style={{
+                    color: "#dc3545",
+                    fontWeight: "bold",
+                    fontSize: "12px",
+                    background: "rgba(255,0,0,0.1)",
+                    padding: "2px 8px",
+                    borderRadius: "4px",
+                    lineHeight: "1",
+                  }}
+                >
+                  ⚠️ {failedCount} NÃO COUBERAM
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
-        <div style={{ width: "500px", borderLeft: `1px solid ${theme.border}`, display: "flex", flexDirection: "column", backgroundColor: theme.panelBg, zIndex: 5, color: theme.text }}>
-          <PartFilter allParts={parts} filters={filters} onFilterChange={setFilters} theme={theme} />
-          <GlobalLabelPanel showWhite={globalWhiteEnabled} showPink={globalPinkEnabled} onToggleWhite={() => toggleGlobal("white")} onTogglePink={() => toggleGlobal("pink")} theme={theme} />
-          <div style={{ display: "flex", borderBottom: `1px solid ${theme.border}`, background: theme.headerBg }}>
-            <button style={tabStyle(activeTab === "grid")} onClick={() => setActiveTab("grid")}>🔳 Banco de Peças</button>
-            <button style={tabStyle(activeTab === "list")} onClick={() => setActiveTab("list")}>📄 Lista Técnica</button>
+        <div
+          style={{
+            width: "500px",
+            borderLeft: `1px solid ${theme.border}`,
+            display: "flex",
+            flexDirection: "column",
+            backgroundColor: theme.panelBg,
+            zIndex: 5,
+            color: theme.text,
+          }}
+        >
+          <PartFilter
+            allParts={parts}
+            filters={filters}
+            onFilterChange={setFilters}
+            theme={theme}
+          />
+          <GlobalLabelPanel
+            showWhite={globalWhiteEnabled}
+            showPink={globalPinkEnabled}
+            onToggleWhite={() => toggleGlobal("white")}
+            onTogglePink={() => toggleGlobal("pink")}
+            theme={theme}
+          />
+          <div
+            style={{
+              display: "flex",
+              borderBottom: `1px solid ${theme.border}`,
+              background: theme.headerBg,
+            }}
+          >
+            <button
+              style={tabStyle(activeTab === "grid")}
+              onClick={() => setActiveTab("grid")}
+            >
+              🔳 Banco de Peças
+            </button>
+            <button
+              style={tabStyle(activeTab === "list")}
+              onClick={() => setActiveTab("list")}
+            >
+              📄 Lista Técnica
+            </button>
           </div>
-          <div style={{ flex: 1, overflowY: "auto", padding: activeTab === "grid" ? "15px" : "0" }}>
+          <div
+            style={{
+              flex: 1,
+              overflowY: "auto",
+              padding: activeTab === "grid" ? "15px" : "0",
+            }}
+          >
             {activeTab === "grid" && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "15px", alignContent: "start" }}>
-                {displayedParts.map((part) => (
-                  <div key={part.id} ref={(el) => { thumbnailRefs.current[part.id] = el; }} style={{ display: "flex", flexDirection: "column", alignItems: "center", position: "relative" }} onContextMenu={(e) => handleThumbnailContextMenu(e, part.id)}>
-                    <ThumbnailFlags partId={part.id} labelState={labelStates} onTogglePartFlag={togglePartFlag} />
-                    <div style={{ width: "100%", aspectRatio: "1/1", background: theme.cardBg, border: `1px solid ${selectedPartIds.includes(part.id) ? "#007bff" : theme.border}`, borderRadius: "8px", marginBottom: "8px", padding: "10px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: selectedPartIds.includes(part.id) ? "0 0 5px rgba(0,123,255,0.5)" : "none" }}>
-                      <svg viewBox={getThumbnailViewBox(part)} style={{ width: "100%", height: "100%", overflow: "visible", color: theme.text }} transform="scale(1, -1)" preserveAspectRatio="xMidYMid meet">
-                        {part.entities.map((ent, i) => renderEntityFunction(ent, i, part.blocks, 1, theme.text))}
-                      </svg>
-                    </div>
-                    <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px" }}>
-                      <span title={part.name} style={{ fontWeight: "bold", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70px" }}>{part.name}</span>
-                      <div style={{ display: "flex", alignItems: "center", background: theme.hoverRow, borderRadius: "4px" }}>
-                        <span style={{ padding: "0 4px", fontSize: 10, opacity: 0.7 }}>Qtd:</span>
-                        <input type="number" min="1" value={quantities[part.id] || 1} onChange={(e) => updateQty(part.id, Number(e.target.value))} style={{ width: 35, border: "none", background: "transparent", textAlign: "center", color: theme.text, fontWeight: "bold", padding: "4px 0" }} />
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))",
+                  gap: "15px",
+                  alignContent: "start",
+                }}
+              >
+                {sortedParts.map((part) => {
+                  const qty = quantities[part.id] || 1;
+                  const { produced } = getPartStatus(part.id, qty);
+                  const orderColor = stringToColor(part.pedido || "N/A");
+                  const placedTotal = totalPlacedCounts[part.id] || 0;
+                  const totalVisual = produced + placedTotal;
+                  const remainingVisual = Math.max(0, qty - totalVisual);
+                  const isDoneVisual = remainingVisual === 0;
+                  const isSelected = activeSelectedPartIds.has(part.id);
+                  const isOnCurrentSheet = currentBinPartIds.has(part.id);
+
+                  let mainBorderColor = theme.border;
+                  let mainBorderWidth = "1px";
+                  if (isSelected) {
+                    mainBorderColor = "#007bff";
+                    mainBorderWidth = "2px";
+                  } else if (isOnCurrentSheet) {
+                    mainBorderColor = "#28a745";
+                    mainBorderWidth = "3px";
+                  }
+
+                  const cardBorderStyle = {
+                    borderLeft: `5px solid ${orderColor}`,
+                    borderTop: `${mainBorderWidth} solid ${mainBorderColor}`,
+                    borderRight: `${mainBorderWidth} solid ${mainBorderColor}`,
+                    borderBottom: `${mainBorderWidth} solid ${mainBorderColor}`,
+                  };
+                  const cursorStyle = isDoneVisual ? "not-allowed" : "grab";
+                  const canDrag = !isDoneVisual;
+                  const box = calculateBoundingBox(part.entities, part.blocks);
+                  const originalW = box.width || 100;
+                  const originalH = box.height || 100;
+                  const isTall = originalH > originalW;
+                  const p = Math.max(originalW, originalH) * 0.1;
+                  let finalViewBox = "";
+                  let contentTransform = "";
+
+                  if (isTall) {
+                    const cx = (box.minX + box.maxX) / 2;
+                    const cy = (box.minY + box.maxY) / 2;
+                    contentTransform = `rotate(-90, ${cx}, ${cy})`;
+                    const cameraW = originalH + p * 2;
+                    const cameraH = originalW + p * 2;
+                    const cameraX = cx - cameraW / 2;
+                    const cameraY = cy - cameraH / 2;
+                    finalViewBox = `${cameraX} ${cameraY} ${cameraW} ${cameraH}`;
+                  } else {
+                    finalViewBox = `${box.minX - p} ${box.minY - p} ${
+                      originalW + p * 2
+                    } ${originalH + p * 2}`;
+                  }
+
+                  return (
+                    <div
+                      key={part.id}
+                      ref={(el) => {
+                        thumbnailRefs.current[part.id] = el;
+                      }}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        position: "relative",
+                        opacity: 1,
+                        cursor: cursorStyle,
+                      }}
+                      onContextMenu={(e) =>
+                        handleThumbnailContextMenu(e, part.id)
+                      }
+                      draggable={canDrag}
+                      onDragStart={(e) => canDrag && handleDragStart(e, part)}
+                    >
+                      <ThumbnailFlags
+                        partId={part.id}
+                        labelState={labelStates}
+                        onTogglePartFlag={togglePartFlag}
+                      />
+
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: 5,
+                          left: 8,
+                          zIndex: 1000,
+                          background: "rgba(255,255,255,0.7)",
+                          borderRadius: "4px",
+                          padding: "2px",
+                          display: "flex",
+                          alignItems: "center",
+                          boxShadow: "0 1px 1px rgba(0,0,0,0.2)",
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        title="Incluir esta peça no cálculo automático?"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!disabledNestingIds.has(part.id)}
+                          onChange={(e) => {
+                            const newSet = new Set(disabledNestingIds);
+                            if (e.target.checked) {
+                              newSet.delete(part.id);
+                            } else {
+                              newSet.add(part.id);
+                            }
+                            setDisabledNestingIds(newSet);
+                          }}
+                          style={{
+                            cursor: "pointer",
+                            margin: 0,
+                            width: "16px",
+                            height: "16px",
+                          }}
+                        />
+                      </div>
+
+                      <div
+                        style={{
+                          width: "100%",
+                          aspectRatio: "1/1",
+                          background: theme.cardBg,
+                          borderRadius: "8px",
+                          marginBottom: "5px",
+                          padding: "10px",
+                          boxSizing: "border-box",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          overflow: "hidden",
+                          boxShadow: isSelected
+                            ? "0 0 8px rgba(0,123,255,0.6)"
+                            : "none",
+                          transition: "all 0.2s ease",
+                          ...cardBorderStyle,
+                        }}
+                      >
+                        <svg
+                          viewBox={finalViewBox}
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            overflow: "visible",
+                            color: theme.text,
+                            opacity: isDoneVisual ? 0.8 : 1,
+                            transition: "opacity 0.3s ease",
+                          }}
+                          transform="scale(1, -1)"
+                          preserveAspectRatio="xMidYMid meet"
+                        >
+                          <g transform={contentTransform}>
+                            {part.entities.map((ent, i) =>
+                              renderEntityFunction(
+                                ent,
+                                i,
+                                part.blocks,
+                                1,
+                                isDoneVisual ? theme.border : theme.text
+                              )
+                            )}
+                          </g>
+                        </svg>
+                      </div>
+                      <div
+                        style={{
+                          width: "100%",
+                          display: "flex",
+                          flexDirection: "column",
+                          fontSize: "12px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "flex-start",
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              width: "65%",
+                            }}
+                          >
+                            <span
+                              title={part.name}
+                              style={{
+                                fontWeight: "bold",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {part.name}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                fontWeight: "bold",
+                                color: orderColor,
+                              }}
+                            >
+                              Ped: {part.pedido || "-"}
+                            </span>
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "center",
+                              background: isDoneVisual
+                                ? "rgba(40, 167, 69, 0.1)"
+                                : theme.hoverRow,
+                              padding: "2px 4px",
+                              borderRadius: "4px",
+                              border: `1px solid ${
+                                isDoneVisual ? "#28a745" : "transparent"
+                              }`,
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                fontWeight: "bold",
+                                color: isDoneVisual ? "#28a745" : theme.text,
+                              }}
+                            >
+                              {totalVisual}/{qty}
+                            </span>
+                          </div>
+                        </div>
+                        {renderProgressBar(totalVisual, qty, orderColor)}
+                        <div
+                          style={{
+                            fontSize: "10px",
+                            color: isDoneVisual ? "#28a745" : theme.label,
+                            display: "flex",
+                            justifyContent: "space-between",
+                          }}
+                        >
+                          <span>
+                            {isDoneVisual ? "✅ CONCLUÍDO" : "Em Produção"}
+                          </span>
+                          <span style={{ fontWeight: "bold" }}>
+                            Falta: {remainingVisual}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
+
+            {sheetMenu && (
+              <SheetContextMenu
+                x={sheetMenu.x}
+                y={sheetMenu.y}
+                targetLineId={sheetMenu.lineId}
+                onDeleteLine={removeCropLine}
+                onClose={() => setSheetMenu(null)}
+                onDeleteSheet={handleDeleteSheetWrapper}
+                onAddCropLine={handleAddCropLineWrapper}
+              />
+            )}
+
             {activeTab === "list" && (
-              <div style={{ overflowX: "auto", transform: "rotateX(180deg)", borderBottom: `1px solid ${theme.border}` }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", borderSpacing: 0, minWidth: "600px", transform: "rotateX(180deg)" }}>
+              <div
+                style={{
+                  overflowX: "auto",
+                  transform: "rotateX(180deg)",
+                  borderBottom: `1px solid ${theme.border}`,
+                }}
+              >
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    borderSpacing: 0,
+                    minWidth: "600px",
+                    transform: "rotateX(180deg)",
+                  }}
+                >
                   <thead style={{ background: theme.panelBg }}>
                     <tr>
                       <th style={thStyle}>#</th>
                       <th style={thStyle}>Peça</th>
                       <th style={thStyle}>Pedido</th>
-                      <th style={thStyle}>OP</th>
-                      <th style={thStyle}>Material</th>
-                      <th style={thStyle}>Espessura</th>
+                      <th style={thStyle}>Mat/Esp</th>
                       <th style={thStyle}>Dimensões</th>
                       <th style={thStyle}>Área</th>
-                      <th style={thStyle}>Qtd.</th>
+                      <th style={thStyle}>Meta</th>
+                      <th style={thStyle}>Status Produção</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {displayedParts.map((part, index) => (
-                      <tr key={part.id} style={{ borderBottom: `1px solid ${theme.border}` }}>
-                        <td style={tdStyle}>{index + 1}</td>
-                        <td style={{ ...tdStyle, fontWeight: "bold" }} title={part.name}>{part.name}</td>
-                        <td style={tdStyle}>{part.pedido || "-"}</td>
-                        <td style={tdStyle}>{part.op || "-"}</td>
-                        <td style={tdStyle}>{part.material}</td>
-                        <td style={tdStyle}>{part.espessura || "-"}</td>
-                        <td style={tdStyle}>{part.width.toFixed(0)}x{part.height.toFixed(0)}</td>
-                        <td style={tdStyle}>{formatArea(part.grossArea)}</td>
-                        <td style={tdStyle}><input type="number" min="1" value={quantities[part.id] || 1} onChange={(e) => updateQty(part.id, Number(e.target.value))} style={{ width: 40, textAlign: "center", background: theme.inputBg, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 4 }} /></td>
-                      </tr>
-                    ))}
+                    {sortedParts.map((part, index) => {
+                      const qty = quantities[part.id] || 1;
+                      const { produced } = getPartStatus(part.id, qty);
+                      const orderColor = stringToColor(part.pedido || "N/A");
+                      const placedTotal = totalPlacedCounts[part.id] || 0;
+                      const totalVisual = produced + placedTotal;
+                      const remainingVisual = Math.max(0, qty - totalVisual);
+                      const isDoneVisual = remainingVisual === 0;
+                      const isOnCurrentSheet = currentBinPartIds.has(part.id);
+                      const rowBg = isOnCurrentSheet
+                        ? "rgba(40, 167, 69, 0.05)"
+                        : isDoneVisual
+                        ? "rgba(40, 167, 69, 0.1)"
+                        : "transparent";
+
+                      return (
+                        <tr
+                          key={part.id}
+                          style={{
+                            borderBottom: `1px solid ${theme.border}`,
+                            background: rowBg,
+                          }}
+                        >
+                          <td
+                            style={{
+                              ...tdStyle,
+                              borderLeft: `4px solid ${orderColor}`,
+                            }}
+                          >
+                            {index + 1}
+                          </td>
+                          <td
+                            style={{ ...tdStyle, fontWeight: "bold" }}
+                            title={part.name}
+                          >
+                            {part.name}
+                          </td>
+                          <td
+                            style={{
+                              ...tdStyle,
+                              color: orderColor,
+                              fontWeight: "bold",
+                            }}
+                          >
+                            {part.pedido || "-"}
+                          </td>
+                          <td style={tdStyle}>
+                            {part.material}{" "}
+                            {part.espessura && `/ ${part.espessura}`}
+                          </td>
+                          <td style={tdStyle}>
+                            {part.width.toFixed(0)}x{part.height.toFixed(0)}
+                          </td>
+                          <td style={tdStyle}>{formatArea(part.grossArea)}</td>
+                          <td style={{ ...tdStyle, textAlign: "center" }}>
+                            <span
+                              style={{
+                                fontWeight: "bold",
+                                fontSize: "13px",
+                                color: theme.text,
+                              }}
+                            >
+                              {qty}
+                            </span>
+                          </td>
+                          <td style={{ ...tdStyle, textAlign: "center" }}>
+                            <div
+                              style={{
+                                padding: "4px 8px",
+                                borderRadius: "4px",
+                                background: isDoneVisual
+                                  ? "rgba(40, 167, 69, 0.1)"
+                                  : theme.hoverRow,
+                                border: `1px solid ${
+                                  isDoneVisual ? "#28a745" : theme.border
+                                }`,
+                                color: isDoneVisual ? "#28a745" : theme.text,
+                                fontWeight: "bold",
+                                fontSize: "12px",
+                                display: "inline-block",
+                                minWidth: "60px",
+                              }}
+                            >
+                              {totalVisual}{" "}
+                              <span
+                                style={{
+                                  fontSize: "10px",
+                                  fontWeight: "normal",
+                                  opacity: 0.7,
+                                }}
+                              >
+                                de {qty}
+                              </span>
+                            </div>
+                          </td>
+                          <td style={{ ...tdStyle, width: "120px" }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                fontSize: "10px",
+                                marginBottom: "2px",
+                              }}
+                            >
+                              <span style={{ fontWeight: "bold" }}>Saldo:</span>
+                              <span>
+                                {remainingVisual === 0
+                                  ? "✅"
+                                  : `-${remainingVisual}`}
+                              </span>
+                            </div>
+                            {renderProgressBar(totalVisual, qty, orderColor)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1174,10 +2542,19 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           </div>
         </div>
       </div>
-
-      {editingPartId && labelStates[editingPartId] && parts.find((p) => p.id === editingPartId) && (
-        <LabelEditorModal part={parts.find((p) => p.id === editingPartId)!} labelState={labelStates[editingPartId]} onUpdate={(type, changes) => updateLabelConfig(editingPartId, type, changes)} onClose={() => setEditingPartId(null)} theme={theme} />
-      )}
+      {editingPartId &&
+        labelStates[editingPartId] &&
+        parts.find((p) => p.id === editingPartId) && (
+          <LabelEditorModal
+            part={parts.find((p) => p.id === editingPartId)!}
+            labelState={labelStates[editingPartId]}
+            onUpdate={(type, changes) =>
+              updateLabelConfig(editingPartId, type, changes)
+            }
+            onClose={() => setEditingPartId(null)}
+            theme={theme}
+          />
+        )}
     </div>
   );
 };

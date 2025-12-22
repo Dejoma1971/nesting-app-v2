@@ -1,5 +1,4 @@
 export interface AppTheme {
-    batchBg: Background<string | number> | undefined;
     bg: string;
     panelBg: string;
     headerBg: string;
@@ -13,7 +12,8 @@ export interface AppTheme {
     modalBg: string;
     modalOverlay: string;
     
-    // Específicos do Canvas
+    // Específicos do Canvas/Engenharia
+    batchBg: string; // <--- Corrigido para string
     canvasBg: string;
     gridLine: string;
     buttonBg: string;
@@ -35,7 +35,8 @@ export const getTheme = (isDark: boolean): AppTheme => ({
     modalBg: isDark ? '#252526' : '#fff',
     modalOverlay: isDark ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.5)',
     
-    // Canvas
+    // Canvas & Engenharia
+    batchBg: isDark ? '#2d2d2d' : '#eeeeee', // <--- Adicionado (faltava no retorno)
     canvasBg: isDark ? '#121212' : '#e5e5e5',
     gridLine: isDark ? '#333' : '#ccc',
     buttonBg: isDark ? 'rgba(40,40,40,0.9)' : 'rgba(255,255,255,0.9)',
