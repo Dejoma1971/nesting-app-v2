@@ -268,14 +268,24 @@ app.get('/api/subscription/status', authenticateToken, async (req, res) => {
         );
         const usersUsed = userCountRows[0].total;
 
-        // 4. Calcula dias restantes (se for trial)
+        // 4. Calcula dias restantes (Lógica Amigável)
         let daysLeft = 0;
         if (empresa.subscription_status === 'trial') {
             const now = new Date();
             const start = new Date(empresa.trial_start_date);
-            const diffTime = Math.abs(now - start);
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-            daysLeft = Math.max(0, 30 - diffDays);
+            
+            // Cria a data de expiração (Data de Cadastro + 30 dias)
+            const expirationDate = new Date(start);
+            expirationDate.setDate(expirationDate.getDate() + 30);
+            
+            // Vê quanto tempo FALTA até expirar
+            const timeLeftMs = expirationDate - now;
+            
+            // Converte para dias e arredonda para cima (ex: 29.1 dias vira 30 dias restantes)
+            daysLeft = Math.ceil(timeLeftMs / (1000 * 60 * 60 * 24));
+            
+            // Garante que não mostre negativo
+            daysLeft = Math.max(0, daysLeft);
         }
 
         res.json({

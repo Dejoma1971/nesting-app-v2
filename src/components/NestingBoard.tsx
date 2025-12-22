@@ -11,10 +11,9 @@ import type { PlacedPart } from "../utils/nestingCore";
 import { ContextControl } from "./ContextControl";
 import { InteractiveCanvas } from "./InteractiveCanvas";
 import { useUndoRedo } from "../hooks/useUndoRedo";
-import { getTheme } from "../styles/theme";
 import { PartFilter, type FilterState } from "./PartFilter";
 import NestingWorker from "../workers/nesting.worker?worker";
-
+import { useTheme } from "../context/ThemeContext";
 import { useLabelManager } from "../hooks/useLabelManager";
 import { GlobalLabelPanel, ThumbnailFlags } from "./labels/LabelControls";
 import { LabelEditorModal } from "./labels/LabelEditorModal";
@@ -25,6 +24,7 @@ import { useNestingSaveStatus } from "../hooks/useNestingSaveStatus";
 import { useSheetManager } from "../hooks/useSheetManager";
 import { SheetContextMenu } from "./SheetContextMenu";
 import { useAuth } from "../context/AuthContext"; // <--- 1. IMPORTAÇÃO DE SEGURANÇA
+import { SubscriptionPanel } from "./SubscriptionPanel";
 
 interface Size {
   width: number;
@@ -315,6 +315,25 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // --- 2. PEGAR O USUÁRIO DO CONTEXTO DE SEGURANÇA ---
   const { user } = useAuth();
 
+  // --- NOVO: Estado para bloquear recursos do Trial ---
+  const [isTrial, setIsTrial] = useState(false);
+
+  useEffect(() => {
+    if (user && user.token) {
+      fetch('http://localhost:3001/api/subscription/status', {
+        headers: { 'Authorization': `Bearer ${user.token}` }
+      })
+      .then(res => res.json())
+      .then(data => {
+         // Normaliza para garantir que 'trial' ou 'TRIAL' funcione
+         if (data.status && data.status.toLowerCase() === 'trial') {
+             setIsTrial(true);
+         }
+      })
+      .catch(err => console.error("Erro ao verificar status:", err));
+    }
+  }, [user]);
+
   // --- DEFINIÇÃO DE ESTADOS ---
   const [parts, setParts] = useState<ImportedPart[]>(initialParts);
 
@@ -367,8 +386,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     espessura: "",
   });
 
-  const [isDarkMode, setIsDarkMode] = useState(true);
-  const theme = getTheme(isDarkMode);
+  const { isDarkMode, toggleTheme, theme } = useTheme();
+  // const [isDarkMode, setIsDarkMode] = useState(true);
+  // const theme = getTheme(isDarkMode);
   const [activeTab, setActiveTab] = useState<"grid" | "list">("grid");
   const [showDebug, setShowDebug] = useState(true);
   const [contextMenu, setContextMenu] = useState<{
@@ -1457,6 +1477,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             Planejamento de Corte
           </h2>
         </div>
+        {/* --- NOVO: PAINEL DE ASSINATURA CENTRALIZADO --- */}
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', margin: '0 20px' }}>
+             <div style={{ maxWidth: '400px' }}>
+                 <SubscriptionPanel isDarkMode={isDarkMode} />
+             </div>
+        </div>
+        {/* ----------------------------------------------- */}
         <div
           style={{
             marginLeft: "auto",
@@ -1465,23 +1492,30 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             gap: "10px",
           }}
         >
+          {/* BOTÃO BUSCAR PEDIDO (ALTERADO) */}
           <button
-            onClick={() => setIsSearchModalOpen(true)}
+            onClick={() => {
+                if (isTrial) return; // Bloqueio funcional
+                setIsSearchModalOpen(true);
+            }}
+            title={isTrial ? "Recurso indisponível no modo Trial" : "Buscar peças salvas no banco"}
             style={{
-              background: "#6f42c1",
+              background: isTrial ? "#6c757d" : "#6f42c1", // Cinza se Trial, Roxo se Premium
               color: "white",
               border: "none",
               padding: "6px 12px",
               borderRadius: "4px",
-              cursor: "pointer",
+              cursor: isTrial ? "not-allowed" : "pointer", // Cursor de proibido
+              opacity: isTrial ? 0.6 : 1, // Visual "desabilitado"
               fontWeight: "bold",
               display: "flex",
               alignItems: "center",
               gap: "5px",
               fontSize: "13px",
+              transition: "all 0.3s ease"
             }}
           >
-            🔍 Buscar Pedido
+            🔍 Buscar Pedido {isTrial && "🔒"}
           </button>
 
           <button
@@ -1546,7 +1580,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             }}
           ></div>
           <button
-            onClick={() => setIsDarkMode(!isDarkMode)}
+            onClick={toggleTheme}
             title="Alternar Tema"
             style={{
               background: "transparent",

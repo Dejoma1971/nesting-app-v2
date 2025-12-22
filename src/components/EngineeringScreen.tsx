@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import DxfParser from 'dxf-parser';
 import type { ImportedPart } from './types';
 import { useAuth } from '../context/AuthContext'; // <--- IMPORTANTE: Importamos o AuthContext
@@ -14,6 +14,7 @@ import {
 } from '../utils/geometryCore';
 
 import { SubscriptionPanel } from './SubscriptionPanel';
+import { useTheme } from '../context/ThemeContext';
 
 // --- CONSTANTES ---
 const THICKNESS_OPTIONS = [
@@ -176,7 +177,24 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
   
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
   const [viewingPartId, setViewingPartId] = useState<string | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const { isDarkMode, toggleTheme, theme } = useTheme();
+//   const [isDarkMode, setIsDarkMode] = useState(true);
+
+  // --- NOVO: Estado para verificar se é Trial e bloquear botões ---
+  const [isTrial, setIsTrial] = useState(false);
+
+  useEffect(() => {
+      if (user && user.token) {
+          fetch('http://localhost:3001/api/subscription/status', {
+              headers: { 'Authorization': `Bearer ${user.token}` }
+          })
+          .then(res => res.json())
+          .then(data => {
+              if (data.status === 'trial') setIsTrial(true);
+          })
+          .catch(err => console.error("Erro ao verificar status trial:", err));
+      }
+  }, [user]);
 
   const [batchDefaults, setBatchDefaults] = useState({
       pedido: '',
@@ -186,21 +204,21 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
       autor: ''
   });
 
-  const theme = {
-      bg: isDarkMode ? '#1e1e1e' : '#f5f5f5',
-      panelBg: isDarkMode ? '#1e1e1e' : '#ffffff',
-      headerBg: isDarkMode ? '#252526' : '#e0e0e0',
-      batchBg: isDarkMode ? '#2d2d2d' : '#eeeeee',
-      text: isDarkMode ? '#e0e0e0' : '#333333',
-      border: isDarkMode ? '#444' : '#ccc',
-      cardBg: isDarkMode ? '#2d2d2d' : '#ffffff',
-      inputBg: isDarkMode ? '#1e1e1e' : '#ffffff',
-      hoverRow: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
-      selectedRow: isDarkMode ? 'rgba(0, 123, 255, 0.15)' : 'rgba(0, 123, 255, 0.1)',
-      label: isDarkMode ? '#aaa' : '#666',
-      modalBg: isDarkMode ? '#252526' : '#fff',
-      modalOverlay: isDarkMode ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.5)'
-  };
+//   const theme = {
+//       bg: isDarkMode ? '#1e1e1e' : '#f5f5f5',
+//       panelBg: isDarkMode ? '#1e1e1e' : '#ffffff',
+//       headerBg: isDarkMode ? '#252526' : '#e0e0e0',
+//       batchBg: isDarkMode ? '#2d2d2d' : '#eeeeee',
+//       text: isDarkMode ? '#e0e0e0' : '#333333',
+//       border: isDarkMode ? '#444' : '#ccc',
+//       cardBg: isDarkMode ? '#2d2d2d' : '#ffffff',
+//       inputBg: isDarkMode ? '#1e1e1e' : '#ffffff',
+//       hoverRow: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
+//       selectedRow: isDarkMode ? 'rgba(0, 123, 255, 0.15)' : 'rgba(0, 123, 255, 0.1)',
+//       label: isDarkMode ? '#aaa' : '#666',
+//       modalBg: isDarkMode ? '#252526' : '#fff',
+//       modalOverlay: isDarkMode ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.5)'
+//   };
 
   const handleDefaultChange = (field: string, value: any) => {
       setBatchDefaults(prev => ({ ...prev, [field]: value }));
@@ -346,13 +364,68 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
       savePartsToDB(false);
   };
 
+  // --- LÓGICA DO BOTÃO "CORTAR AGORA" (COM OTIMIZAÇÃO OBRIGATÓRIA) ---
   const handleDirectNesting = async () => {
-      const saved = await savePartsToDB(true);
-      if (saved) {
+      // 1. Validação: Lista Vazia
+      if (parts.length === 0) {
+          alert("Importe peças antes de cortar.");
+          return;
+      }
+
+      // 2. Validação: OTIMIZAÇÃO DE ARQUIVO (Insert/Block) OBRIGATÓRIA
+      // Se a peça tiver mais de 1 entidade na raiz, significa que não é um Bloco encapsulado.
+      const nonBlocks = parts.filter(p => p.entities.length > 1);
+      
+      if (nonBlocks.length > 0) {
+          alert(
+              `⚠️ OTIMIZAÇÃO NECESSÁRIA\n\n` +
+              `Detectamos ${nonBlocks.length} peças contendo geometrias soltas (linhas/arcos).\n` +
+              `Para garantir a velocidade e segurança do Nesting, o arquivo deve ser simplificado.\n\n` +
+              `👉 Por favor, clique no botão amarelo "📦 Insert/Block" acima da lista para corrigir isso automaticamente.`
+          );
+          return; // <--- TRAVA O PROCESSO AQUI
+      }
+
+      setLoading(true);
+
+      try {
+          if (!user || !user.token) {
+              alert("Usuário não logado.");
+              setLoading(false);
+              return;
+          }
+          
+          const response = await fetch('http://localhost:3001/api/subscription/status', {
+              headers: { 'Authorization': `Bearer ${user.token}` }
+          });
+          
+          const subData = await response.json();
+          const status = subData.status ? subData.status.toLowerCase() : '';
+          
+          // 3. Validação: REGRA DO TRIAL (MÁX 10 PEÇAS)
+          if (status === 'trial' && parts.length > 10) {
+              alert(
+                  `🔒 LIMITE DO TRIAL (MÁX 10 PEÇAS)\n\n` +
+                  `Você tem ${parts.length} peças na lista.\n` +
+                  `O modo gratuito permite enviar apenas 10 peças por vez para o corte.\n\n` +
+                  `Remova algumas peças ou assine o plano.`
+              );
+              setLoading(false);
+              return;
+          }
+
+          // Se passou por todas as travas, envia para o Nesting
           const uniqueOrders = Array.from(new Set(parts.map(p => p.pedido).filter(Boolean)));
           const searchString = uniqueOrders.join(', ');
+          
           onSendToNesting(parts, searchString);
-      } 
+
+      } catch (error) {
+          console.error("Erro na verificação:", error);
+          alert("Erro ao verificar permissões de corte.");
+      } finally {
+          setLoading(false);
+      }
   };
 
   const handleGoToNestingEmpty = () => {
@@ -480,20 +553,55 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
         {/* --- AQUI: INSERÇÃO DO PAINEL DE ASSINATURA --- */}
         {/* Criamos uma div centralizada para o painel não esticar demais */}
         <div style={{ flex: 1, margin: '0 40px', maxWidth: '500px', fontSize: '12px' }}>
-             <SubscriptionPanel />
+             <SubscriptionPanel isDarkMode={isDarkMode}/>
         </div>
         {/* ------------------------------------------------ */}
 
 
         <div style={{display:'flex', gap:'15px', alignItems:'center'}}>
-             <button onClick={handleGoToNestingEmpty} title="Ir para a Mesa de Nesting (Buscar peças lá)" style={{background: 'transparent', color: theme.text, border: `1px solid ${theme.border}`, padding: '8px 12px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', marginRight: '10px'}}>
+             <button 
+                onClick={isTrial ? undefined : handleGoToNestingEmpty} 
+                title={isTrial ? "Indisponível no modo Trial" : "Ir para a Mesa de Nesting (Buscar peças lá)"}
+                style={{
+                    background: 'transparent', 
+                    color: theme.text, 
+                    border: `1px solid ${theme.border}`, 
+                    padding: '8px 12px', 
+                    borderRadius: '4px', 
+                    cursor: isTrial ? 'not-allowed' : 'pointer', // Cursor de proibido
+                    opacity: isTrial ? 0.5 : 1, // Meio transparente
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '5px', 
+                    marginRight: '10px'
+                }}
+             >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
                 <span style={{fontSize: '13px'}}>Mesa de Corte</span>
              </button>
              <button onClick={handleReset} style={{background: 'transparent', color: theme.text, border: `1px solid ${theme.border}`, padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px'}}>✨ Nova Lista</button>
-             <button onClick={handleStorageDB} style={{background: '#28a745', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px'}}>💾 Storage DB</button>
+             {/* BOTÃO STORAGE DB - TRAVADO SE FOR TRIAL */}
+             <button 
+                onClick={isTrial ? undefined : handleStorageDB} 
+                title={isTrial ? "Indisponível no modo Trial" : "Salvar no Banco de Dados"}
+                style={{
+                    background: '#28a745', 
+                    color: 'white', 
+                    border: 'none', 
+                    padding: '8px 15px', 
+                    borderRadius: '4px', 
+                    cursor: isTrial ? 'not-allowed' : 'pointer', // Cursor de proibido
+                    opacity: isTrial ? 0.5 : 1, // Meio transparente
+                    fontWeight: 'bold', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '5px'
+                }}
+             >
+                💾 Storage DB
+             </button>
              <button onClick={handleDirectNesting} style={{background: '#6f42c1', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px'}}>🚀 Cortar Agora</button>
-             <button onClick={() => setIsDarkMode(!isDarkMode)} style={{background:'transparent', border: `1px solid ${theme.border}`, color: theme.text, padding:'5px 10px', borderRadius:'4px', cursor:'pointer'}}>{isDarkMode ? '☀️' : '🌙'}</button>
+             <button onClick={toggleTheme} style={{background:'transparent', border: `1px solid ${theme.border}`, color: theme.text, padding:'5px 10px', borderRadius:'4px', cursor:'pointer'}}>{isDarkMode ? '☀️' : '🌙'}</button>
         </div>
       </div>
       
