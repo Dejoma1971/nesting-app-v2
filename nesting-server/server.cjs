@@ -19,66 +19,67 @@ const JWT_SECRET =
 // ==========================================================
 
 // --- ROTA DE LOGIN (Corrigida e Blindada) ---
-app.post('/api/login', async (req, res) => {
-    const { email, password } = req.body;
-    
-    try {
-        // 1. Busca o usuário pelo e-mail
-        // IMPORTANTE: Estamos selecionando explicitamente o empresa_id e o plano
-        const [rows] = await db.query(
-            'SELECT id, nome, email, senha_hash, empresa_id, plano, cargo, status FROM usuarios WHERE email = ?', 
-            [email]
-        );
+app.post("/api/login", async (req, res) => {
+  const { email, password } = req.body;
 
-        if (rows.length === 0) {
-            return res.status(401).json({ error: 'Usuário não encontrado' });
-        }
+  try {
+    // 1. Busca o usuário pelo e-mail
+    // IMPORTANTE: Estamos selecionando explicitamente o empresa_id e o plano
+    const [rows] = await db.query(
+      "SELECT id, nome, email, senha_hash, empresa_id, plano, cargo, status FROM usuarios WHERE email = ?",
+      [email]
+    );
 
-        const user = rows[0];
-
-        // 2. Verifica a senha
-        const validPassword = await bcrypt.compare(password, user.senha_hash);
-        if (!validPassword) {
-            return res.status(401).json({ error: 'Senha incorreta' });
-        }
-
-        // 3. Verifica se o usuário tem empresa vinculada
-        if (!user.empresa_id) {
-            console.warn(`ALERTA: Usuário ${user.email} logou sem empresa vinculada.`);
-            // Opcional: Bloquear login ou permitir com restrições. 
-            // Vamos permitir, mas o Token ficará sem ID e o painel vai dar 403 (esperado).
-        }
-
-        // 4. GERA O TOKEN (O segredo do sucesso está aqui)
-        const token = jwt.sign(
-            { 
-                id: user.id, 
-                empresa_id: user.empresa_id, // <--- O Backend TEM que colocar isso aqui
-                plano: user.plano,
-                cargo: user.cargo
-            }, 
-            process.env.JWT_SECRET || 'SEGREDO_FIXO_PARA_TESTE_123', 
-            { expiresIn: '24h' }
-        );
-
-        // 5. Retorna tudo para o Frontend
-        res.json({ 
-            message: 'Login realizado com sucesso', 
-            token, 
-            user: {
-                id: user.id,
-                name: user.nome,
-                email: user.email,
-                empresa_id: user.empresa_id, // Envia também no objeto user
-                plano: user.plano,
-                cargo: user.cargo
-            }
-        });
-
-    } catch (error) {
-        console.error("Erro no login:", error);
-        res.status(500).json({ error: 'Erro interno do servidor' });
+    if (rows.length === 0) {
+      return res.status(401).json({ error: "Usuário não encontrado" });
     }
+
+    const user = rows[0];
+
+    // 2. Verifica a senha
+    const validPassword = await bcrypt.compare(password, user.senha_hash);
+    if (!validPassword) {
+      return res.status(401).json({ error: "Senha incorreta" });
+    }
+
+    // 3. Verifica se o usuário tem empresa vinculada
+    if (!user.empresa_id) {
+      console.warn(
+        `ALERTA: Usuário ${user.email} logou sem empresa vinculada.`
+      );
+      // Opcional: Bloquear login ou permitir com restrições.
+      // Vamos permitir, mas o Token ficará sem ID e o painel vai dar 403 (esperado).
+    }
+
+    // 4. GERA O TOKEN (O segredo do sucesso está aqui)
+    const token = jwt.sign(
+      {
+        id: user.id,
+        empresa_id: user.empresa_id, // <--- O Backend TEM que colocar isso aqui
+        plano: user.plano,
+        cargo: user.cargo,
+      },
+      process.env.JWT_SECRET || "SEGREDO_FIXO_PARA_TESTE_123",
+      { expiresIn: "24h" }
+    );
+
+    // 5. Retorna tudo para o Frontend
+    res.json({
+      message: "Login realizado com sucesso",
+      token,
+      user: {
+        id: user.id,
+        name: user.nome,
+        email: user.email,
+        empresa_id: user.empresa_id, // Envia também no objeto user
+        plano: user.plano,
+        cargo: user.cargo,
+      },
+    });
+  } catch (error) {
+    console.error("Erro no login:", error);
+    res.status(500).json({ error: "Erro interno do servidor" });
+  }
 });
 
 // --- SALVAR PEÇAS (Regra: 30 Dias Garantidos + Teto de 30 Peças) ---
@@ -96,51 +97,52 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
   try {
     // 1. BUSCAR DADOS DO PLANO
     const [empRows] = await db.query(
-      'SELECT trial_start_date, subscription_status, max_parts FROM empresas WHERE id = ?', 
+      "SELECT trial_start_date, subscription_status, max_parts FROM empresas WHERE id = ?",
       [empresaId]
     );
-    
-    if (empRows.length === 0) return res.status(403).json({ error: "Empresa não encontrada." });
-    
+
+    if (empRows.length === 0)
+      return res.status(403).json({ error: "Empresa não encontrada." });
+
     const empresa = empRows[0];
 
     // =================================================================================
     // VERIFICAÇÃO 1: O TRIAL JÁ EXPIROU? (Data Limite)
     // =================================================================================
-    if (empresa.subscription_status === 'trial') {
-        const now = new Date();
-        const start = new Date(empresa.trial_start_date);
-        
-        // Calcula dias corridos
-        const diffTime = Math.abs(now - start);
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+    if (empresa.subscription_status === "trial") {
+      const now = new Date();
+      const start = new Date(empresa.trial_start_date);
 
-        if (diffDays > 30) {
-            // Se passou de 30 dias, aí sim bloqueia tudo
-            return res.status(403).json({ 
-                error: `SEU TRIAL EXPIROU! Os 30 dias de teste acabaram. Para continuar salvando e acessando seus projetos, assine o Plano Premium.` 
-            });
-        }
+      // Calcula dias corridos
+      const diffTime = Math.abs(now - start);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      if (diffDays > 30) {
+        // Se passou de 30 dias, aí sim bloqueia tudo
+        return res.status(403).json({
+          error: `SEU TRIAL EXPIROU! Os 30 dias de teste acabaram. Para continuar salvando e acessando seus projetos, assine o Plano Premium.`,
+        });
+      }
     }
 
     // =================================================================================
     // VERIFICAÇÃO 2: ESTOROU A CAPACIDADE? (Limite de 30 Peças)
     // =================================================================================
     if (empresa.max_parts !== null) {
-        // Conta quantas peças já existem no banco
-        const [countRows] = await db.query(
-          'SELECT COUNT(*) as total FROM pecas_engenharia WHERE empresa_id = ?', 
-          [empresaId]
-        );
-        const currentTotal = countRows[0].total;
-        const newTotal = currentTotal + parts.length;
+      // Conta quantas peças já existem no banco
+      const [countRows] = await db.query(
+        "SELECT COUNT(*) as total FROM pecas_engenharia WHERE empresa_id = ?",
+        [empresaId]
+      );
+      const currentTotal = countRows[0].total;
+      const newTotal = currentTotal + parts.length;
 
-        // Se tentar salvar mais do que o permitido
-        if (newTotal > empresa.max_parts) {
-            return res.status(403).json({ 
-                error: `CAPACIDADE ATINGIDA! Você já usou ${currentTotal} de ${empresa.max_parts} peças do seu Trial. Para salvar mais peças ilimitadas, faça o upgrade agora.` 
-            });
-        }
+      // Se tentar salvar mais do que o permitido
+      if (newTotal > empresa.max_parts) {
+        return res.status(403).json({
+          error: `CAPACIDADE ATINGIDA! Você já usou ${currentTotal} de ${empresa.max_parts} peças do seu Trial. Para salvar mais peças ilimitadas, faça o upgrade agora.`,
+        });
+      }
     }
 
     // =================================================================================
@@ -174,12 +176,11 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
     ]);
 
     const [result] = await db.query(sql, [values]);
-    
+
     res.status(201).json({
       message: "Peças salvas com sucesso!",
       count: result.affectedRows,
     });
-
   } catch (error) {
     console.error("Erro ao salvar:", error);
     res.status(500).json({ error: "Erro interno ao processar." });
@@ -242,169 +243,180 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
 });
 
 // --- NOVO: Endpoint para o Painel de Assinatura (Frontend consome isso) ---
-app.get('/api/subscription/status', authenticateToken, async (req, res) => {
-          console.log("DEBUG TOKEN:", req.user); // <--- Adicione isso e olhe no terminal
-    try {
-        const empresaId = req.user.empresa_id;
+app.get("/api/subscription/status", authenticateToken, async (req, res) => {
+  console.log("DEBUG TOKEN:", req.user); // <--- Adicione isso e olhe no terminal
+  try {
+    const empresaId = req.user.empresa_id;
 
-        // 1. Busca dados da empresa
-        const [empresaRows] = await db.query(
-            'SELECT trial_start_date, subscription_status, subscription_end_date, max_parts, max_users FROM empresas WHERE id = ?', 
-            [empresaId]
-        );
-        const empresa = empresaRows[0];
+    // 1. Busca dados da empresa
+    const [empresaRows] = await db.query(
+      "SELECT trial_start_date, subscription_status, subscription_end_date, max_parts, max_users FROM empresas WHERE id = ?",
+      [empresaId]
+    );
+    const empresa = empresaRows[0];
 
-        // 2. Conta quantas peças essa empresa já usou
-        const [countRows] = await db.query(
-            'SELECT COUNT(*) as total FROM pecas_engenharia WHERE empresa_id = ?', 
-            [empresaId]
-        );
-        const partsUsed = countRows[0].total;
+    // 2. Conta quantas peças essa empresa já usou
+    const [countRows] = await db.query(
+      "SELECT COUNT(*) as total FROM pecas_engenharia WHERE empresa_id = ?",
+      [empresaId]
+    );
+    const partsUsed = countRows[0].total;
 
-        // 3. Conta quantos usuários essa empresa tem
-        const [userCountRows] = await db.query(
-            'SELECT COUNT(*) as total FROM usuarios WHERE empresa_id = ?', 
-            [empresaId]
-        );
-        const usersUsed = userCountRows[0].total;
+    // 3. Conta quantos usuários essa empresa tem
+    const [userCountRows] = await db.query(
+      "SELECT COUNT(*) as total FROM usuarios WHERE empresa_id = ?",
+      [empresaId]
+    );
+    const usersUsed = userCountRows[0].total;
 
-        // 4. Calcula dias restantes (Lógica Amigável)
-        let daysLeft = 0;
-        if (empresa.subscription_status === 'trial') {
-            const now = new Date();
-            const start = new Date(empresa.trial_start_date);
-            
-            // Cria a data de expiração (Data de Cadastro + 30 dias)
-            const expirationDate = new Date(start);
-            expirationDate.setDate(expirationDate.getDate() + 30);
-            
-            // Vê quanto tempo FALTA até expirar
-            const timeLeftMs = expirationDate - now;
-            
-            // Converte para dias e arredonda para cima (ex: 29.1 dias vira 30 dias restantes)
-            daysLeft = Math.ceil(timeLeftMs / (1000 * 60 * 60 * 24));
-            
-            // Garante que não mostre negativo
-            daysLeft = Math.max(0, daysLeft);
-        }
+    // 4. Calcula dias restantes (Lógica Amigável)
+    let daysLeft = 0;
+    if (empresa.subscription_status === "trial") {
+      const now = new Date();
+      const start = new Date(empresa.trial_start_date);
 
-        res.json({
-            status: empresa.subscription_status,
-            plan: empresa.subscription_status === 'trial' ? 'Teste Gratuito' : 'Plano Corporativo',
-            parts: { used: partsUsed, limit: empresa.max_parts },
-            users: { used: usersUsed, limit: empresa.max_users },
-            daysLeft: daysLeft
-        });
+      // Cria a data de expiração (Data de Cadastro + 30 dias)
+      const expirationDate = new Date(start);
+      expirationDate.setDate(expirationDate.getDate() + 30);
 
-    } catch (error) {
-        console.error("Erro subs:", error);
-        res.status(500).json({ error: "Erro ao buscar assinatura" });
+      // Vê quanto tempo FALTA até expirar
+      const timeLeftMs = expirationDate - now;
+
+      // Converte para dias e arredonda para cima (ex: 29.1 dias vira 30 dias restantes)
+      daysLeft = Math.ceil(timeLeftMs / (1000 * 60 * 60 * 24));
+
+      // Garante que não mostre negativo
+      daysLeft = Math.max(0, daysLeft);
     }
+
+    res.json({
+      status: empresa.subscription_status,
+      plan:
+        empresa.subscription_status === "trial"
+          ? "Teste Gratuito"
+          : "Plano Corporativo",
+      parts: { used: partsUsed, limit: empresa.max_parts },
+      users: { used: usersUsed, limit: empresa.max_users },
+      daysLeft: daysLeft,
+    });
+  } catch (error) {
+    console.error("Erro subs:", error);
+    res.status(500).json({ error: "Erro ao buscar assinatura" });
+  }
 });
 
-
 // --- ROTA DE CADASTRO (SIGN UP) ---
-app.post('/api/register', async (req, res) => {
-    const { nome, email, password, nomeEmpresa } = req.body;
+app.post("/api/register", async (req, res) => {
+  const { nome, email, password, nomeEmpresa } = req.body;
 
-    if (!nome || !email || !password || !nomeEmpresa) {
-        return res.status(400).json({ error: 'Todos os campos são obrigatórios.' });
+  if (!nome || !email || !password || !nomeEmpresa) {
+    return res.status(400).json({ error: "Todos os campos são obrigatórios." });
+  }
+
+  const connection = await db.getConnection(); // Pega conexão para transação
+  try {
+    await connection.beginTransaction();
+
+    // 1. Verifica se o email já existe
+    const [existingUser] = await connection.query(
+      "SELECT id FROM usuarios WHERE email = ?",
+      [email]
+    );
+    if (existingUser.length > 0) {
+      await connection.rollback();
+      return res.status(400).json({ error: "Este e-mail já está cadastrado." });
     }
 
-    const connection = await db.getConnection(); // Pega conexão para transação
-    try {
-        await connection.beginTransaction();
+    // 2. Cria a EMPRESA (Trial de 30 dias)
+    // O UUID() é gerado pelo banco ou podemos gerar aqui. Vamos deixar o banco gerar se for MySQL 8,
+    // ou usamos UUID v4 do node. Assumindo que você tem UUID() no SQL:
+    const empresaId = crypto.randomUUID(); // Gera ID da empresa no Node (precisa: const crypto = require('crypto');)
 
-        // 1. Verifica se o email já existe
-        const [existingUser] = await connection.query('SELECT id FROM usuarios WHERE email = ?', [email]);
-        if (existingUser.length > 0) {
-            await connection.rollback();
-            return res.status(400).json({ error: 'Este e-mail já está cadastrado.' });
-        }
-
-        // 2. Cria a EMPRESA (Trial de 30 dias)
-        // O UUID() é gerado pelo banco ou podemos gerar aqui. Vamos deixar o banco gerar se for MySQL 8, 
-        // ou usamos UUID v4 do node. Assumindo que você tem UUID() no SQL:
-        const empresaId = crypto.randomUUID(); // Gera ID da empresa no Node (precisa: const crypto = require('crypto');)
-        
-        await connection.query(`
+    await connection.query(
+      `
             INSERT INTO empresas (id, nome, plano, subscription_status, max_parts, max_users, trial_start_date)
             VALUES (?, ?, 'free', 'trial', 50, 1, NOW())
-        `, [empresaId, nomeEmpresa]);
+        `,
+      [empresaId, nomeEmpresa]
+    );
 
-        // 3. Criptografa a senha
-        const salt = await bcrypt.genSalt(10);
-        const senhaHash = await bcrypt.hash(password, salt);
+    // 3. Criptografa a senha
+    const salt = await bcrypt.genSalt(10);
+    const senhaHash = await bcrypt.hash(password, salt);
 
-        // 4. Cria o USUÁRIO (Dono da empresa)
-        const usuarioId = crypto.randomUUID();
-        await connection.query(`
+    // 4. Cria o USUÁRIO (Dono da empresa)
+    const usuarioId = crypto.randomUUID();
+    await connection.query(
+      `
             INSERT INTO usuarios (id, nome, email, senha_hash, plano, status, empresa_id, cargo)
             VALUES (?, ?, ?, ?, 'free', 'ativo', ?, 'admin')
-        `, [usuarioId, nome, email, senhaHash, empresaId]);
+        `,
+      [usuarioId, nome, email, senhaHash, empresaId]
+    );
 
-        await connection.commit();
+    await connection.commit();
 
-        res.status(201).json({ message: 'Cadastro realizado com sucesso! Faça login para começar.' });
-
-    } catch (error) {
-        await connection.rollback();
-        console.error("Erro no cadastro:", error);
-        res.status(500).json({ error: 'Erro ao criar conta.' });
-    } finally {
-        connection.release();
-    }
+    res
+      .status(201)
+      .json({
+        message: "Cadastro realizado com sucesso! Faça login para começar.",
+      });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Erro no cadastro:", error);
+    res.status(500).json({ error: "Erro ao criar conta." });
+  } finally {
+    connection.release();
+  }
 });
 
 // --- MIDDLEWARE DE AUTENTICAÇÃO (VERSÃO DEBUG) ---
 function authenticateToken(req, res, next) {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
 
-    if (token == null) {
-        console.log("DEBUG: Token não fornecido no cabeçalho.");
-        return res.sendStatus(401);
+  if (token == null) {
+    console.log("DEBUG: Token não fornecido no cabeçalho.");
+    return res.sendStatus(401);
+  }
+
+  // Usa A MESMA string fixa do login
+  jwt.verify(token, "SEGREDO_FIXO_PARA_TESTE_123", (err, user) => {
+    if (err) {
+      console.log("DEBUG: Erro ao verificar token:", err.message);
+      return res.sendStatus(403); // É AQUI QUE O 403 ESTÁ ACONTECENDO
     }
 
-    // Usa A MESMA string fixa do login
-    jwt.verify(token, 'SEGREDO_FIXO_PARA_TESTE_123', (err, user) => {
-        if (err) {
-            console.log("DEBUG: Erro ao verificar token:", err.message);
-            return res.sendStatus(403); // É AQUI QUE O 403 ESTÁ ACONTECENDO
-        }
+    console.log("DEBUG: Token aceito! Dados do usuário:", user);
 
-        console.log("DEBUG: Token aceito! Dados do usuário:", user);
+    // Verificação extra: O ID da empresa existe?
+    if (!user.empresa_id) {
+      console.log("DEBUG: ALERTA VERMELHO - Token válido, mas SEM empresa_id!");
+    }
 
-        // Verificação extra: O ID da empresa existe?
-        if (!user.empresa_id) {
-            console.log("DEBUG: ALERTA VERMELHO - Token válido, mas SEM empresa_id!");
-        }
-
-        req.user = user;
-        next();
-    });
+    req.user = user;
+    next();
+  });
 }
-
 
 // --- NOVO: Rota para listar pedidos disponíveis (Checklist tipo Excel) ---
 app.get("/api/pedidos/disponiveis", authenticateToken, async (req, res) => {
-    const empresaId = req.user.empresa_id;
-    try {
-        // Busca apenas os pedidos distintos que não estão vazios
-        const [rows] = await db.query(
-            "SELECT DISTINCT pedido FROM pecas_engenharia WHERE empresa_id = ? AND pedido IS NOT NULL AND pedido != '' ORDER BY pedido DESC",
-            [empresaId]
-        );
-        
-        // Retorna um array simples: ['35040', '35041', 'OP-500']
-        const pedidos = rows.map(r => r.pedido);
-        res.json(pedidos);
-    } catch (error) {
-        console.error("Erro ao buscar lista de pedidos:", error);
-        res.status(500).json({ error: "Erro ao buscar lista de pedidos." });
-    }
-});
+  const empresaId = req.user.empresa_id;
+  try {
+    // Busca apenas os pedidos distintos que não estão vazios
+    const [rows] = await db.query(
+      "SELECT DISTINCT pedido FROM pecas_engenharia WHERE empresa_id = ? AND pedido IS NOT NULL AND pedido != '' ORDER BY pedido DESC",
+      [empresaId]
+    );
 
+    // Retorna um array simples: ['35040', '35041', 'OP-500']
+    const pedidos = rows.map((r) => r.pedido);
+    res.json(pedidos);
+  } catch (error) {
+    console.error("Erro ao buscar lista de pedidos:", error);
+    res.status(500).json({ error: "Erro ao buscar lista de pedidos." });
+  }
+});
 
 // ... (Mantenha as outras rotas de status e produção como estavam)
 
