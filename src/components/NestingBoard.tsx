@@ -427,6 +427,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
   const collisionWorkerRef = useRef<Worker | null>(null);
   const nestingWorkerRef = useRef<Worker | null>(null);
+  // --- NOVO: Estados para o Checklist de Pedidos ---
+  const [availableOrders, setAvailableOrders] = useState<string[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
 
   useEffect(() => {
     collisionWorkerRef.current = new Worker(
@@ -471,6 +474,41 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     getPartStatus,
     resetProduction,
   } = useProductionManager(binSize);
+
+  // Efeito para carregar a lista quando o modal abrir
+  useEffect(() => {
+    if (isSearchModalOpen && user?.token) {
+      setLoadingOrders(true);
+      fetch('http://localhost:3001/api/pedidos/disponiveis', {
+        headers: { 'Authorization': `Bearer ${user.token}` }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setAvailableOrders(data);
+      })
+      .catch(err => console.error("Erro ao carregar pedidos:", err))
+      .finally(() => setLoadingOrders(false));
+    }
+  }, [isSearchModalOpen, user]);
+
+  // Função auxiliar para marcar/desmarcar pedidos
+  const toggleOrderSelection = (order: string) => {
+    // 1. Pega o que já está escrito no input e transforma em array
+    const currentList = searchQuery.split(',').map(s => s.trim()).filter(Boolean);
+    const exists = currentList.includes(order);
+
+    let newList;
+    if (exists) {
+      // Se já tem, remove
+      newList = currentList.filter(s => s !== order);
+    } else {
+      // Se não tem, adiciona
+      newList = [...currentList, order];
+    }
+
+    // 2. Atualiza o input de busca (separado por vírgula)
+    setSearchQuery(newList.join(', '));
+  };
 
   const {
     labelStates,
@@ -1280,144 +1318,117 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       {isSearchModalOpen && (
         <div
           style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            backgroundColor: "rgba(0,0,0,0.6)",
-            zIndex: 9999,
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
+            position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+            backgroundColor: "rgba(0,0,0,0.6)", zIndex: 9999,
+            display: "flex", justifyContent: "center", alignItems: "center",
           }}
           onClick={() => setIsSearchModalOpen(false)}
         >
           <div
             style={{
               backgroundColor: theme.panelBg,
-              padding: "25px",
-              borderRadius: "8px",
-              width: "350px",
+              padding: "25px", borderRadius: "8px",
+              width: "400px", // Aumentei um pouco a largura
+              maxHeight: "85vh", // Limite de altura para telas pequenas
+              display: "flex", flexDirection: "column",
               border: `1px solid ${theme.border}`,
               boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ marginTop: 0, color: theme.text }}>
-              🔍 Buscar Pedido(s)
-            </h3>
-            <p style={{ fontSize: "13px", color: theme.label }}>
-              Separe múltiplos pedidos por vírgula.
-            </p>
-            <div
-              style={{
-                marginBottom: "15px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "10px",
-                background: theme.inputBg,
-                padding: "10px",
-                borderRadius: "4px",
-              }}
-            >
-              <span
-                style={{ fontSize: "11px", fontWeight: "bold", opacity: 0.7 }}
-              >
-                MODO DE IMPORTAÇÃO:
-              </span>
-              <div style={{ display: "flex", gap: "15px" }}>
-                <label
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 15}}>
+                 <h3 style={{ margin: 0, color: theme.text }}>🔍 Buscar Pedido(s)</h3>
+                 <button onClick={() => setIsSearchModalOpen(false)} style={{background:'transparent', border:'none', color: theme.text, fontSize: 20, cursor:'pointer'}}>✕</button>
+            </div>
+
+            {/* --- LISTA DE CHECKBOX (ESTILO EXCEL) --- */}
+            <div style={{ marginBottom: "15px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+                <span style={{ fontSize: "12px", fontWeight: "bold", color: theme.label, marginBottom: "5px" }}>
+                    SELECIONE OS PEDIDOS DISPONÍVEIS:
+                </span>
+                
+                <div style={{
+                    flex: 1, 
+                    overflowY: "auto", 
+                    background: theme.inputBg, 
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: "4px",
+                    padding: "5px",
+                    minHeight: "150px", // Altura mínima para a lista
+                    maxHeight: "250px"  // Altura máxima antes de scrollar
+                }}>
+                    {loadingOrders ? (
+                        <div style={{padding: 10, fontSize: 12, color: theme.label}}>Carregando lista...</div>
+                    ) : availableOrders.length === 0 ? (
+                        <div style={{padding: 10, fontSize: 12, color: theme.label}}>Nenhum pedido encontrado no banco.</div>
+                    ) : (
+                        availableOrders.map(order => {
+                            // Verifica se este pedido está no input de texto
+                            const isChecked = searchQuery.split(',').map(s => s.trim()).includes(order);
+                            return (
+                                <label key={order} style={{
+                                    display: "flex", alignItems: "center", padding: "6px",
+                                    cursor: "pointer", borderBottom: `1px solid ${theme.hoverRow}`,
+                                    fontSize: "13px", color: theme.text
+                                }}>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={isChecked}
+                                        onChange={() => toggleOrderSelection(order)}
+                                        style={{ marginRight: "8px" }}
+                                    />
+                                    {order}
+                                </label>
+                            );
+                        })
+                    )}
+                </div>
+            </div>
+
+            {/* INPUT MANUAL (Mantido para ver o resultado ou digitar avulso) */}
+            <div style={{marginBottom: 15}}>
+                 <span style={{ fontSize: "11px", fontWeight: "bold", opacity: 0.7, color: theme.label }}>SELEÇÃO ATUAL:</span>
+                 <input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Selecione acima ou digite (Ex: 35040, 35041)"
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    cursor: "pointer",
-                    fontSize: "13px",
-                    color: theme.text,
+                    width: "100%", padding: "10px", marginTop: "5px",
+                    background: theme.inputBg, color: theme.text,
+                    border: `1px solid ${theme.border}`, borderRadius: "4px",
+                    boxSizing: "border-box", fontWeight: 'bold'
                   }}
-                >
-                  <input
-                    type="radio"
-                    name="searchMode"
-                    checked={searchMode === "replace"}
-                    onChange={() => setSearchMode("replace")}
-                    style={{ marginRight: "5px" }}
-                  />{" "}
-                  Nova Mesa (Limpar)
+                />
+            </div>
+
+            {/* OPÇÕES DE MODO */}
+            <div style={{
+                marginBottom: "20px", padding: "10px", background: theme.inputBg,
+                borderRadius: "4px", display: "flex", gap: "15px", alignItems: 'center'
+            }}>
+                <span style={{ fontSize: "11px", fontWeight: "bold", opacity: 0.7, color: theme.label }}>MODO:</span>
+                <label style={{ display: "flex", alignItems: "center", cursor: "pointer", fontSize: "12px", color: theme.text }}>
+                  <input type="radio" name="searchMode" checked={searchMode === "replace"} onChange={() => setSearchMode("replace")} style={{ marginRight: "5px" }} />
+                  Limpar Mesa
                 </label>
-                <label
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    cursor: "pointer",
-                    fontSize: "13px",
-                    fontWeight: "bold",
-                    color: "#28a745",
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="searchMode"
-                    checked={searchMode === "append"}
-                    onChange={() => setSearchMode("append")}
-                    style={{ marginRight: "5px" }}
-                  />{" "}
+                <label style={{ display: "flex", alignItems: "center", cursor: "pointer", fontSize: "12px", fontWeight: "bold", color: "#28a745" }}>
+                  <input type="radio" name="searchMode" checked={searchMode === "append"} onChange={() => setSearchMode("append")} style={{ marginRight: "5px" }} />
                   Adicionar (Mix)
                 </label>
-              </div>
             </div>
-            <input
-              autoFocus
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleDBSearch()}
-              placeholder="Ex: 35905, 35906"
-              style={{
-                width: "100%",
-                padding: "10px",
-                marginTop: "5px",
-                marginBottom: "20px",
-                background: theme.inputBg,
-                color: theme.text,
-                border: `1px solid ${theme.border}`,
-                borderRadius: "4px",
-                boxSizing: "border-box",
-              }}
-            />
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: "10px",
-              }}
-            >
+
+            {/* BOTÕES DE AÇÃO */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
               <button
-                onClick={() => setIsSearchModalOpen(false)}
+                onClick={handleDBSearch} // Chama a função original
+                disabled={isSearching || !searchQuery}
                 style={{
-                  padding: "8px 15px",
-                  background: "transparent",
-                  border: `1px solid ${theme.border}`,
-                  color: theme.text,
-                  borderRadius: "4px",
-                  cursor: "pointer",
+                  padding: "10px 20px", background: "#6f42c1", border: "none",
+                  color: "white", borderRadius: "4px", cursor: "pointer",
+                  fontWeight: "bold", width: '100%'
                 }}
               >
-                Cancelar
-              </button>
-              <button
-                onClick={handleDBSearch}
-                disabled={isSearching}
-                style={{
-                  padding: "8px 15px",
-                  background: "#28a745",
-                  border: "none",
-                  color: "white",
-                  borderRadius: "4px",
-                  cursor: "pointer",
-                  fontWeight: "bold",
-                }}
-              >
-                {isSearching ? "Buscando..." : "Buscar"}
+                {isSearching ? "Buscando Peças..." : "📥 Importar Selecionados"}
               </button>
             </div>
           </div>

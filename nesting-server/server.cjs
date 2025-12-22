@@ -386,6 +386,26 @@ function authenticateToken(req, res, next) {
 }
 
 
+// --- NOVO: Rota para listar pedidos disponíveis (Checklist tipo Excel) ---
+app.get("/api/pedidos/disponiveis", authenticateToken, async (req, res) => {
+    const empresaId = req.user.empresa_id;
+    try {
+        // Busca apenas os pedidos distintos que não estão vazios
+        const [rows] = await db.query(
+            "SELECT DISTINCT pedido FROM pecas_engenharia WHERE empresa_id = ? AND pedido IS NOT NULL AND pedido != '' ORDER BY pedido DESC",
+            [empresaId]
+        );
+        
+        // Retorna um array simples: ['35040', '35041', 'OP-500']
+        const pedidos = rows.map(r => r.pedido);
+        res.json(pedidos);
+    } catch (error) {
+        console.error("Erro ao buscar lista de pedidos:", error);
+        res.status(500).json({ error: "Erro ao buscar lista de pedidos." });
+    }
+});
+
+
 // ... (Mantenha as outras rotas de status e produção como estavam)
 
 const PORT = process.env.PORT || 3001;
