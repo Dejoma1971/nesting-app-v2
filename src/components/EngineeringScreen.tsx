@@ -15,6 +15,7 @@ import {
 
 import { SubscriptionPanel } from "./SubscriptionPanel";
 import { useTheme } from "../context/ThemeContext";
+import { SidebarMenu } from "../components/SidebarMenu";
 
 // --- CONSTANTES ---
 const THICKNESS_OPTIONS = [
@@ -215,7 +216,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
 
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
   const [viewingPartId, setViewingPartId] = useState<string | null>(null);
-  const { isDarkMode, toggleTheme, theme } = useTheme();
+  const { isDarkMode, theme } = useTheme();
   //   const [isDarkMode, setIsDarkMode] = useState(true);
 
   // --- NOVO: Estado para verificar se é Trial e bloquear botões ---
@@ -949,19 +950,15 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
           >
             🚀 Cortar Agora
           </button>
-          <button
-            onClick={toggleTheme}
-            style={{
-              background: "transparent",
-              border: `1px solid ${theme.border}`,
-              color: theme.text,
-              padding: "5px 10px",
-              borderRadius: "4px",
-              cursor: "pointer",
+          <SidebarMenu
+            onNavigate={(screen) => {
+              // Se o menu pedir para ir para 'home', usamos a função de voltar da engenharia
+              if (screen === "home" && onBack) {
+                onBack();
+              }
             }}
-          >
-            {isDarkMode ? "☀️" : "🌙"}
-          </button>
+            onOpenProfile={() => alert("Perfil do Usuário (Em breve)")}
+          />
         </div>
       </div>
 

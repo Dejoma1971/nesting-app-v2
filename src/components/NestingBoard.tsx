@@ -25,6 +25,7 @@ import { useSheetManager } from "../hooks/useSheetManager";
 import { SheetContextMenu } from "./SheetContextMenu";
 import { useAuth } from "../context/AuthContext"; // <--- 1. IMPORTAÇÃO DE SEGURANÇA
 import { SubscriptionPanel } from "./SubscriptionPanel";
+import { SidebarMenu } from '../components/SidebarMenu';
 
 interface Size {
   width: number;
@@ -386,7 +387,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     espessura: "",
   });
 
-  const { isDarkMode, toggleTheme, theme } = useTheme();
+  const { isDarkMode, theme } = useTheme();
   // const [isDarkMode, setIsDarkMode] = useState(true);
   // const theme = getTheme(isDarkMode);
   const [activeTab, setActiveTab] = useState<"grid" | "list">("grid");
@@ -776,27 +777,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     handleDeleteCurrentBin(nestingResult, setNestingResult);
   }, [handleDeleteCurrentBin, nestingResult, setNestingResult]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      )
-        return;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        if (e.shiftKey) redo();
-        else undo();
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
-        e.preventDefault();
-        redo();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [undo, redo]);
-
+  
   useEffect(() => {
     if (selectedPartIds.length > 0) {
       const lastUUID = selectedPartIds[selectedPartIds.length - 1];
@@ -828,6 +809,36 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     },
     [nestingResult, setNestingResult]
   );
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      )
+        return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        redo();
+      }
+      // --- CORREÇÃO: DEVOLVER AO BANCO (DELETE) ---
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedPartIds.length > 0) {
+           e.preventDefault();
+           // Chama a função que já existia, mas não era usada
+           handleReturnToBank(selectedPartIds);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [undo, redo, selectedPartIds, handleReturnToBank]);
+
 
   const handleSaveClick = async () => {
     const partsInBin = nestingResult.filter((p) => p.binId === currentBinIndex);
@@ -947,6 +958,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     setCurrentBinIndex,
     setParts,
   ]);
+
+  // Função para o botão do Menu de Contexto
+  const handleContextDelete = useCallback(() => {
+      if (selectedPartIds.length > 0) {
+          handleReturnToBank(selectedPartIds);
+          setContextMenu(null); // Fecha o menu
+      }
+  }, [selectedPartIds, handleReturnToBank]);
+
 
   // --- FUNÇÃO DE BUSCA MANUAL BLINDADA ---
   const handleDBSearch = async () => {
@@ -1437,11 +1457,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
       {contextMenu && contextMenu.visible && selectedPartIds.length > 0 && (
         <ContextControl
+          key={`${contextMenu.x}-${contextMenu.y}`}
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
           onMove={handleContextMove}
           onRotate={handleContextRotate}
+          onDelete={handleContextDelete}
         />
       )}
 
@@ -1590,7 +1612,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               margin: "0 5px",
             }}
           ></div>
-          <button
+          <SidebarMenu 
+            onNavigate={(screen) => {
+                // Se precisar navegar para a home (dashboard admin)
+                if (screen === 'home' && onBack) onBack(); 
+            }}
+            onOpenProfile={() => alert("Janela de Dados da Conta abrirá aqui!")}
+        />
+          {/* <button
             onClick={toggleTheme}
             title="Alternar Tema"
             style={{
@@ -1607,7 +1636,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             }}
           >
             {isDarkMode ? "☀️" : "🌙"}
-          </button>
+          </button> */}
         </div>
       </div>
 

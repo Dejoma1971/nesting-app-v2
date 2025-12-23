@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useLayoutEffect } from "react";
+import { useTheme } from '../context/ThemeContext';
 
 interface ContextControlProps {
   x: number;
@@ -6,6 +7,7 @@ interface ContextControlProps {
   onClose: () => void;
   onMove: (dx: number, dy: number) => void;
   onRotate: (angle: number) => void;
+  onDelete?: () => void;
 }
 
 export const ContextControl: React.FC<ContextControlProps> = ({
@@ -14,24 +16,58 @@ export const ContextControl: React.FC<ContextControlProps> = ({
   onClose,
   onMove,
   onRotate,
+  onDelete,
 }) => {
-  const [step, setStep] = useState(1); // Passo de deslocamento (mm)
-  const [rotationStep, setRotationStep] = useState(90); // Novo: Passo de rotação (graus)
+  const { theme } = useTheme();
+  
+  const [step, setStep] = useState(1);
+  const [rotationStep, setRotationStep] = useState(90);
 
-  // Estado local para a posição do menu (permite arrastar)
+  // Estado local da posição
   const [position, setPosition] = useState({ x, y });
   const [isDragging, setIsDragging] = useState(false);
 
-  // Refs para cálculo de arraste
+  // Refs
   const dragStartRef = useRef({ mouseX: 0, mouseY: 0, menuX: 0, menuY: 0 });
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  // Sincroniza se o pai mandar novas coordenadas
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPosition({ x, y });
+  // --- LÓGICA INTELIGENTE DE POSICIONAMENTO (CORRIGIDA) ---
+  useLayoutEffect(() => {
+    if (menuRef.current) {
+      const menuRect = menuRef.current.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+
+      let newX = x;
+      let newY = y;
+      const padding = 10;
+
+      // Se passar da borda DIREITA, joga pra esquerda
+      if (x + menuRect.width > viewportWidth) {
+        newX = viewportWidth - menuRect.width - padding;
+      }
+
+      // Se passar da borda INFERIOR, joga pra cima
+      if (y + menuRect.height > viewportHeight) {
+        newY = viewportHeight - menuRect.height - padding;
+      }
+      
+      // Garante que não saia pela esquerda ou topo
+      if (newX < padding) newX = padding;
+      if (newY < padding) newY = padding;
+
+      // Só atualiza se a posição calculada for diferente da atual
+      // Isso evita o erro de "cascading renders" e loops infinitos
+      if (newX !== position.x || newY !== position.y) {
+         setPosition({ x: newX, y: newY });
+      }
+    }
+    // Desabilitamos o aviso de dependência pois queremos rodar APENAS quando x ou y (props) mudarem,
+    // e não quando 'position' (estado interno) mudar, para evitar loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [x, y]);
 
-  // Efeito global para o arraste
+  // --- LÓGICA DE ARRASTE ---
   useEffect(() => {
     const handleGlobalMove = (e: MouseEvent) => {
       if (!isDragging) return;
@@ -61,10 +97,8 @@ export const ContextControl: React.FC<ContextControlProps> = ({
     };
   }, [isDragging]);
 
-  // Inicia o arraste
   const handleMouseDownHeader = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
-
     e.preventDefault();
     setIsDragging(true);
     dragStartRef.current = {
@@ -75,100 +109,95 @@ export const ContextControl: React.FC<ContextControlProps> = ({
     };
   };
 
-  // Estilos
-  const style: React.CSSProperties = {
-    position: "fixed",
-    top: position.y,
-    left: position.x,
-    zIndex: 2000,
-    background: "#333",
-    border: "1px solid #555",
-    borderRadius: "8px",
-    padding: "10px",
-    boxShadow: "0 4px 15px rgba(0,0,0,0.5)",
-    color: "#fff",
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px",
-    minWidth: "160px",
-    userSelect: "none",
-  };
-
+  // --- ESTILOS ---
   const btnStyle: React.CSSProperties = {
-    background: "#444",
-    border: "1px solid #666",
-    color: "#fff",
-    borderRadius: "4px",
-    cursor: "pointer",
-    padding: "5px",
-    flex: 1,
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    fontWeight: "bold",
-    fontSize: "14px",
-  };
-
-  const headerStyle: React.CSSProperties = {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    borderBottom: "1px solid #555",
-    paddingBottom: "5px",
-    marginBottom: "5px",
-    cursor: isDragging ? "grabbing" : "move",
+    background: theme.buttonBg,
+    color: theme.text,
+    border: `1px solid ${theme.border}`,
+    borderRadius: '4px',
+    cursor: 'pointer',
+    padding: '6px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '16px',
+    minWidth: '32px',
+    height: '32px'
   };
 
   const inputStyle: React.CSSProperties = {
     width: "50px",
-    background: "#222",
-    border: "1px solid #555",
-    color: "#fff",
+    background: theme.inputBg,
+    border: `1px solid ${theme.border}`,
+    color: theme.text,
     padding: "2px 5px",
     borderRadius: "3px",
     textAlign: "center",
   };
 
   return (
-    <div style={style} onContextMenu={(e) => e.preventDefault()}>
+    <div
+      ref={menuRef}
+      style={{
+        position: "fixed",
+        top: position.y,
+        left: position.x,
+        zIndex: 9999,
+        background: theme.panelBg,
+        border: `1px solid ${theme.border}`,
+        borderRadius: '8px',
+        padding: '10px',
+        boxShadow: '0 8px 20px rgba(0,0,0,0.4)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px',
+        color: theme.text,
+        minWidth: '180px',
+        userSelect: 'none',
+        maxWidth: '90vw'
+      }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       {/* CABEÇALHO ARRASTÁVEL */}
-      <div style={headerStyle} onMouseDown={handleMouseDownHeader}>
-        <span
-          style={{
-            fontSize: "12px",
-            fontWeight: "bold",
-            display: "flex",
-            alignItems: "center",
-            gap: "5px",
-          }}
+      <div 
+        onMouseDown={handleMouseDownHeader}
+        style={{ 
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            borderBottom: `1px solid ${theme.border}`, 
+            paddingBottom: '8px',
+            cursor: isDragging ? "grabbing" : "move",
+            background: isDragging ? theme.hoverRow : 'transparent',
+            borderRadius: '4px 4px 0 0'
+        }}
+        title="Clique e arraste para mover"
+      >
+        <div style={{ display:'flex', alignItems:'center', gap:'5px' }}>
+             <span style={{ fontSize: '14px' }}>✥</span>
+             <span style={{ fontSize: '12px', fontWeight: 'bold' }}>Ações</span>
+        </div>
+
+        <button 
+            onClick={(e) => { e.stopPropagation(); onClose(); }}
+            title="Fechar"
+            style={{
+                background: 'transparent',
+                border: 'none',
+                color: theme.text,
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                fontSize: '16px',
+                padding: '0 5px',
+                lineHeight: 1
+            }}
         >
-          <span style={{ fontSize: "14px" }}>✥</span> Ajuste Fino
-        </span>
-        <button
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={onClose}
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "#ff4d4d",
-            cursor: "pointer",
-            fontWeight: "bold",
-            fontSize: "14px",
-          }}
-        >
-          ✕
+            ✕
         </button>
       </div>
 
       {/* --- SEÇÃO DE MOVIMENTO --- */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "5px",
-          fontSize: "12px",
-        }}
-      >
+      <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "12px" }}>
         <span>Passo (mm):</span>
         <input
           type="number"
@@ -179,56 +208,18 @@ export const ContextControl: React.FC<ContextControlProps> = ({
         />
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr 1fr",
-          gap: "5px",
-        }}
-      >
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "5px" }}>
         <div />
-        <button style={btnStyle} onClick={() => onMove(0, -step)} title="Cima">
-          ▲
-        </button>
+        <button style={btnStyle} onClick={() => onMove(0, -step)} title="Cima">▲</button>
         <div />
-        <button
-          style={btnStyle}
-          onClick={() => onMove(-step, 0)}
-          title="Esquerda"
-        >
-          ◀
-        </button>
-        <button style={btnStyle} onClick={() => onMove(0, step)} title="Baixo">
-          ▼
-        </button>
-        <button
-          style={btnStyle}
-          onClick={() => onMove(step, 0)}
-          title="Direita"
-        >
-          ▶
-        </button>
+        <button style={btnStyle} onClick={() => onMove(-step, 0)} title="Esquerda">◀</button>
+        <button style={btnStyle} onClick={() => onMove(0, step)} title="Baixo">▼</button>
+        <button style={btnStyle} onClick={() => onMove(step, 0)} title="Direita">▶</button>
       </div>
 
-      {/* --- SEÇÃO DE ROTAÇÃO (MODIFICADA) --- */}
-      <div
-        style={{
-          borderTop: "1px solid #555",
-          paddingTop: "10px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "5px",
-        }}
-      >
-        {/* Input de Giro Personalizado */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "5px",
-            fontSize: "12px",
-          }}
-        >
+      {/* --- SEÇÃO DE ROTAÇÃO --- */}
+      <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: "10px", display: "flex", flexDirection: "column", gap: "5px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "15px", fontSize: "12px" }}>
           <span>Giro (°):</span>
           <input
             type="number"
@@ -240,42 +231,39 @@ export const ContextControl: React.FC<ContextControlProps> = ({
           />
         </div>
 
-        {/* Botões de Rotação Personalizada (Usam o valor do input) */}
-        <div style={{ display: "flex", gap: "5px" }}>
-          <button
-            style={btnStyle}
-            onClick={() => onRotate(rotationStep)}
-            title={`Girar ${rotationStep}° Anti-horário`}
-          >
-            ↺
-          </button>
-          <button
-            style={btnStyle}
-            onClick={() => onRotate(-rotationStep)}
-            title={`Girar ${rotationStep}° Horário`}
-          >
-            ↻
-          </button>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "20px"}}>
+          <button style={{...btnStyle, fontSize: "20px", fontWeight: "normal"}} onClick={() => onRotate(rotationStep)} title={`Girar ${rotationStep}° Anti`}>↺</button>
+          <button style={{...btnStyle, fontSize: "20px", fontWeight: "normal"}} onClick={() => onRotate(-rotationStep)} title={`Girar ${rotationStep}° Horário`}>↻</button>
         </div>
 
-        {/* Botões de Rotação Fina (Fixos em 1°) */}
-        <div style={{ display: "flex", gap: "5px" }}>
-          <button
-            style={{ ...btnStyle, fontSize: "11px", fontWeight: "normal" }}
-            onClick={() => onRotate(1)}
-            title="Ajuste Fino 1° Anti-horário"
-          >
-            ↺ 1°
-          </button>
-          <button
-            style={{ ...btnStyle, fontSize: "11px", fontWeight: "normal" }}
-            onClick={() => onRotate(-1)}
-            title="Ajuste Fino 1° Horário"
-          >
-            ↻ 1°
-          </button>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "5px" }}>
+          <button style={{ ...btnStyle, fontSize: "15px", fontWeight: "normal" }} onClick={() => onRotate(1)} title="Ajuste Fino 1°">↺ 1°</button>
+          <button style={{ ...btnStyle, fontSize: "15px", fontWeight: "normal" }} onClick={() => onRotate(-1)} title="Ajuste Fino 1°">↻ 1°</button>
         </div>
       </div>
+
+      {/* --- SEÇÃO DA LIXEIRA --- */}
+      {onDelete && (
+        <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: "10px", marginTop: "5px" }}>
+            <button
+            onClick={onDelete}
+            style={{
+                ...btnStyle,
+                background: "#dc3545",
+                borderColor: "#a71d2a",
+                color: 'white',
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                justifyContent: "center"
+            }}
+            title="Remover peça da mesa"
+            >
+            <span>🗑️</span> Devolver 
+            </button>
+        </div>
+      )}
     </div>
   );
 };
