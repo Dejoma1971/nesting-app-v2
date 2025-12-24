@@ -6,7 +6,7 @@ import { generateDxfContent } from '../utils/dxfWriter';
 import type { CropLine } from '../hooks/useSheetManager';
 
 interface ProductionState {
-  producedQuantities: Record<string, number>; // ID -> Qtd acumulada na sessão
+  producedQuantities: Record<string, number>;
   lockedBins: number[]; 
   isSaving: boolean;
 }
@@ -31,9 +31,12 @@ export const useProductionManager = (
     nestingResult: PlacedPart[],
     currentBinIndex: number,
     displayedParts: ImportedPart[],
-    cropLines: CropLine[] = []
+    cropLines: CropLine[] = [],
+    user: any = null,
+    densityValue: number = 0 // <--- Recebe a densidade calculada na tela
   ) => {
-    // 1. Validação se já foi baixado nesta sessão
+    
+    // Validação
     if (state.lockedBins.includes(currentBinIndex)) {
       if (!window.confirm("Esta chapa já foi processada. Baixar novamente?")) {
         return;
@@ -46,7 +49,7 @@ export const useProductionManager = (
       return;
     }
 
-    // 2. Cálculos Internos (Eficiência e Contagem)
+    // Contagem e Área para DXF
     const partsCount: Record<string, number> = {};
     let usedArea = 0;
 
@@ -58,10 +61,15 @@ export const useProductionManager = (
 
     const totalBinArea = binSize.width * binSize.height;
     const efficiency = totalBinArea > 0 ? Number(((usedArea / totalBinArea) * 100).toFixed(2)) : 0;
+    
+    // Usamos o valor que veio da tela, ou o aproveitamento se for zero (fallback)
+    const finalDensity = densityValue > 0 ? densityValue : efficiency;
 
-    // 3. Confirmação do Usuário
+    // Confirmação
     let confirmMessage = `Confirma a produção desta chapa?\n`;
-    confirmMessage += `📊 Aproveitamento: ${efficiency}%\n`;
+    confirmMessage += `📊 Aprov. Real: ${efficiency}%\n`;
+    confirmMessage += `📦 Densidade: ${finalDensity}%\n`; 
+    
     if (cropLines.length > 0) confirmMessage += `✂️ Linhas de Retalho: ${cropLines.length}\n\n`;
     else confirmMessage += `\n`;
     
@@ -77,7 +85,7 @@ export const useProductionManager = (
         if (!confirm) return;
     }
 
-    // 4. Preparar o Arquivo DXF
+    // Gera DXF
     const dxfString = generateDxfContent(
         currentBinParts, 
         displayedParts, 
@@ -88,41 +96,44 @@ export const useProductionManager = (
     const blob = new Blob([dxfString], { type: "application/dxf" });
     const suggestedName = `Nesting_Chapa_${currentBinIndex + 1}_${new Date().toISOString().slice(0, 10)}.dxf`;
 
-    // 5. Iniciar Fluxo de Salvamento
+    // Salvar
     setState(prev => ({ ...prev, isSaving: true }));
     let dbSuccess = false;
 
     try {
-        // --- ETAPA A: Tentar Registrar no Banco (SOFT FAIL) ---
-        // Se falhar (por ser Trial ou erro de rede), apenas logamos e continuamos.
+        // --- ETAPA A: Registrar no Banco ---
         if (isFirstTime) {
-            const itensPayload = Object.entries(partsCount).map(([id, qtd]) => ({ id, qtd }));
-            
-            if (itensPayload.length > 0) {
-                try {
-                    const response = await fetch('http://localhost:3001/api/producao/registrar', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        // Nota: Se o backend exigir token, adicionar aqui. 
-                        // Mas como queremos que funcione mesmo falhando, o try/catch resolve.
-                        body: JSON.stringify({
-                            chapaIndex: currentBinIndex,
-                            aproveitamento: efficiency,
-                            itens: itensPayload
-                        })
-                    });
+            if (user && user.plano === 'Premium Dev' && user.token) {
+                const itensPayload = Object.entries(partsCount).map(([id, qtd]) => ({ id, qtd }));
+                
+                if (itensPayload.length > 0) {
+                    try {
+                        const response = await fetch('http://localhost:3001/api/producao/registrar', {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${user.token}`
+                            },
+                            body: JSON.stringify({
+                                chapaIndex: currentBinIndex,
+                                aproveitamento: efficiency,
+                                densidade: finalDensity, // <--- Envia o valor correto
+                                itens: itensPayload
+                            })
+                        });
 
-                    if (response.ok) {
-                        dbSuccess = true;
-                    } else {
-                        console.warn("Banco recusou registro (Provável Trial ou Sem Permissão).");
+                        if (response.ok) {
+                            dbSuccess = true;
+                        } else {
+                            console.warn("Banco recusou registro.");
+                        }
+                    } catch (dbErr) {
+                        console.warn("Erro ao conectar com o banco.", dbErr);
                     }
-                } catch (dbErr) {
-                    console.warn("Erro ao conectar com o banco (Ignorado para gerar DXF).", dbErr);
                 }
             }
-
-            // Atualiza estado local para marcar como "baixado" na sessão, independente do banco
+            
+            // Atualiza estado local
             setState(prev => {
                 const newQuantities = { ...prev.producedQuantities };
                 Object.entries(partsCount).forEach(([id, qty]) => {
@@ -136,12 +147,10 @@ export const useProductionManager = (
             });
         }
 
-        // --- ETAPA B: Salvar o Arquivo Físico (PRIORIDADE) ---
-        // Isso agora roda independente do sucesso do banco
+        // --- ETAPA B: Salvar Arquivo ---
         let fileHandle: any = null;
         let fileSaved = false;
 
-        // Tenta usar a API moderna (Chrome/Edge)
         if ('showSaveFilePicker' in window) {
             try {
                 fileHandle = await (window as any).showSaveFilePicker({
@@ -155,12 +164,13 @@ export const useProductionManager = (
                     fileSaved = true;
                 }
             } catch (err: any) {
-                if (err.name !== 'AbortError') console.error("Erro File System API:", err);
-                // Se der erro ou cancelar, tentamos o fallback abaixo se não tiver cancelado
+                // CORREÇÃO DO ESLINT: Tratamos o erro aqui
+                if (err.name !== 'AbortError') {
+                    console.error("Erro ou cancelamento na API nativa:", err);
+                }
             }
         }
 
-        // Fallback para modo clássico (Download direto) se a API moderna falhar ou não existir
         if (!fileSaved && !fileHandle) {
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
@@ -170,7 +180,6 @@ export const useProductionManager = (
             fileSaved = true;
         }
 
-        // Mensagem Final para o Usuário
         if (fileSaved) {
             if (dbSuccess) {
                 alert("✅ Arquivo Salvo e Produção Registrada no Banco!");
@@ -180,8 +189,8 @@ export const useProductionManager = (
         }
 
     } catch (error) {
-        console.error("Erro fatal ao gerar arquivo:", error);
-        alert("❌ Erro ao gerar o arquivo de corte.");
+        console.error("Erro fatal:", error);
+        alert("❌ Erro ao gerar o arquivo.");
     } finally {
         setState(prev => ({ ...prev, isSaving: false }));
     }

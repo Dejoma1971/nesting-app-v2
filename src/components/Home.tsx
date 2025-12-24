@@ -87,7 +87,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
             letterSpacing: "-1px",
           }}
         >
-          Sistema de Nesting
+          AutoNest Hub
         </h1>
         <p style={{ fontSize: "1.1rem", opacity: 0.7, margin: 0 }}>
           Selecione o fluxo de trabalho desejado para iniciar.

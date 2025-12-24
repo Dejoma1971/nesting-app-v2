@@ -10,9 +10,7 @@ const app = express();
 // 1. CONFIGURAÇÕES
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
-
-const JWT_SECRET =
-  process.env.JWT_SECRET || "segredo-super-secreto-do-nesting-app";
+const JWT_SECRET = process.env.JWT_SECRET || "segredo-super-secreto-do-nesting-app";
 
 // ==========================================================
 // 2. ROTAS
@@ -24,7 +22,6 @@ app.post("/api/login", async (req, res) => {
 
   try {
     // 1. Busca o usuário pelo e-mail
-    // IMPORTANTE: Estamos selecionando explicitamente o empresa_id e o plano
     const [rows] = await db.query(
       "SELECT id, nome, email, senha_hash, empresa_id, plano, cargo, status FROM usuarios WHERE email = ?",
       [email]
@@ -51,11 +48,11 @@ app.post("/api/login", async (req, res) => {
       // Vamos permitir, mas o Token ficará sem ID e o painel vai dar 403 (esperado).
     }
 
-    // 4. GERA O TOKEN (O segredo do sucesso está aqui)
+    // 4. GERA O TOKEN
     const token = jwt.sign(
       {
         id: user.id,
-        empresa_id: user.empresa_id, // <--- O Backend TEM que colocar isso aqui
+        empresa_id: user.empresa_id,
         plano: user.plano,
         cargo: user.cargo,
       },
@@ -71,7 +68,7 @@ app.post("/api/login", async (req, res) => {
         id: user.id,
         name: user.nome,
         email: user.email,
-        empresa_id: user.empresa_id, // Envia também no objeto user
+        empresa_id: user.empresa_id,
         plano: user.plano,
         cargo: user.cargo,
       },
@@ -118,7 +115,6 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
       if (diffDays > 30) {
-        // Se passou de 30 dias, aí sim bloqueia tudo
         return res.status(403).json({
           error: `SEU TRIAL EXPIROU! Os 30 dias de teste acabaram. Para continuar salvando e acessando seus projetos, assine o Plano Premium.`,
         });
@@ -126,7 +122,7 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
     }
 
     // =================================================================================
-    // VERIFICAÇÃO 2: ESTOROU A CAPACIDADE? (Limite de 30 Peças)
+    // VERIFICAÇÃO 2: ESTOROU A CAPACIDADE? (Limite de peças)
     // =================================================================================
     if (empresa.max_parts !== null) {
       // Conta quantas peças já existem no banco
@@ -190,7 +186,7 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
 // --- BUSCAR PEÇAS (Todos da empresa veem) ---
 app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
   const { pedido } = req.query;
-  const empresaId = req.user.empresa_id; // <--- A Chave Mágica
+  const empresaId = req.user.empresa_id;
 
   if (!pedido) return res.status(400).json({ error: "Falta pedido." });
 
@@ -200,19 +196,13 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
     .filter(Boolean);
 
   try {
-    // Busca onde empresa_id bate, não importa qual funcionário salvou
     const sql = `SELECT * FROM pecas_engenharia WHERE pedido IN (?) AND empresa_id = ?`;
-
     const [rows] = await db.query(sql, [pedidosArray, empresaId]);
 
-    // ... (restante do código de formatação igual ao anterior) ...
-
-    // Só pra garantir que não quebre se não achar nada
     if (rows.length === 0)
       return res.status(404).json({ message: "Não encontrado." });
 
     const formattedParts = rows.map((row) => ({
-      // ... (seus campos de mapeamento normais) ...
       id: row.id,
       name: row.nome_arquivo,
       pedido: row.pedido,
@@ -225,14 +215,8 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
       width: Number(row.largura),
       height: Number(row.altura),
       grossArea: Number(row.area_bruta),
-      entities:
-        typeof row.geometria === "string"
-          ? JSON.parse(row.geometria)
-          : row.geometria,
-      blocks:
-        typeof row.blocos_def === "string"
-          ? JSON.parse(row.blocos_def)
-          : row.blocos_def || {},
+      entities: typeof row.geometria === "string" ? JSON.parse(row.geometria) : row.geometria,
+      blocks: typeof row.blocos_def === "string" ? JSON.parse(row.blocos_def) : row.blocos_def || {},
       dataCadastro: row.data_cadastro,
     }));
 
@@ -244,13 +228,14 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
 
 // --- NOVO: Endpoint para o Painel de Assinatura (Frontend consome isso) ---
 app.get("/api/subscription/status", authenticateToken, async (req, res) => {
-  console.log("DEBUG TOKEN:", req.user); // <--- Adicione isso e olhe no terminal
+  console.log("DEBUG TOKEN:", req.user);
   try {
     const empresaId = req.user.empresa_id;
 
     // 1. Busca dados da empresa
+    // CORREÇÃO AQUI: Adicionado 'plano' no SELECT
     const [empresaRows] = await db.query(
-      "SELECT trial_start_date, subscription_status, subscription_end_date, max_parts, max_users FROM empresas WHERE id = ?",
+      "SELECT plano, trial_start_date, subscription_status, subscription_end_date, max_parts, max_users FROM empresas WHERE id = ?",
       [empresaId]
     );
     const empresa = empresaRows[0];
@@ -274,27 +259,21 @@ app.get("/api/subscription/status", authenticateToken, async (req, res) => {
     if (empresa.subscription_status === "trial") {
       const now = new Date();
       const start = new Date(empresa.trial_start_date);
-
-      // Cria a data de expiração (Data de Cadastro + 30 dias)
       const expirationDate = new Date(start);
       expirationDate.setDate(expirationDate.getDate() + 30);
 
-      // Vê quanto tempo FALTA até expirar
       const timeLeftMs = expirationDate - now;
-
-      // Converte para dias e arredonda para cima (ex: 29.1 dias vira 30 dias restantes)
       daysLeft = Math.ceil(timeLeftMs / (1000 * 60 * 60 * 24));
-
-      // Garante que não mostre negativo
       daysLeft = Math.max(0, daysLeft);
     }
 
+    // CORREÇÃO AQUI: Retorna o nome real do plano se não for trial
     res.json({
       status: empresa.subscription_status,
       plan:
         empresa.subscription_status === "trial"
           ? "Teste Gratuito"
-          : "Plano Corporativo",
+          : (empresa.plano || "Plano Premium"), // Usa o nome real do banco
       parts: { used: partsUsed, limit: empresa.max_parts },
       users: { used: usersUsed, limit: empresa.max_users },
       daysLeft: daysLeft,
@@ -313,7 +292,7 @@ app.post("/api/register", async (req, res) => {
     return res.status(400).json({ error: "Todos os campos são obrigatórios." });
   }
 
-  const connection = await db.getConnection(); // Pega conexão para transação
+  const connection = await db.getConnection(); 
   try {
     await connection.beginTransaction();
 
@@ -328,9 +307,7 @@ app.post("/api/register", async (req, res) => {
     }
 
     // 2. Cria a EMPRESA (Trial de 30 dias)
-    // O UUID() é gerado pelo banco ou podemos gerar aqui. Vamos deixar o banco gerar se for MySQL 8,
-    // ou usamos UUID v4 do node. Assumindo que você tem UUID() no SQL:
-    const empresaId = crypto.randomUUID(); // Gera ID da empresa no Node (precisa: const crypto = require('crypto');)
+    const empresaId = crypto.randomUUID(); 
 
     await connection.query(
       `
@@ -346,6 +323,7 @@ app.post("/api/register", async (req, res) => {
 
     // 4. Cria o USUÁRIO (Dono da empresa)
     const usuarioId = crypto.randomUUID();
+
     await connection.query(
       `
             INSERT INTO usuarios (id, nome, email, senha_hash, plano, status, empresa_id, cargo)
@@ -370,7 +348,7 @@ app.post("/api/register", async (req, res) => {
   }
 });
 
-// --- MIDDLEWARE DE AUTENTICAÇÃO (VERSÃO DEBUG) ---
+// --- MIDDLEWARE DE AUTENTICAÇÃO ---
 function authenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
@@ -380,16 +358,12 @@ function authenticateToken(req, res, next) {
     return res.sendStatus(401);
   }
 
-  // Usa A MESMA string fixa do login
   jwt.verify(token, "SEGREDO_FIXO_PARA_TESTE_123", (err, user) => {
     if (err) {
       console.log("DEBUG: Erro ao verificar token:", err.message);
-      return res.sendStatus(403); // É AQUI QUE O 403 ESTÁ ACONTECENDO
+      return res.sendStatus(403);
     }
 
-    console.log("DEBUG: Token aceito! Dados do usuário:", user);
-
-    // Verificação extra: O ID da empresa existe?
     if (!user.empresa_id) {
       console.log("DEBUG: ALERTA VERMELHO - Token válido, mas SEM empresa_id!");
     }
@@ -399,17 +373,15 @@ function authenticateToken(req, res, next) {
   });
 }
 
-// --- NOVO: Rota para listar pedidos disponíveis (Checklist tipo Excel) ---
+// --- ROTA DE LISTA DE PEDIDOS DISPONÍVEIS ---
 app.get("/api/pedidos/disponiveis", authenticateToken, async (req, res) => {
   const empresaId = req.user.empresa_id;
   try {
-    // Busca apenas os pedidos distintos que não estão vazios
     const [rows] = await db.query(
       "SELECT DISTINCT pedido FROM pecas_engenharia WHERE empresa_id = ? AND pedido IS NOT NULL AND pedido != '' ORDER BY pedido DESC",
       [empresaId]
     );
 
-    // Retorna um array simples: ['35040', '35041', 'OP-500']
     const pedidos = rows.map((r) => r.pedido);
     res.json(pedidos);
   } catch (error) {
@@ -418,7 +390,84 @@ app.get("/api/pedidos/disponiveis", authenticateToken, async (req, res) => {
   }
 });
 
-// ... (Mantenha as outras rotas de status e produção como estavam)
+// --- ROTA: REGISTRAR PRODUÇÃO (BUSCANDO DADOS REAIS NO BANCO) ---
+app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
+  // Recebemos do front apenas o que é calculado na hora (aproveitamento, densidade, itens)
+  const { chapaIndex, aproveitamento, densidade, itens } = req.body;
+  
+  const usuarioId = req.user.id;
+  const empresaId = req.user.empresa_id;
+  const plano = req.user.plano;
+
+  // 1. Validação de Plano
+  if (plano !== 'Premium Dev' && plano !== 'Premium' && plano !== 'Corporativo') {
+     return res.status(403).json({ error: "Plano não permite registro histórico." });
+  }
+
+  if (!itens || itens.length === 0) {
+      return res.status(400).json({ error: "Nenhum item informado." });
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 2. BUSCA INTELIGENTE: Descobre Material e Espessura direto da Engenharia
+    // Pegamos o ID da primeira peça da lista para consultar suas propriedades originais
+    let materialReal = "Desconhecido";
+    let espessuraReal = "N/A";
+
+    const primeiraPecaId = itens[0].id; // ID que veio do frontend (pecas_engenharia.id)
+
+    const [pecaRows] = await connection.query(
+        "SELECT material, espessura FROM pecas_engenharia WHERE id = ? AND empresa_id = ?",
+        [primeiraPecaId, empresaId]
+    );
+
+    if (pecaRows.length > 0) {
+        materialReal = pecaRows[0].material;
+        espessuraReal = pecaRows[0].espessura;
+    }
+
+    // 3. Grava o Histórico com os dados CONFIÁVEIS do banco
+    const [result] = await connection.query(
+      `INSERT INTO producao_historico 
+       (empresa_id, usuario_id, data_producao, chapa_index, aproveitamento, densidade, material, espessura) 
+       VALUES (?, ?, NOW(), ?, ?, ?, ?, ?)`,
+      [
+        empresaId, 
+        usuarioId, 
+        chapaIndex, 
+        aproveitamento, 
+        densidade || aproveitamento, // Se densidade não vier, usa o aproveitamento
+        materialReal, // <--- Veio do SELECT acima
+        espessuraReal // <--- Veio do SELECT acima
+      ]
+    );
+    
+    const producaoId = result.insertId;
+
+    // 4. Salva os Itens
+    const values = itens.map(item => [producaoId, item.id, item.qtd]);
+    await connection.query(
+        `INSERT INTO producao_itens (producao_id, peca_original_id, quantidade) VALUES ?`,
+        [values]
+    );
+
+    await connection.commit();
+    res.json({ 
+        message: "Produção registrada com sucesso!", 
+        detalhes: { material: materialReal, espessura: espessuraReal }
+    });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error("Erro ao registrar produção:", error);
+    res.status(500).json({ error: "Erro ao salvar no banco." });
+  } finally {
+    connection.release();
+  }
+});
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
