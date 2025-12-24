@@ -527,6 +527,27 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // --- VARIÁVEIS DERIVADAS ---
   const isCurrentSheetSaved = isBinSaved(currentBinIndex);
 
+  // =====================================================================
+  // NOVO: LÓGICA DO CHECKBOX "SELECIONAR TODOS"
+  // =====================================================================
+  const isAllEnabled = useMemo(() => {
+    if (parts.length === 0) return false;
+    // Se não houver nenhum ID na lista de bloqueados, então todos estão habilitados
+    return parts.every((p) => !disabledNestingIds.has(p.id));
+  }, [parts, disabledNestingIds]);
+
+  const handleToggleAll = useCallback(() => {
+    if (isAllEnabled) {
+      // Se está tudo marcado -> Desmarca tudo (Adiciona todos os IDs na lista de bloqueio)
+      const allIds = parts.map(p => p.id);
+      setDisabledNestingIds(new Set(allIds));
+    } else {
+      // Se não está tudo marcado -> Marca tudo (Limpa a lista de bloqueio)
+      setDisabledNestingIds(new Set());
+    }
+  }, [isAllEnabled, parts]);
+  // =====================================================================
+
   const displayedParts = useMemo(() => {
     const filtered = parts.filter((p) => {
       const matchPedido =
@@ -2214,11 +2235,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             onTogglePink={() => toggleGlobal("pink")}
             theme={theme}
           />
+          {/* --- ABAS DE NAVEGAÇÃO + SELECT ALL --- */}
           <div
             style={{
               display: "flex",
+              alignItems: "center", // Garante alinhamento vertical
               borderBottom: `1px solid ${theme.border}`,
               background: theme.headerBg,
+              paddingRight: "15px" // Margem direita para não colar na borda
             }}
           >
             <button
@@ -2233,7 +2257,35 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             >
               📄 Lista Técnica
             </button>
+
+            {/* --- NOVO: CHECKBOX ALINHADO À DIREITA --- */}
+            <div style={{ marginLeft: "auto" }}>
+              <label
+                style={{
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                  color: theme.text,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  cursor: parts.length === 0 ? "not-allowed" : "pointer",
+                  userSelect: "none",
+                  opacity: parts.length === 0 ? 0.5 : 1
+                }}
+                title={isAllEnabled ? "Remover todas do cálculo" : "Incluir todas no cálculo"}
+              >
+                <input
+                  type="checkbox"
+                  checked={isAllEnabled}
+                  onChange={handleToggleAll}
+                  disabled={parts.length === 0}
+                  style={{ cursor: "pointer" }}
+                />
+                Selecionar Todos
+              </label>
+            </div>
           </div>
+          
           <div
             style={{
               flex: 1,
