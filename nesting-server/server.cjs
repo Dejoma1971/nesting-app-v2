@@ -469,6 +469,114 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
   }
 });
 
+// ==========================================================
+// ROTAS DE GESTÃO DE MATERIAIS E ESPESSURAS
+// ==========================================================
+
+// 1. Listar Materiais + Espessuras
+app.get("/api/materiais", authenticateToken, async (req, res) => {
+  const empresaId = req.user.empresa_id;
+  
+  try {
+    const [materiais] = await db.query(
+      `SELECT * FROM materiais WHERE empresa_id IS NULL OR empresa_id = ? ORDER BY Material ASC`, 
+      [empresaId]
+    );
+
+    const materialIds = materiais.map(m => m.id);
+    let espessuras = [];
+    
+    if (materialIds.length > 0) {
+      const [rows] = await db.query(
+        `SELECT id, material_id, milimetros, polegadas, bitola FROM espessuras WHERE material_id IN (?) ORDER BY milimetros ASC`,
+        [materialIds]
+      );
+      espessuras = rows;
+    }
+
+    const resultado = materiais.map(m => ({
+      ...m,
+      isGlobal: m.empresa_id === null,
+      espessuras: espessuras.filter(e => e.material_id === m.id)
+    }));
+
+    res.json(resultado);
+  } catch (error) {
+    console.error("Erro ao buscar materiais:", error);
+    res.status(500).json({ error: "Erro interno." });
+  }
+});
+
+// 2. Criar Material
+app.post("/api/materiais", authenticateToken, async (req, res) => {
+  const { Material, densidade, Descricao } = req.body;
+  const empresaId = req.user.empresa_id;
+
+  if (!Material || !densidade) return res.status(400).json({ error: "Dados incompletos." });
+
+  try {
+    const [result] = await db.query(
+      "INSERT INTO materiais (empresa_id, Material, densidade, Descricao) VALUES (?, ?, ?, ?)",
+      [empresaId, Material, parseFloat(densidade), Descricao || ""]
+    );
+    res.status(201).json({ id: result.insertId, message: "Material criado." });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: "Nome já existe." });
+    res.status(500).json({ error: "Erro ao salvar." });
+  }
+});
+
+// 3. Excluir Material
+app.delete("/api/materiais/:id", authenticateToken, async (req, res) => {
+  const id = req.params.id;
+  const empresaId = req.user.empresa_id;
+  try {
+    const [result] = await db.query("DELETE FROM materiais WHERE id = ? AND empresa_id = ?", [id, empresaId]);
+    if (result.affectedRows === 0) return res.status(403).json({ error: "Não permitido." });
+    res.json({ message: "Material excluído." });
+  } catch (error) { res.status(500).json({ error: "Erro ao excluir." }); }
+});
+
+// 4. Adicionar Espessura (VERSÃO CORRIGIDA E PERMISSIVA)
+app.post("/api/espessuras", authenticateToken, async (req, res) => {
+  const { material_id, milimetros, polegadas, bitola } = req.body;
+  const empresaId = req.user.empresa_id;
+
+  if (!material_id || !milimetros) return res.status(400).json({ error: "Milímetros é obrigatório." });
+
+  try {
+    const [mat] = await db.query("SELECT empresa_id FROM materiais WHERE id = ?", [material_id]);
+    if (mat.length === 0) return res.status(404).json({ error: "Material não encontrado" });
+    
+    // Regra: Permite se for dono OU se for material global (NULL)
+    const isDono = mat[0].empresa_id === empresaId;
+    const isGlobal = mat[0].empresa_id === null;
+
+    if (!isDono && !isGlobal) {
+       return res.status(403).json({ error: "Acesso negado." });
+    }
+
+    await db.query(
+      "INSERT INTO espessuras (material_id, milimetros, polegadas, bitola) VALUES (?, ?, ?, ?)",
+      [material_id, milimetros, polegadas || null, bitola || null]
+    );
+    res.status(201).json({ message: "Espessura adicionada." });
+  } catch (error) { res.status(500).json({ error: "Erro ao salvar." }); }
+});
+
+// 5. Excluir Espessura
+app.delete("/api/espessuras/:id", authenticateToken, async (req, res) => {
+    const id = req.params.id;
+    const empresaId = req.user.empresa_id;
+    // Permite apagar apenas se o material for da empresa (protege o global)
+    const query = `DELETE e FROM espessuras e INNER JOIN materiais m ON m.id = e.material_id WHERE e.id = ? AND m.empresa_id = ?`;
+    try {
+        const [result] = await db.query(query, [id, empresaId]);
+        if (result.affectedRows === 0) return res.status(403).json({error: "Não permitido."});
+        res.json({message: "Removido."});
+    } catch(e) { res.status(500).json({error: "Erro."}); }
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`🔥 Servidor Seguro rodando na porta ${PORT}`);

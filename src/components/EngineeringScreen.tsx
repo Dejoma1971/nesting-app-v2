@@ -16,6 +16,7 @@ import {
 import { SubscriptionPanel } from "./SubscriptionPanel";
 import { useTheme } from "../context/ThemeContext";
 import { SidebarMenu } from "../components/SidebarMenu";
+import { MaterialConfigModal } from "../components/MaterialConfigModal";
 
 // --- CONSTANTES ---
 const THICKNESS_OPTIONS = [
@@ -217,10 +218,13 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
   const [viewingPartId, setViewingPartId] = useState<string | null>(null);
   const { isDarkMode, theme } = useTheme();
+
   //   const [isDarkMode, setIsDarkMode] = useState(true);
 
   // --- NOVO: Estado para verificar se é Trial e bloquear botões ---
   const [isTrial, setIsTrial] = useState(false);
+
+  const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
 
   useEffect(() => {
     if (user && user.token) {
@@ -1030,6 +1034,31 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
             <option value="Alumínio">Alumínio</option>
           </select>
         </div>
+        {/* --- BOTÃO + (Bloqueado no Trial) --- */}
+        <button 
+            onClick={isTrial ? undefined : () => setIsMaterialModalOpen(true)}
+            title={isTrial ? "Recurso Premium: Cadastrar materiais personalizados" : "Configurar Materiais"}
+            style={{
+                background: theme.buttonBg || 'transparent', 
+                border: `1px solid ${theme.border}`, 
+                color: theme.text, 
+                borderRadius: '4px', 
+                width: '30px', 
+                height: '30px', 
+                cursor: isTrial ? "not-allowed" : "pointer", // Cursor de proibido se Trial
+                opacity: isTrial ? 0.5 : 1, // Opacidade reduzida se Trial
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                marginBottom: '5px', 
+                marginLeft: '5px',
+                fontSize: '16px',
+                fontWeight: 'bold'
+            }}
+        >
+            +
+        </button>
+        {/* ------------------------------------ */}
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
             ESPESSURA{" "}
@@ -1698,6 +1727,19 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
           </div>
         </div>
       )}
+      {/* --- INICIO DO MODAL --- */}
+      {isMaterialModalOpen && (
+        <MaterialConfigModal 
+            user={user} 
+            theme={theme} 
+            onClose={() => setIsMaterialModalOpen(false)} 
+            onUpdate={() => {
+                // Aqui faremos a recarga dos dados posteriormente
+                console.log("Atualizado");
+            }} 
+        />
+      )}
+      {/* --- FIM DO MODAL --- */}
     </div>
   );
 };
