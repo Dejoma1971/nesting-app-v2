@@ -1050,9 +1050,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
                 display: 'flex', 
                 alignItems: 'center', 
                 justifyContent: 'center',
-                marginBottom: '5px', 
-                marginLeft: '5px',
-                fontSize: '16px',
+                marginBottom: '0px', 
+                marginLeft: '-25px',
+                fontSize: '14px',
                 fontWeight: 'bold'
             }}
         >
