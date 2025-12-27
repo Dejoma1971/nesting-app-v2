@@ -212,7 +212,15 @@ export const useEngineeringLogic = ({
       return false;
     }
 
-    const nonBlocks = parts.filter((p) => p.entities.length > 1);
+    // --- GARANTIA DE AUTORIA ---
+    // Criamos uma cópia das peças forçando o Autor do Cabeçalho (batchDefaults)
+    // Isso garante que o banco receba o autor correto mesmo sem a coluna na tabela.
+    const partsToSave = parts.map(p => ({
+        ...p,
+        autor: batchDefaults.autor || user.name // Usa o do cabeçalho ou o nome do usuário logado como fallback
+    }));
+
+    const nonBlocks = partsToSave.filter((p) => p.entities.length > 1); // Use partsToSave aqui também
     if (nonBlocks.length > 0) {
       alert(
         `ATENÇÃO: Existem ${nonBlocks.length} peças que ainda não são Blocos.\n\nPor favor, clique em "📦 Insert/Block" antes de enviar.`
@@ -224,7 +232,8 @@ export const useEngineeringLogic = ({
     if (!silent) setProcessingMsg("Salvando no Banco de Dados...");
 
     try {
-      const data = await EngineeringService.saveParts(user.token, parts);
+      // ATENÇÃO: Envie 'partsToSave' em vez de 'parts'
+      const data = await EngineeringService.saveParts(user.token, partsToSave);
       
       console.log("Resposta do Servidor:", data);
       if (!silent)

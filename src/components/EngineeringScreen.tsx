@@ -35,10 +35,10 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     handleDirectNesting,
     handleGoToNestingEmpty,
     handleRotatePart,
-    handleFileUpload,    
-    materialList,  // <--- AGORA VAMOS USAR
-    thicknessList,  // <--- AGORA VAMOS USAR
-    refreshData
+    handleFileUpload,
+    materialList, // <--- AGORA VAMOS USAR
+    thicknessList, // <--- AGORA VAMOS USAR
+    refreshData,
   } = useEngineeringLogic(props);
 
   const { parts, onBack } = props;
@@ -468,7 +468,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             placeholder="Ex: 5020"
           />
         </div>
-        
+
         {/* --- SELECT DE MATERIAIS DO LOTE (DINÂMICO) --- */}
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
@@ -497,28 +497,32 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           </select>
         </div>
 
-        <button 
-            onClick={isTrial ? undefined : () => setIsMaterialModalOpen(true)}
-            title={isTrial ? "Recurso Premium: Cadastrar materiais personalizados" : "Configurar Materiais"}
-            style={{
-                background: theme.buttonBg || 'transparent', 
-                border: `1px solid ${theme.border}`, 
-                color: theme.text, 
-                borderRadius: '4px', 
-                width: '30px', 
-                height: '30px', 
-                cursor: isTrial ? "not-allowed" : "pointer", 
-                opacity: isTrial ? 0.5 : 1, 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center',
-                marginBottom: '0px', 
-                marginLeft: '-25px',
-                fontSize: '14px',
-                fontWeight: 'bold'
-            }}
+        <button
+          onClick={isTrial ? undefined : () => setIsMaterialModalOpen(true)}
+          title={
+            isTrial
+              ? "Recurso Premium: Cadastrar materiais personalizados"
+              : "Configurar Materiais"
+          }
+          style={{
+            background: theme.buttonBg || "transparent",
+            border: `1px solid ${theme.border}`,
+            color: theme.text,
+            borderRadius: "4px",
+            width: "30px",
+            height: "30px",
+            cursor: isTrial ? "not-allowed" : "pointer",
+            opacity: isTrial ? 0.5 : 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            marginBottom: "0px",
+            marginLeft: "-25px",
+            fontSize: "14px",
+            fontWeight: "bold",
+          }}
         >
-            +
+          +
         </button>
 
         {/* --- SELECT DE ESPESSURAS DO LOTE (DINÂMICO) --- */}
@@ -549,16 +553,11 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             ))}
           </select>
         </div>
-        
+
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
             AUTOR{" "}
-            <button
-              style={applyButtonStyle}
-              onClick={() => applyToAll("autor")}
-            >
-              Aplicar Todos
-            </button>
+            {/* Botão removido, pois a aplicação agora é automática no salvamento */}
           </label>
           <input
             style={inputStyle}
@@ -785,12 +784,15 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             <thead>
               <tr style={{ background: theme.hoverRow }}>
                 <th style={tableHeaderStyle}>#</th>
-                <th style={{ ...tableHeaderStyle, width: "150px" }}>Nome Peça</th>
+                <th style={{ ...tableHeaderStyle, width: "150px" }}>
+                  Nome Peça
+                </th>
                 <th style={{ ...tableHeaderStyle, width: "80px" }}>Pedido</th>
                 <th style={{ ...tableHeaderStyle, width: "80px" }}>OP</th>
-                <th style={{ ...tableHeaderStyle, width: "180px"}}>Material</th>
-                <th style={{ ...tableHeaderStyle, width: "250px" }}>Esp.</th>
-                <th style={tableHeaderStyle}>Autor</th>
+                <th style={{ ...tableHeaderStyle, width: "180px" }}>
+                  Material
+                </th>
+                <th style={{ ...tableHeaderStyle, width: "250px" }}>Espessura.</th>
                 <th style={tableHeaderStyle}>Dimensões</th>
                 <th style={tableHeaderStyle}>Área (m²)</th>
                 <th style={tableHeaderStyle} title="Complexidade da peça">
@@ -866,7 +868,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                         }
                       />
                     </td>
-                    
+
                     {/* --- TABELA: SELECT MATERIAL DINÂMICO --- */}
                     <td style={tableCellStyle}>
                       <select
@@ -883,9 +885,16 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                         }
                       >
                         {materialList.map((mat) => (
-                           <option key={mat} value={mat} style={{ background: theme.cardBg, color: theme.text }}>
-                             {mat}
-                           </option>
+                          <option
+                            key={mat}
+                            value={mat}
+                            style={{
+                              background: theme.cardBg,
+                              color: theme.text,
+                            }}
+                          >
+                            {mat}
+                          </option>
                         ))}
                       </select>
                     </td>
@@ -918,15 +927,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                       </select>
                     </td>
 
-                    <td style={tableCellStyle}>
-                      <input
-                        style={cellInputStyle}
-                        value={part.autor || ""}
-                        onChange={(e) =>
-                          handleRowChange(part.id, "autor", e.target.value)
-                        }
-                      />
-                    </td>
                     <td
                       style={{
                         ...tableCellStyle,
@@ -1156,16 +1156,16 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         </div>
       )}
       {isMaterialModalOpen && (
-    <MaterialConfigModal 
-        user={user} 
-        theme={theme} 
-        onClose={() => setIsMaterialModalOpen(false)} 
-        onUpdate={() => {
+        <MaterialConfigModal
+          user={user}
+          theme={theme}
+          onClose={() => setIsMaterialModalOpen(false)}
+          onUpdate={() => {
             console.log("Atualizando listas...");
             refreshData(); // <--- AGORA SIM: ATUALIZA SEM RECARREGAR
-        }} 
-    />
-  )}
+          }}
+        />
+      )}
     </div>
   );
 };
