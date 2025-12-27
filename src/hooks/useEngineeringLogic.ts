@@ -1,22 +1,30 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import DxfParser from "dxf-parser";
 import { useAuth } from "../context/AuthContext";
 import { flattenGeometry } from "../utils/geometryCore";
 import { EngineeringService } from "../components/menus/engineeringService";
-// Adicionado 'type' aqui para corrigir o erro 1 e 2
-import type { BatchDefaults, EngineeringScreenProps, ImportedPart } from "../components/types";
-import { processFileToParts, applyRotationToPart } from "../utils/engineeringUtil"; 
+import type { 
+    BatchDefaults, 
+    EngineeringScreenProps, 
+    ImportedPart, 
+    CustomMaterial, 
+    CustomThickness 
+} from "../components/types";
+import { processFileToParts, applyRotationToPart } from "../utils/engineeringUtil";
+
+// LISTAS ESTÁTICAS (Fallback para modo Trial ou erro)
+const STATIC_THICKNESS = ["28", "26", "24", "22", "20", "18", "16", "14", '1/8"', '3/16"', '1/4"', '5/16"'];
+const STATIC_MATERIALS = ["Inox 304", "Inox 430", "Aço Carbono", "Galvanizado", "Alumínio"];
 
 export const useEngineeringLogic = ({
   parts,
   setParts,
   onSendToNesting,
-  // onBack, <--- REMOVIDO: Removemos daqui pois não é usado dentro do hook (Erro 3 e 4)
 }: EngineeringScreenProps) => {
   const { user } = useAuth();
   
-  // States
+  // --- STATES ---
   const [loading, setLoading] = useState(false);
   const [processingMsg, setProcessingMsg] = useState("");
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
@@ -32,18 +40,58 @@ export const useEngineeringLogic = ({
     autor: "",
   });
 
-  // Effects
-  useEffect(() => {
-    if (user && user.token) {
-      EngineeringService.getSubscriptionStatus(user.token)
-        .then((data) => {
-          if (data.status === "trial") setIsTrial(true);
-        })
-        .catch((err) => console.error("Erro ao verificar status trial:", err));
+  // Estados das Listas Dinâmicas
+  const [materialList, setMaterialList] = useState<string[]>(STATIC_MATERIALS);
+  const [thicknessList, setThicknessList] = useState<string[]>(STATIC_THICKNESS);
+
+  // --- NOVA FUNÇÃO: REFRESH DATA (Busca dados sem recarregar a página) ---
+  const refreshData = useCallback(async () => {
+    if (!user || !user.token) return;
+
+    try {
+      // 1. Verifica Status da Assinatura
+      const subData = await EngineeringService.getSubscriptionStatus(user.token);
+      
+      if (subData.status === "trial") {
+        // MODO TRIAL: Usa listas estáticas
+        setIsTrial(true);
+        setMaterialList(STATIC_MATERIALS);
+        setThicknessList(STATIC_THICKNESS);
+      } else {
+        // MODO ASSINANTE: Busca do Banco
+        setIsTrial(false);
+        
+        // Busca em paralelo para ser mais rápido
+        const [mats, thicks] = await Promise.all([
+            EngineeringService.getCustomMaterials(user.token),
+            EngineeringService.getCustomThicknesses(user.token)
+        ]);
+
+        // Processa Materiais
+        if (mats && (mats as CustomMaterial[]).length > 0) {
+            const nomesUnicos = Array.from(new Set((mats as CustomMaterial[]).map(m => m.nome)));
+            setMaterialList(nomesUnicos as string[]);
+        }
+        
+        // Processa Espessuras
+        if (thicks && (thicks as CustomThickness[]).length > 0) {
+            const valoresUnicos = Array.from(new Set((thicks as CustomThickness[]).map(t => t.valor)));
+            setThicknessList(valoresUnicos as string[]);
+        }
+      }
+    } catch (err) {
+      console.error("Erro ao atualizar dados:", err);
+      // Em caso de erro crítico, mantém o que tem ou fallback
     }
   }, [user]);
 
-  // Handlers
+  // --- EFFECT: Carrega dados ao iniciar (ou mudar usuário) ---
+  useEffect(() => {
+    refreshData();
+  }, [refreshData]);
+
+  // --- HANDLERS ---
+
   const handleDefaultChange = (field: string, value: any) => {
     setBatchDefaults((prev) => ({ ...prev, [field]: value }));
   };
@@ -349,6 +397,10 @@ export const useEngineeringLogic = ({
     handleDirectNesting,
     handleGoToNestingEmpty,
     handleRotatePart,
-    handleFileUpload
+    handleFileUpload,
+    // EXPORTANDO AS LISTAS E A FUNÇÃO DE REFRESH
+    materialList, 
+    thicknessList,
+    refreshData 
   };
 };

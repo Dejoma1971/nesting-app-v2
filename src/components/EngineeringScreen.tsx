@@ -5,13 +5,13 @@ import { SubscriptionPanel } from "./SubscriptionPanel";
 import { useTheme } from "../context/ThemeContext";
 import { SidebarMenu } from "../components/SidebarMenu";
 import { MaterialConfigModal } from "../components/MaterialConfigModal";
-import { THICKNESS_OPTIONS, type EngineeringScreenProps } from "../components/types";
-import { useEngineeringLogic } from "../hooks/useEngineeringLogic"; // <--- Importando o Controller
+import type { EngineeringScreenProps } from "./types"; // <--- Import com type
+import { useEngineeringLogic } from "../hooks/useEngineeringLogic"; // Ajuste o caminho se necessário (ex: ../hooks/)
 
 export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   const { isDarkMode, theme } = useTheme();
 
-  // Injetando toda a lógica através do Hook
+  // 1. Desestruturando tudo do Hook (inclusive as novas listas)
   const {
     user,
     loading,
@@ -35,12 +35,15 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     handleDirectNesting,
     handleGoToNestingEmpty,
     handleRotatePart,
-    handleFileUpload
+    handleFileUpload,    
+    materialList,  // <--- AGORA VAMOS USAR
+    thicknessList,  // <--- AGORA VAMOS USAR
+    refreshData
   } = useEngineeringLogic(props);
 
-  const { parts, onBack } = props; // Props diretas
+  const { parts, onBack } = props;
 
-  // --- RENDER ENTITY FUNCTION (Mantida localmente pois é puramente visual/SVG) ---
+  // --- RENDER ENTITY FUNCTION ---
   const renderEntity = (
     entity: any,
     index: number,
@@ -136,7 +139,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     }
   };
 
-  // --- STYLES (Mantidos aqui pois são da View) ---
+  // --- STYLES ---
   const containerStyle: React.CSSProperties = {
     display: "flex",
     flexDirection: "column",
@@ -465,6 +468,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             placeholder="Ex: 5020"
           />
         </div>
+        
+        {/* --- SELECT DE MATERIAIS DO LOTE (DINÂMICO) --- */}
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
             MATERIAL{" "}
@@ -484,13 +489,14 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             value={batchDefaults.material}
             onChange={(e) => handleDefaultChange("material", e.target.value)}
           >
-            <option value="Inox 304">Inox 304</option>
-            <option value="Inox 430">Inox 430</option>
-            <option value="Aço Carbono">Aço Carbono</option>
-            <option value="Galvanizado">Galvanizado</option>
-            <option value="Alumínio">Alumínio</option>
+            {materialList.map((mat) => (
+              <option key={mat} value={mat}>
+                {mat}
+              </option>
+            ))}
           </select>
         </div>
+
         <button 
             onClick={isTrial ? undefined : () => setIsMaterialModalOpen(true)}
             title={isTrial ? "Recurso Premium: Cadastrar materiais personalizados" : "Configurar Materiais"}
@@ -514,6 +520,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         >
             +
         </button>
+
+        {/* --- SELECT DE ESPESSURAS DO LOTE (DINÂMICO) --- */}
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
             ESPESSURA{" "}
@@ -527,20 +535,21 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           <select
             style={{
               ...inputStyle,
-              width: "80px",
+              width: "200px",
               background: theme.inputBg,
               color: theme.text,
             }}
             value={batchDefaults.espessura}
             onChange={(e) => handleDefaultChange("espessura", e.target.value)}
           >
-            {THICKNESS_OPTIONS.map((opt) => (
+            {thicknessList.map((opt) => (
               <option key={opt} value={opt}>
                 {opt}
               </option>
             ))}
           </select>
         </div>
+        
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
             AUTOR{" "}
@@ -776,11 +785,11 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             <thead>
               <tr style={{ background: theme.hoverRow }}>
                 <th style={tableHeaderStyle}>#</th>
-                <th style={{ ...tableHeaderStyle, width: "200px" }}>Nome</th>
+                <th style={{ ...tableHeaderStyle, width: "150px" }}>Nome Peça</th>
                 <th style={{ ...tableHeaderStyle, width: "80px" }}>Pedido</th>
                 <th style={{ ...tableHeaderStyle, width: "80px" }}>OP</th>
-                <th style={tableHeaderStyle}>Material</th>
-                <th style={{ ...tableHeaderStyle, width: "60px" }}>Esp.</th>
+                <th style={{ ...tableHeaderStyle, width: "180px"}}>Material</th>
+                <th style={{ ...tableHeaderStyle, width: "250px" }}>Esp.</th>
                 <th style={tableHeaderStyle}>Autor</th>
                 <th style={tableHeaderStyle}>Dimensões</th>
                 <th style={tableHeaderStyle}>Área (m²)</th>
@@ -857,6 +866,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                         }
                       />
                     </td>
+                    
+                    {/* --- TABELA: SELECT MATERIAL DINÂMICO --- */}
                     <td style={tableCellStyle}>
                       <select
                         style={{
@@ -871,13 +882,15 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                           handleRowChange(part.id, "material", e.target.value)
                         }
                       >
-                        <option style={{ background: theme.cardBg, color: theme.text }} value="Inox 304">Inox 304</option>
-                        <option style={{ background: theme.cardBg, color: theme.text }} value="Inox 430">Inox 430</option>
-                        <option style={{ background: theme.cardBg, color: theme.text }} value="Aço Carbono">Aço Carbono</option>
-                        <option style={{ background: theme.cardBg, color: theme.text }} value="Galvanizado">Galvanizado</option>
-                        <option style={{ background: theme.cardBg, color: theme.text }} value="Alumínio">Alumínio</option>
+                        {materialList.map((mat) => (
+                           <option key={mat} value={mat} style={{ background: theme.cardBg, color: theme.text }}>
+                             {mat}
+                           </option>
+                        ))}
                       </select>
                     </td>
+
+                    {/* --- TABELA: SELECT ESPESSURA DINÂMICO --- */}
                     <td style={tableCellStyle}>
                       <select
                         style={{
@@ -890,7 +903,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                           handleRowChange(part.id, "espessura", e.target.value)
                         }
                       >
-                        {THICKNESS_OPTIONS.map((opt) => (
+                        {thicknessList.map((opt) => (
                           <option
                             key={opt}
                             value={opt}
@@ -904,6 +917,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                         ))}
                       </select>
                     </td>
+
                     <td style={tableCellStyle}>
                       <input
                         style={cellInputStyle}
@@ -1142,15 +1156,16 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         </div>
       )}
       {isMaterialModalOpen && (
-        <MaterialConfigModal 
-            user={user} 
-            theme={theme} 
-            onClose={() => setIsMaterialModalOpen(false)} 
-            onUpdate={() => {
-                console.log("Atualizado");
-            }} 
-        />
-      )}
+    <MaterialConfigModal 
+        user={user} 
+        theme={theme} 
+        onClose={() => setIsMaterialModalOpen(false)} 
+        onUpdate={() => {
+            console.log("Atualizando listas...");
+            refreshData(); // <--- AGORA SIM: ATUALIZA SEM RECARREGAR
+        }} 
+    />
+  )}
     </div>
   );
 };

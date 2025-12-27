@@ -43,3 +43,14 @@ export interface EngineeringScreenProps {
   parts: ImportedPart[];
   setParts: React.Dispatch<React.SetStateAction<ImportedPart[]>>;
 }
+
+export interface CustomMaterial {
+  id: number;
+  nome: string;      // Vindo do banco (antes era name)
+  categoria?: string;
+}
+
+export interface CustomThickness {
+  id: number;
+  valor: string;     // Vindo do banco (antes era value)
+}

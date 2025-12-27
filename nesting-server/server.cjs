@@ -469,136 +469,129 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
   }
 });
 
-// ==========================================================
-// ROTAS DE GESTÃO DE MATERIAIS E ESPESSURAS
-// ==========================================================
+// ==========================================
+//  ROTAS PARA MATERIAIS (CORRIGIDO PARA ASYNC/AWAIT)
+// ==========================================
 
-// ATUALIZAÇÃO: Rota de Listagem Inteligente
-app.get("/api/materiais", authenticateToken, async (req, res) => {
-  const empresaId = req.user.empresa_id;
-  
-  try {
-    // 1. Busca todos os Materiais (Padrão ou Privados)
-    const [materiais] = await db.query(
-      `SELECT * FROM materiais WHERE empresa_id IS NULL OR empresa_id = ? ORDER BY Material ASC`, 
-      [empresaId]
-    );
-
-    const materialIds = materiais.map(m => m.id);
-    let espessuras = [];
+// 1. Buscar materiais (Universal + Custom)
+app.get('/api/materials', authenticateToken, async (req, res) => {
+    const userId = req.user.id; 
+    console.log("DEBUG: Buscando materiais para", userId);
     
-    if (materialIds.length > 0) {
-      // 2. BUSCA INTELIGENTE DE ESPESSURAS (O PULO DO GATO)
-      // Traz as espessuras GLOBAIS (NULL) + as da EMPRESA LOGADA
-      const [rows] = await db.query(
-        `SELECT id, material_id, milimetros, polegadas, bitola, empresa_id 
-         FROM espessuras 
-         WHERE material_id IN (?) 
-         AND (empresa_id IS NULL OR empresa_id = ?) 
-         ORDER BY milimetros ASC`,
-        [materialIds, empresaId]
-      );
-      espessuras = rows;
+    try {
+        const query = `
+            SELECT id, nome, densidade, 'padrao' as origem FROM materiais_padrao
+            UNION ALL
+            SELECT id, nome, densidade, 'custom' as origem FROM materiais_personalizados 
+            WHERE usuario_id = ? COLLATE utf8mb4_unicode_ci
+            ORDER BY nome ASC
+        `;
+        
+        // CORREÇÃO: Usando await e desestruturando [rows]
+        const [results] = await db.query(query, [userId]);
+        
+        console.log("DEBUG: Materiais encontrados:", results.length);
+        res.json(results);
+    } catch (err) {
+        console.error("ERRO CRÍTICO MATERIAIS:", err);
+        res.status(500).json({ error: err.message });
     }
-
-    // Monta a estrutura final para o Frontend
-    const resultado = materiais.map(m => ({
-      ...m,
-      isGlobal: m.empresa_id === null, // Flag para saber se é padrão
-      espessuras: espessuras.filter(e => e.material_id === m.id)
-    }));
-    
-    res.json(resultado);
-
-  } catch (error) {
-    console.error("Erro ao buscar materiais:", error);
-    res.status(500).json({ error: "Erro interno." });
-  }
 });
 
-// 2. Criar Material
-app.post("/api/materiais", authenticateToken, async (req, res) => {
-  const { Material, densidade, Descricao } = req.body;
-  const empresaId = req.user.empresa_id;
+// 2. Adicionar novo material
+app.post('/api/materials', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { name, density } = req.body;
 
-  if (!Material || !densidade) return res.status(400).json({ error: "Dados incompletos." });
-
-  try {
-    const [result] = await db.query(
-      "INSERT INTO materiais (empresa_id, Material, densidade, Descricao) VALUES (?, ?, ?, ?)",
-      [empresaId, Material, parseFloat(densidade), Descricao || ""]
-    );
-    res.status(201).json({ id: result.insertId, message: "Material criado." });
-  } catch (error) {
-    if (error.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: "Nome já existe." });
-    res.status(500).json({ error: "Erro ao salvar." });
-  }
-});
-
-// 3. Excluir Material
-app.delete("/api/materiais/:id", authenticateToken, async (req, res) => {
-  const id = req.params.id;
-  const empresaId = req.user.empresa_id;
-  try {
-    const [result] = await db.query("DELETE FROM materiais WHERE id = ? AND empresa_id = ?", [id, empresaId]);
-    if (result.affectedRows === 0) return res.status(403).json({ error: "Não permitido." });
-    res.json({ message: "Material excluído." });
-  } catch (error) { res.status(500).json({ error: "Erro ao excluir." }); }
-});
-
-// 4. Adicionar Espessura (VERSÃO CORRIGIDA E PERMISSIVA)
-// ATUALIZAÇÃO: Rota de Criação Privada
-app.post("/api/espessuras", authenticateToken, async (req, res) => {
-  const { material_id, milimetros, polegadas, bitola } = req.body;
-  const empresaId = req.user.empresa_id;
-
-  if (!material_id || !milimetros) return res.status(400).json({ error: "Milímetros é obrigatório." });
-
-  try {
-    // Verifica se o material existe
-    const [mat] = await db.query("SELECT id FROM materiais WHERE id = ?", [material_id]);
-    if (mat.length === 0) return res.status(404).json({ error: "Material não encontrado" });
-
-    // GRAVAÇÃO: Sempre vincula à empresa do usuário
-    const [result] = await db.query(
-      `INSERT INTO espessuras (material_id, empresa_id, milimetros, polegadas, bitola) 
-       VALUES (?, ?, ?, ?, ?)`,
-      [material_id, empresaId, milimetros, polegadas || null, bitola || null]
-    );
-
-    // Retornamos o ID criado para o frontend usar na atualização otimista
-    res.status(201).json({ 
-        message: "Espessura adicionada.", 
-        id: result.insertId 
-    });
-
-  } catch (error) { 
-      console.error(error);
-      res.status(500).json({ error: "Erro ao salvar." }); 
-  }
-});
-
-// 5. Excluir Espessura
-// ATUALIZAÇÃO: Rota de Exclusão Segura
-app.delete("/api/espessuras/:id", authenticateToken, async (req, res) => {
-    const id = req.params.id;
-    const empresaId = req.user.empresa_id;
+    if (!name) return res.status(400).json({ error: "Nome obrigatório" });
+    const densidadeValor = density ? parseFloat(density) : 7.85;
 
     try {
-        // Só apaga se pertencer à empresa
-        const query = `DELETE FROM espessuras WHERE id = ? AND empresa_id = ?`;
-        const [result] = await db.query(query, [id, empresaId]);
+        const query = "INSERT INTO materiais_personalizados (usuario_id, nome, densidade) VALUES (?, ?, ?)";
+        const [result] = await db.query(query, [userId, name, densidadeValor]);
+        
+        res.json({ id: result.insertId, nome: name, densidade: densidadeValor, usuario_id: userId });
+    } catch (err) {
+        console.error("Erro ao salvar material:", err);
+        res.status(500).json({ error: "Erro ao salvar material" });
+    }
+});
 
-        if (result.affectedRows === 0) {
-            return res.status(403).json({
-                error: "Você não pode apagar espessuras padrão do sistema."
-            });
-        }
-        res.json({message: "Removido com sucesso."});
+// 3. Deletar material
+app.delete('/api/materials/:id', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const materialId = req.params.id;
 
-    } catch(e) { 
-        console.error(e);
-        res.status(500).json({error: "Erro ao excluir."}); 
+    try {
+        const query = "DELETE FROM materiais_personalizados WHERE id = ? AND usuario_id = ?";
+        const [result] = await db.query(query, [materialId, userId]);
+        
+        if (result.affectedRows === 0) return res.status(404).json({ error: "Não encontrado ou não autorizado." });
+        res.json({ message: "Material removido" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ==========================================
+//  ROTAS PARA ESPESSURAS (CORRIGIDO PARA ASYNC/AWAIT)
+// ==========================================
+
+// 4. Buscar espessuras (Universal + Custom)
+app.get('/api/thicknesses', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    console.log("DEBUG: Buscando espessuras para", userId);
+
+    try {
+        const query = `
+            SELECT id, valor, 'padrao' as origem FROM espessuras_padrao
+            UNION ALL
+            SELECT id, valor, 'custom' as origem FROM espessuras_personalizadas 
+            WHERE usuario_id = ? COLLATE utf8mb4_unicode_ci
+        `;
+        
+        // CORREÇÃO: Usando await
+        const [results] = await db.query(query, [userId]);
+        
+        console.log("DEBUG: Espessuras encontradas:", results.length);
+        res.json(results);
+    } catch (err) {
+        console.error("ERRO CRÍTICO ESPESSURAS:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 5. Adicionar espessura
+app.post('/api/thicknesses', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { value } = req.body;
+
+    if (!value) return res.status(400).json({ error: "Valor obrigatório" });
+
+    try {
+        const query = "INSERT INTO espessuras_personalizadas (usuario_id, valor) VALUES (?, ?)";
+        const [result] = await db.query(query, [userId, value]);
+        
+        res.json({ id: result.insertId, valor: value, usuario_id: userId });
+    } catch (err) {
+        console.error("Erro ao salvar espessura:", err);
+        res.status(500).json({ error: "Erro ao salvar espessura" });
+    }
+});
+
+// 6. Deletar espessura
+app.delete('/api/thicknesses/:id', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const id = req.params.id;
+
+    try {
+        const query = "DELETE FROM espessuras_personalizadas WHERE id = ? AND usuario_id = ?";
+        const [result] = await db.query(query, [id, userId]);
+        
+        if (result.affectedRows === 0) return res.status(404).json({ error: "Não encontrado ou não autorizado." });
+        res.json({ message: "Espessura removida" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
