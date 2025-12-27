@@ -1,585 +1,46 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useState, useEffect } from "react";
-import DxfParser from "dxf-parser";
-import type { ImportedPart } from "./types";
-import { useAuth } from "../context/AuthContext"; // <--- IMPORTANTE: Importamos o AuthContext
-import {
-  calculateBoundingBox,
-  flattenGeometry,
-  rotatePoint,
-  calculatePartNetArea,
-  UnionFind,
-  entitiesTouch,
-  isContained,
-} from "../utils/geometryCore";
-
+import React from "react";
+import { calculateBoundingBox } from "../utils/geometryCore";
 import { SubscriptionPanel } from "./SubscriptionPanel";
 import { useTheme } from "../context/ThemeContext";
 import { SidebarMenu } from "../components/SidebarMenu";
 import { MaterialConfigModal } from "../components/MaterialConfigModal";
+import { THICKNESS_OPTIONS, type EngineeringScreenProps } from "../components/types";
+import { useEngineeringLogic } from "../hooks/useEngineeringLogic"; // <--- Importando o Controller
 
-// --- CONSTANTES ---
-const THICKNESS_OPTIONS = [
-  "28",
-  "26",
-  "24",
-  "22",
-  "20",
-  "18",
-  "16",
-  "14",
-  '1/8"',
-  '3/16"',
-  '1/4"',
-  '5/16"',
-];
-
-// --- PROPS ---
-interface EngineeringScreenProps {
-  onBack: () => void;
-  onSendToNesting: (parts: ImportedPart[], searchQuery?: string) => void;
-  parts: ImportedPart[];
-  setParts: React.Dispatch<React.SetStateAction<ImportedPart[]>>;
-}
-
-// --- 1. FUNÇÕES AUXILIARES (Rotação e Processamento de Arquivo) ---
-
-const applyRotationToPart = (
-  part: ImportedPart,
-  angle: number
-): ImportedPart => {
-  const flatEntities = flattenGeometry(part.entities, part.blocks);
-  const transform = { x: 0, y: 0, rotation: angle, scale: 1 };
-
-  const rotatedEntities = flatEntities.map((ent: any) => {
-    const applyTrans = (x: number, y: number) =>
-      rotatePoint(x, y, transform.rotation);
-
-    if (ent.type === "LINE") {
-      const p1 = applyTrans(ent.vertices[0].x, ent.vertices[0].y);
-      const p2 = applyTrans(ent.vertices[1].x, ent.vertices[1].y);
-      ent.vertices = [
-        { x: p1.x, y: p1.y },
-        { x: p2.x, y: p2.y },
-      ];
-    } else if (ent.type === "LWPOLYLINE" || ent.type === "POLYLINE") {
-      ent.vertices = ent.vertices.map((v: any) => {
-        const p = applyTrans(v.x, v.y);
-        return { ...v, x: p.x, y: p.y };
-      });
-    } else if (ent.type === "CIRCLE" || ent.type === "ARC") {
-      const c = applyTrans(ent.center.x, ent.center.y);
-      ent.center = { x: c.x, y: c.y };
-      if (ent.type === "ARC") {
-        ent.startAngle += (angle * Math.PI) / 180;
-        ent.endAngle += (angle * Math.PI) / 180;
-      }
-    }
-    return ent;
-  });
-
-  const box = calculateBoundingBox(rotatedEntities);
-  const minX = box.minX;
-  const minY = box.minY;
-
-  const newPart = JSON.parse(JSON.stringify(part));
-  newPart.width = box.maxX - box.minX;
-  newPart.height = box.maxY - box.minY;
-  newPart.blocks = {};
-
-  newPart.entities = rotatedEntities.map((ent: any) => {
-    const move = (x: number, y: number) => ({ x: x - minX, y: y - minY });
-    if (ent.vertices)
-      ent.vertices = ent.vertices.map((v: any) => {
-        const p = move(v.x, v.y);
-        return { ...v, x: p.x, y: p.y };
-      });
-    else if (ent.center) {
-      const c = move(ent.center.x, ent.center.y);
-      ent.center = { x: c.x, y: c.y };
-    }
-    return ent;
-  });
-
-  newPart.grossArea = newPart.width * newPart.height;
-  let net = calculatePartNetArea(newPart.entities);
-  if (net < 0.1) net = newPart.grossArea;
-  newPart.netArea = net;
-
-  return newPart;
-};
-
-const processFileToParts = (
-  flatEntities: any[],
-  fileName: string,
-  defaults: any
-): ImportedPart[] => {
-  const n = flatEntities.length;
-  const uf = new UnionFind(n);
-
-  for (let i = 0; i < n; i++) {
-    for (let j = i + 1; j < n; j++) {
-      if (entitiesTouch(flatEntities[i], flatEntities[j])) uf.union(i, j);
-    }
-  }
-  const clusters = new Map<number, any[]>();
-  flatEntities.forEach((ent, idx) => {
-    const root = uf.find(idx);
-    if (!clusters.has(root)) clusters.set(root, []);
-    clusters.get(root)!.push(ent);
-  });
-
-  const candidateParts = Array.from(clusters.values()).map((ents) => ({
-    entities: ents,
-    box: calculateBoundingBox(ents),
-    children: [] as any[],
-    isHole: false,
-  }));
-  candidateParts.sort((a, b) => b.box.area - a.box.area);
-
-  const finalParts: ImportedPart[] = [];
-  for (let i = 0; i < candidateParts.length; i++) {
-    const parent = candidateParts[i];
-    if (parent.isHole) continue;
-
-    const width = parent.box.maxX - parent.box.minX;
-    const height = parent.box.maxY - parent.box.minY;
-
-    if (width < 2 && height < 2) continue;
-
-    for (let j = i + 1; j < candidateParts.length; j++) {
-      const child = candidateParts[j];
-      if (!child.isHole && isContained(child.box, parent.box)) {
-        parent.entities = parent.entities.concat(child.entities);
-        child.isHole = true;
-      }
-    }
-
-    const finalBox = calculateBoundingBox(parent.entities);
-    const finalW = finalBox.maxX - finalBox.minX;
-    const finalH = finalBox.maxY - finalBox.minY;
-
-    const normalizedEntities = parent.entities.map((ent: any) => {
-      const clone = JSON.parse(JSON.stringify(ent));
-      const move = (x: number, y: number) => ({
-        x: x - finalBox.minX,
-        y: y - finalBox.minY,
-      });
-      if (clone.vertices)
-        clone.vertices = clone.vertices.map((v: any) => {
-          const p = move(v.x, v.y);
-          return { ...v, x: p.x, y: p.y };
-        });
-      else if (clone.center) {
-        const c = move(clone.center.x, clone.center.y);
-        clone.center = { x: c.x, y: c.y };
-      }
-      return clone;
-    });
-
-    const grossArea = finalW * finalH;
-    let netArea = calculatePartNetArea(normalizedEntities);
-    if (netArea < 0.1) netArea = grossArea;
-
-    finalParts.push({
-      id: crypto.randomUUID(),
-      name: `${fileName} - Item ${finalParts.length + 1}`,
-      entities: normalizedEntities,
-      blocks: {},
-      width: finalW,
-      height: finalH,
-      grossArea,
-      netArea,
-      quantity: 1,
-      pedido: defaults.pedido,
-      op: defaults.op,
-      material: defaults.material,
-      espessura: defaults.espessura,
-      autor: defaults.autor,
-      dataCadastro: new Date().toISOString(),
-    });
-  }
-  return finalParts;
-};
-
-// --- 2. COMPONENTE PRINCIPAL ---
-
-export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
-  onBack,
-  onSendToNesting,
-  parts,
-  setParts,
-}) => {
-  const { user } = useAuth(); // <--- Hook de Autenticação
-
-  const [loading, setLoading] = useState(false);
-  const [processingMsg, setProcessingMsg] = useState("");
-
-  const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
-  const [viewingPartId, setViewingPartId] = useState<string | null>(null);
+export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   const { isDarkMode, theme } = useTheme();
 
-  //   const [isDarkMode, setIsDarkMode] = useState(true);
+  // Injetando toda a lógica através do Hook
+  const {
+    user,
+    loading,
+    processingMsg,
+    selectedPartId,
+    setSelectedPartId,
+    viewingPartId,
+    setViewingPartId,
+    isTrial,
+    isMaterialModalOpen,
+    setIsMaterialModalOpen,
+    batchDefaults,
+    handleDefaultChange,
+    applyToAll,
+    handleRowChange,
+    handleDeletePart,
+    handleReset,
+    handleConvertToBlock,
+    handleConvertAllToBlocks,
+    handleStorageDB,
+    handleDirectNesting,
+    handleGoToNestingEmpty,
+    handleRotatePart,
+    handleFileUpload
+  } = useEngineeringLogic(props);
 
-  // --- NOVO: Estado para verificar se é Trial e bloquear botões ---
-  const [isTrial, setIsTrial] = useState(false);
+  const { parts, onBack } = props; // Props diretas
 
-  const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
-
-  useEffect(() => {
-    if (user && user.token) {
-      fetch("http://localhost:3001/api/subscription/status", {
-        headers: { Authorization: `Bearer ${user.token}` },
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.status === "trial") setIsTrial(true);
-        })
-        .catch((err) => console.error("Erro ao verificar status trial:", err));
-    }
-  }, [user]);
-
-  const [batchDefaults, setBatchDefaults] = useState({
-    pedido: "",
-    op: "",
-    material: "Inox 304",
-    espessura: "20",
-    autor: "",
-  });
-
-  //   const theme = {
-  //       bg: isDarkMode ? '#1e1e1e' : '#f5f5f5',
-  //       panelBg: isDarkMode ? '#1e1e1e' : '#ffffff',
-  //       headerBg: isDarkMode ? '#252526' : '#e0e0e0',
-  //       batchBg: isDarkMode ? '#2d2d2d' : '#eeeeee',
-  //       text: isDarkMode ? '#e0e0e0' : '#333333',
-  //       border: isDarkMode ? '#444' : '#ccc',
-  //       cardBg: isDarkMode ? '#2d2d2d' : '#ffffff',
-  //       inputBg: isDarkMode ? '#1e1e1e' : '#ffffff',
-  //       hoverRow: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
-  //       selectedRow: isDarkMode ? 'rgba(0, 123, 255, 0.15)' : 'rgba(0, 123, 255, 0.1)',
-  //       label: isDarkMode ? '#aaa' : '#666',
-  //       modalBg: isDarkMode ? '#252526' : '#fff',
-  //       modalOverlay: isDarkMode ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.5)'
-  //   };
-
-  const handleDefaultChange = (field: string, value: any) => {
-    setBatchDefaults((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const applyToAll = (field: keyof ImportedPart) => {
-    const value = batchDefaults[field as keyof typeof batchDefaults];
-    if (value === undefined) return;
-    if (
-      !window.confirm(
-        `Deseja aplicar "${value}" em ${field.toUpperCase()} para TODAS as ${
-          parts.length
-        } peças?`
-      )
-    )
-      return;
-    setParts((prev) => prev.map((p) => ({ ...p, [field]: value })));
-  };
-
-  const handleRowChange = (id: string, field: string, value: any) => {
-    setParts((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, [field]: value } : p))
-    );
-  };
-
-  const handleDeletePart = (id: string, e?: React.MouseEvent) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    if (window.confirm("Deseja realmente remover esta peça do inventário?")) {
-      setParts((prev) => prev.filter((p) => p.id !== id));
-      if (selectedPartId === id) setSelectedPartId(null);
-      if (viewingPartId === id) setViewingPartId(null);
-    }
-  };
-
-  const handleReset = () => {
-    if (
-      parts.length > 0 &&
-      !window.confirm("Isso irá limpar a lista atual. Deseja continuar?")
-    ) {
-      return;
-    }
-    setParts([]);
-    setSelectedPartId(null);
-    setBatchDefaults({
-      pedido: "",
-      op: "",
-      material: "Inox 304",
-      espessura: "20",
-      autor: "",
-    });
-  };
-
-  const handleConvertToBlock = (id: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    setParts((prev) =>
-      prev.map((p) => {
-        if (p.id !== id) return p;
-        if (p.entities.length === 1 && p.entities[0].type === "INSERT")
-          return p;
-
-        const blockName = `BLOCK_${p.id.substring(0, 8).toUpperCase()}`;
-        const newBlocks = { ...p.blocks };
-        newBlocks[blockName] = { entities: p.entities };
-
-        const insertEntity = {
-          type: "INSERT",
-          name: blockName,
-          position: { x: 0, y: 0 },
-          scale: { x: 1, y: 1, z: 1 },
-          rotation: 0,
-        };
-
-        return { ...p, entities: [insertEntity], blocks: newBlocks };
-      })
-    );
-  };
-
-  const handleConvertAllToBlocks = () => {
-    if (
-      !window.confirm(
-        `Isso irá converter TODAS as peças com múltiplas entidades em Blocos únicos. Deseja continuar?`
-      )
-    )
-      return;
-
-    setParts((prev) =>
-      prev.map((p) => {
-        if (p.entities.length === 1 && p.entities[0].type === "INSERT")
-          return p;
-
-        const blockName = `BLOCK_${p.id.substring(0, 8).toUpperCase()}`;
-        const newBlocks = { ...p.blocks };
-        newBlocks[blockName] = { entities: p.entities };
-
-        const insertEntity = {
-          type: "INSERT",
-          name: blockName,
-          position: { x: 0, y: 0 },
-          scale: { x: 1, y: 1, z: 1 },
-          rotation: 0,
-        };
-
-        return { ...p, entities: [insertEntity], blocks: newBlocks };
-      })
-    );
-  };
-
-  // --- FUNÇÃO DE SALVAR NO BANCO (ATUALIZADA COM TOKEN) ---
-  const savePartsToDB = async (silent: boolean = false): Promise<boolean> => {
-    // 1. Validação básica de lista vazia
-    if (parts.length === 0) {
-      if (!silent) alert("A lista está vazia. Importe peças primeiro.");
-      return false;
-    }
-
-    // 2. Validação de Segurança (Login)
-    if (!user || !user.token) {
-      alert(
-        "Erro de Segurança: Você precisa estar logado para salvar no banco."
-      );
-      return false;
-    }
-
-    // 3. Validação estrutural (Blocos)
-    const nonBlocks = parts.filter((p) => p.entities.length > 1);
-    if (nonBlocks.length > 0) {
-      alert(
-        `ATENÇÃO: Existem ${nonBlocks.length} peças que ainda não são Blocos.\n\nPor favor, clique em "📦 Insert/Block" antes de enviar.`
-      );
-      return false;
-    }
-
-    // 4. Preparação para salvar
-    setLoading(true);
-    if (!silent) setProcessingMsg("Salvando no Banco de Dados...");
-
-    try {
-      const response = await fetch("http://localhost:3001/api/pecas", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${user.token}`, // <--- Token enviado aqui!
-        },
-        body: JSON.stringify(parts),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        console.log("Resposta do Servidor:", data);
-        if (!silent)
-          alert(
-            `✅ SUCESSO!\n\n${
-              data.count || parts.length
-            } peças foram gravadas na conta de ${user.name}.`
-          );
-        return true;
-      } else {
-        throw new Error(data.error || "Erro desconhecido no servidor");
-      }
-    } catch (error: any) {
-      console.error("Erro de conexão:", error);
-      alert(
-        `❌ ERRO DE CONEXÃO\n\nNão foi possível salvar.\nDetalhes: ${error.message}`
-      );
-      return false;
-    } finally {
-      setLoading(false);
-      setProcessingMsg("");
-    }
-  };
-
-  const handleStorageDB = () => {
-    savePartsToDB(false);
-  };
-
-  // --- LÓGICA DO BOTÃO "CORTAR AGORA" (COM OTIMIZAÇÃO OBRIGATÓRIA) ---
-  const handleDirectNesting = async () => {
-    // 1. Validação: Lista Vazia
-    if (parts.length === 0) {
-      alert("Importe peças antes de cortar.");
-      return;
-    }
-
-    // 2. Validação: OTIMIZAÇÃO DE ARQUIVO (Insert/Block) OBRIGATÓRIA
-    // Se a peça tiver mais de 1 entidade na raiz, significa que não é um Bloco encapsulado.
-    const nonBlocks = parts.filter((p) => p.entities.length > 1);
-
-    if (nonBlocks.length > 0) {
-      alert(
-        `⚠️ OTIMIZAÇÃO NECESSÁRIA\n\n` +
-          `Detectamos ${nonBlocks.length} peças contendo geometrias soltas (linhas/arcos).\n` +
-          `Para garantir a velocidade e segurança do Nesting, o arquivo deve ser simplificado.\n\n` +
-          `👉 Por favor, clique no botão amarelo "📦 Insert/Block" acima da lista para corrigir isso automaticamente.`
-      );
-      return; // <--- TRAVA O PROCESSO AQUI
-    }
-
-    setLoading(true);
-
-    try {
-      if (!user || !user.token) {
-        alert("Usuário não logado.");
-        setLoading(false);
-        return;
-      }
-
-      const response = await fetch(
-        "http://localhost:3001/api/subscription/status",
-        {
-          headers: { Authorization: `Bearer ${user.token}` },
-        }
-      );
-
-      const subData = await response.json();
-      const status = subData.status ? subData.status.toLowerCase() : "";
-
-      // 3. Validação: REGRA DO TRIAL (MÁX 10 PEÇAS)
-      if (status === "trial" && parts.length > 10) {
-        alert(
-          `🔒 LIMITE DO TRIAL (MÁX 10 PEÇAS)\n\n` +
-            `Você tem ${parts.length} peças na lista.\n` +
-            `O modo gratuito permite enviar apenas 10 peças por vez para o corte.\n\n` +
-            `Remova algumas peças ou assine o plano.`
-        );
-        setLoading(false);
-        return;
-      }
-
-      // Se passou por todas as travas, envia para o Nesting
-      const uniqueOrders = Array.from(
-        new Set(parts.map((p) => p.pedido).filter(Boolean))
-      );
-      const searchString = uniqueOrders.join(", ");
-
-      onSendToNesting(parts, searchString);
-    } catch (error) {
-      console.error("Erro na verificação:", error);
-      alert("Erro ao verificar permissões de corte.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoToNestingEmpty = () => {
-    if (parts.length > 0) {
-      if (
-        !window.confirm(
-          "Você tem peças na lista de engenharia. Ir para o Nesting diretamente NÃO levará estas peças.\n\nDeseja ir para o Nesting vazio?"
-        )
-      ) {
-        return;
-      }
-    }
-    onSendToNesting([], "");
-  };
-
-  const handleRotatePart = (direction: "cw" | "ccw") => {
-    if (!viewingPartId) return;
-    const angle = direction === "cw" ? -90 : 90;
-    setParts((prev) =>
-      prev.map((p) => {
-        if (p.id === viewingPartId) return applyRotationToPart(p, angle);
-        return p;
-      })
-    );
-  };
-
-  const handleFileUpload = async (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
-
-    setLoading(true);
-    setProcessingMsg("Lendo arquivo...");
-
-    const parser = new DxfParser();
-    const newPartsGlobal: ImportedPart[] = [];
-
-    const readers = Array.from(files).map((file) => {
-      return new Promise<void>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          try {
-            const content = e.target?.result as string;
-            setProcessingMsg(`Processando ${file.name}...`);
-            const parsed = parser.parseSync(content);
-            if (parsed) {
-              const flatEnts = flattenGeometry(
-                (parsed as any).entities,
-                (parsed as any).blocks
-              );
-              const partsFromFile = processFileToParts(
-                flatEnts,
-                file.name,
-                batchDefaults
-              );
-              newPartsGlobal.push(...partsFromFile);
-            }
-          } catch (err) {
-            console.error(err);
-          }
-          resolve();
-        };
-        reader.readAsText(file);
-      });
-    });
-
-    await Promise.all(readers);
-    setParts((prev) => [...prev, ...newPartsGlobal]);
-    setLoading(false);
-    setProcessingMsg("");
-  };
-
+  // --- RENDER ENTITY FUNCTION (Mantida localmente pois é puramente visual/SVG) ---
   const renderEntity = (
     entity: any,
     index: number,
@@ -675,6 +136,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
     }
   };
 
+  // --- STYLES (Mantidos aqui pois são da View) ---
   const containerStyle: React.CSSProperties = {
     display: "flex",
     flexDirection: "column",
@@ -844,8 +306,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
           )}
         </div>
 
-        {/* --- AQUI: INSERÇÃO DO PAINEL DE ASSINATURA --- */}
-        {/* Criamos uma div centralizada para o painel não esticar demais */}
         <div
           style={{
             flex: 1,
@@ -856,7 +316,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
         >
           <SubscriptionPanel isDarkMode={isDarkMode} />
         </div>
-        {/* ------------------------------------------------ */}
 
         <div style={{ display: "flex", gap: "15px", alignItems: "center" }}>
           <button
@@ -872,8 +331,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
               border: `1px solid ${theme.border}`,
               padding: "8px 12px",
               borderRadius: "4px",
-              cursor: isTrial ? "not-allowed" : "pointer", // Cursor de proibido
-              opacity: isTrial ? 0.5 : 1, // Meio transparente
+              cursor: isTrial ? "not-allowed" : "pointer",
+              opacity: isTrial ? 0.5 : 1,
               display: "flex",
               alignItems: "center",
               gap: "5px",
@@ -913,7 +372,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
           >
             ✨ Nova Lista
           </button>
-          {/* BOTÃO STORAGE DB - TRAVADO SE FOR TRIAL */}
           <button
             onClick={isTrial ? undefined : handleStorageDB}
             title={
@@ -927,8 +385,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
               border: "none",
               padding: "8px 15px",
               borderRadius: "4px",
-              cursor: isTrial ? "not-allowed" : "pointer", // Cursor de proibido
-              opacity: isTrial ? 0.5 : 1, // Meio transparente
+              cursor: isTrial ? "not-allowed" : "pointer",
+              opacity: isTrial ? 0.5 : 1,
               fontWeight: "bold",
               display: "flex",
               alignItems: "center",
@@ -956,7 +414,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
           </button>
           <SidebarMenu
             onNavigate={(screen) => {
-              // Se o menu pedir para ir para 'home', usamos a função de voltar da engenharia
               if (screen === "home" && onBack) {
                 onBack();
               }
@@ -1034,7 +491,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
             <option value="Alumínio">Alumínio</option>
           </select>
         </div>
-        {/* --- BOTÃO + (Bloqueado no Trial) --- */}
         <button 
             onClick={isTrial ? undefined : () => setIsMaterialModalOpen(true)}
             title={isTrial ? "Recurso Premium: Cadastrar materiais personalizados" : "Configurar Materiais"}
@@ -1045,8 +501,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
                 borderRadius: '4px', 
                 width: '30px', 
                 height: '30px', 
-                cursor: isTrial ? "not-allowed" : "pointer", // Cursor de proibido se Trial
-                opacity: isTrial ? 0.5 : 1, // Opacidade reduzida se Trial
+                cursor: isTrial ? "not-allowed" : "pointer", 
+                opacity: isTrial ? 0.5 : 1, 
                 display: 'flex', 
                 alignItems: 'center', 
                 justifyContent: 'center',
@@ -1058,7 +514,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
         >
             +
         </button>
-        {/* ------------------------------------ */}
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
             ESPESSURA{" "}
@@ -1416,51 +871,11 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
                           handleRowChange(part.id, "material", e.target.value)
                         }
                       >
-                        <option
-                          style={{
-                            background: theme.cardBg,
-                            color: theme.text,
-                          }}
-                          value="Inox 304"
-                        >
-                          Inox 304
-                        </option>
-                        <option
-                          style={{
-                            background: theme.cardBg,
-                            color: theme.text,
-                          }}
-                          value="Inox 430"
-                        >
-                          Inox 430
-                        </option>
-                        <option
-                          style={{
-                            background: theme.cardBg,
-                            color: theme.text,
-                          }}
-                          value="Aço Carbono"
-                        >
-                          Aço Carbono
-                        </option>
-                        <option
-                          style={{
-                            background: theme.cardBg,
-                            color: theme.text,
-                          }}
-                          value="Galvanizado"
-                        >
-                          Galvanizado
-                        </option>
-                        <option
-                          style={{
-                            background: theme.cardBg,
-                            color: theme.text,
-                          }}
-                          value="Alumínio"
-                        >
-                          Alumínio
-                        </option>
+                        <option style={{ background: theme.cardBg, color: theme.text }} value="Inox 304">Inox 304</option>
+                        <option style={{ background: theme.cardBg, color: theme.text }} value="Inox 430">Inox 430</option>
+                        <option style={{ background: theme.cardBg, color: theme.text }} value="Aço Carbono">Aço Carbono</option>
+                        <option style={{ background: theme.cardBg, color: theme.text }} value="Galvanizado">Galvanizado</option>
+                        <option style={{ background: theme.cardBg, color: theme.text }} value="Alumínio">Alumínio</option>
                       </select>
                     </td>
                     <td style={tableCellStyle}>
@@ -1574,7 +989,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
         </div>
       </div>
 
-      {/* MODAL DE VISUALIZAÇÃO/ROTAÇÃO */}
       {viewingPart && (
         <div
           style={{
@@ -1727,19 +1141,16 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = ({
           </div>
         </div>
       )}
-      {/* --- INICIO DO MODAL --- */}
       {isMaterialModalOpen && (
         <MaterialConfigModal 
             user={user} 
             theme={theme} 
             onClose={() => setIsMaterialModalOpen(false)} 
             onUpdate={() => {
-                // Aqui faremos a recarga dos dados posteriormente
                 console.log("Atualizado");
             }} 
         />
       )}
-      {/* --- FIM DO MODAL --- */}
     </div>
   );
 };

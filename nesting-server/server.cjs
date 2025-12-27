@@ -473,11 +473,12 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
 // ROTAS DE GESTÃO DE MATERIAIS E ESPESSURAS
 // ==========================================================
 
-// 1. Listar Materiais + Espessuras
+// ATUALIZAÇÃO: Rota de Listagem Inteligente
 app.get("/api/materiais", authenticateToken, async (req, res) => {
   const empresaId = req.user.empresa_id;
   
   try {
+    // 1. Busca todos os Materiais (Padrão ou Privados)
     const [materiais] = await db.query(
       `SELECT * FROM materiais WHERE empresa_id IS NULL OR empresa_id = ? ORDER BY Material ASC`, 
       [empresaId]
@@ -487,20 +488,28 @@ app.get("/api/materiais", authenticateToken, async (req, res) => {
     let espessuras = [];
     
     if (materialIds.length > 0) {
+      // 2. BUSCA INTELIGENTE DE ESPESSURAS (O PULO DO GATO)
+      // Traz as espessuras GLOBAIS (NULL) + as da EMPRESA LOGADA
       const [rows] = await db.query(
-        `SELECT id, material_id, milimetros, polegadas, bitola FROM espessuras WHERE material_id IN (?) ORDER BY milimetros ASC`,
-        [materialIds]
+        `SELECT id, material_id, milimetros, polegadas, bitola, empresa_id 
+         FROM espessuras 
+         WHERE material_id IN (?) 
+         AND (empresa_id IS NULL OR empresa_id = ?) 
+         ORDER BY milimetros ASC`,
+        [materialIds, empresaId]
       );
       espessuras = rows;
     }
 
+    // Monta a estrutura final para o Frontend
     const resultado = materiais.map(m => ({
       ...m,
-      isGlobal: m.empresa_id === null,
+      isGlobal: m.empresa_id === null, // Flag para saber se é padrão
       espessuras: espessuras.filter(e => e.material_id === m.id)
     }));
-
+    
     res.json(resultado);
+
   } catch (error) {
     console.error("Erro ao buscar materiais:", error);
     res.status(500).json({ error: "Erro interno." });
@@ -538,6 +547,7 @@ app.delete("/api/materiais/:id", authenticateToken, async (req, res) => {
 });
 
 // 4. Adicionar Espessura (VERSÃO CORRIGIDA E PERMISSIVA)
+// ATUALIZAÇÃO: Rota de Criação Privada
 app.post("/api/espessuras", authenticateToken, async (req, res) => {
   const { material_id, milimetros, polegadas, bitola } = req.body;
   const empresaId = req.user.empresa_id;
@@ -545,36 +555,51 @@ app.post("/api/espessuras", authenticateToken, async (req, res) => {
   if (!material_id || !milimetros) return res.status(400).json({ error: "Milímetros é obrigatório." });
 
   try {
-    const [mat] = await db.query("SELECT empresa_id FROM materiais WHERE id = ?", [material_id]);
+    // Verifica se o material existe
+    const [mat] = await db.query("SELECT id FROM materiais WHERE id = ?", [material_id]);
     if (mat.length === 0) return res.status(404).json({ error: "Material não encontrado" });
-    
-    // Regra: Permite se for dono OU se for material global (NULL)
-    const isDono = mat[0].empresa_id === empresaId;
-    const isGlobal = mat[0].empresa_id === null;
 
-    if (!isDono && !isGlobal) {
-       return res.status(403).json({ error: "Acesso negado." });
-    }
-
-    await db.query(
-      "INSERT INTO espessuras (material_id, milimetros, polegadas, bitola) VALUES (?, ?, ?, ?)",
-      [material_id, milimetros, polegadas || null, bitola || null]
+    // GRAVAÇÃO: Sempre vincula à empresa do usuário
+    const [result] = await db.query(
+      `INSERT INTO espessuras (material_id, empresa_id, milimetros, polegadas, bitola) 
+       VALUES (?, ?, ?, ?, ?)`,
+      [material_id, empresaId, milimetros, polegadas || null, bitola || null]
     );
-    res.status(201).json({ message: "Espessura adicionada." });
-  } catch (error) { res.status(500).json({ error: "Erro ao salvar." }); }
+
+    // Retornamos o ID criado para o frontend usar na atualização otimista
+    res.status(201).json({ 
+        message: "Espessura adicionada.", 
+        id: result.insertId 
+    });
+
+  } catch (error) { 
+      console.error(error);
+      res.status(500).json({ error: "Erro ao salvar." }); 
+  }
 });
 
 // 5. Excluir Espessura
+// ATUALIZAÇÃO: Rota de Exclusão Segura
 app.delete("/api/espessuras/:id", authenticateToken, async (req, res) => {
     const id = req.params.id;
     const empresaId = req.user.empresa_id;
-    // Permite apagar apenas se o material for da empresa (protege o global)
-    const query = `DELETE e FROM espessuras e INNER JOIN materiais m ON m.id = e.material_id WHERE e.id = ? AND m.empresa_id = ?`;
+
     try {
+        // Só apaga se pertencer à empresa
+        const query = `DELETE FROM espessuras WHERE id = ? AND empresa_id = ?`;
         const [result] = await db.query(query, [id, empresaId]);
-        if (result.affectedRows === 0) return res.status(403).json({error: "Não permitido."});
-        res.json({message: "Removido."});
-    } catch(e) { res.status(500).json({error: "Erro."}); }
+
+        if (result.affectedRows === 0) {
+            return res.status(403).json({
+                error: "Você não pode apagar espessuras padrão do sistema."
+            });
+        }
+        res.json({message: "Removido com sucesso."});
+
+    } catch(e) { 
+        console.error(e);
+        res.status(500).json({error: "Erro ao excluir."}); 
+    }
 });
 
 const PORT = process.env.PORT || 3001;
