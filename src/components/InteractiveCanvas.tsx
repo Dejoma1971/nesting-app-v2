@@ -1299,17 +1299,19 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                 }}
               />
 
-              {showDebug && (
+              {/* CORREÇÃO: Mostra a margem sempre que ela for maior que 0, independente do Debug */}
+              {margin > 0 && (
                 <rect
                   x={margin}
                   y={margin}
                   width={binWidth - margin * 2}
                   height={binHeight - margin * 2}
                   fill="none"
-                  stroke="#999"
+                  stroke="#999" // Cor da linha (cinza tracejado)
                   strokeDasharray="5"
                   strokeWidth="1"
                   vectorEffect="non-scaling-stroke"
+                  style={{ pointerEvents: "none" }} // Garante que não atrapalhe cliques
                 />
               )}
 

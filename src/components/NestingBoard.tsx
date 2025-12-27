@@ -25,6 +25,7 @@ import { useSheetManager } from "../hooks/useSheetManager";
 import { SheetContextMenu } from "./SheetContextMenu";
 import { useAuth } from "../context/AuthContext"; // <--- 1. IMPORTAÇÃO DE SEGURANÇA
 import { SubscriptionPanel } from "./SubscriptionPanel";
+import { SidebarMenu } from '../components/SidebarMenu';
 
 interface Size {
   width: number;
@@ -386,7 +387,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     espessura: "",
   });
 
-  const { isDarkMode, toggleTheme, theme } = useTheme();
+  const { isDarkMode, theme } = useTheme();
   // const [isDarkMode, setIsDarkMode] = useState(true);
   // const theme = getTheme(isDarkMode);
   const [activeTab, setActiveTab] = useState<"grid" | "list">("grid");
@@ -407,6 +408,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const [iterations] = useState(50);
   const [rotationStep, setRotationStep] = useState(90);
   const [isComputing, setIsComputing] = useState(false);
+  const [calculationTime, setCalculationTime] = useState<number | null>(null);
   const [failedCount, setFailedCount] = useState(0);
 
   const [selectedPartIds, setSelectedPartIds] = useState<string[]>([]);
@@ -524,6 +526,27 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   // --- VARIÁVEIS DERIVADAS ---
   const isCurrentSheetSaved = isBinSaved(currentBinIndex);
+
+  // =====================================================================
+  // NOVO: LÓGICA DO CHECKBOX "SELECIONAR TODOS"
+  // =====================================================================
+  const isAllEnabled = useMemo(() => {
+    if (parts.length === 0) return false;
+    // Se não houver nenhum ID na lista de bloqueados, então todos estão habilitados
+    return parts.every((p) => !disabledNestingIds.has(p.id));
+  }, [parts, disabledNestingIds]);
+
+  const handleToggleAll = useCallback(() => {
+    if (isAllEnabled) {
+      // Se está tudo marcado -> Desmarca tudo (Adiciona todos os IDs na lista de bloqueio)
+      const allIds = parts.map(p => p.id);
+      setDisabledNestingIds(new Set(allIds));
+    } else {
+      // Se não está tudo marcado -> Marca tudo (Limpa a lista de bloqueio)
+      setDisabledNestingIds(new Set());
+    }
+  }, [isAllEnabled, parts]);
+  // =====================================================================
 
   const displayedParts = useMemo(() => {
     const filtered = parts.filter((p) => {
@@ -776,27 +799,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     handleDeleteCurrentBin(nestingResult, setNestingResult);
   }, [handleDeleteCurrentBin, nestingResult, setNestingResult]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      )
-        return;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        if (e.shiftKey) redo();
-        else undo();
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
-        e.preventDefault();
-        redo();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [undo, redo]);
-
+  
   useEffect(() => {
     if (selectedPartIds.length > 0) {
       const lastUUID = selectedPartIds[selectedPartIds.length - 1];
@@ -829,16 +832,59 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     [nestingResult, setNestingResult]
   );
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      )
+        return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        redo();
+      }
+      // --- CORREÇÃO: DEVOLVER AO BANCO (DELETE) ---
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedPartIds.length > 0) {
+           e.preventDefault();
+           // Chama a função que já existia, mas não era usada
+           handleReturnToBank(selectedPartIds);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [undo, redo, selectedPartIds, handleReturnToBank]);
+
+
   const handleSaveClick = async () => {
     const partsInBin = nestingResult.filter((p) => p.binId === currentBinIndex);
     if (partsInBin.length === 0 && cropLines.length === 0) return;
+
+    // 1. CONVERTE A DENSIDADE DA TELA PARA NÚMERO
+    // O valor na tela é texto (ex: "85,5"), precisamos trocar vírgula por ponto.
+    let densidadeNumerica = 0;
+    if (currentEfficiencies && currentEfficiencies.effective) {
+        densidadeNumerica = Number(currentEfficiencies.effective.replace(',', '.'));
+    }
+
+    // DEBUG: Olhe no console (F12) se o número aparece correto
+    console.log("Enviando para o Banco -> Aprov:", currentEfficiencies.real, "| Densidade:", densidadeNumerica);
 
     await handleProductionDownload(
       nestingResult,
       currentBinIndex,
       displayedParts,
-      cropLines
+      cropLines,
+      user,              // 5º Parâmetro: Usuário
+      densidadeNumerica  // 6º Parâmetro: A DENSIDADE CORRETA (Isso que faltava!)
     );
+    
     markBinAsSaved(currentBinIndex);
   };
 
@@ -851,7 +897,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     [setNestingResult]
   );
 
-  const handleCalculate = useCallback(() => {
+  
+
+ const handleCalculate = useCallback(() => {
+    // 1. Identifica quais peças vão para o cálculo
     const partsToNest = displayedParts.filter(
       (p) => !disabledNestingIds.has(p.id)
     );
@@ -863,6 +912,24 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       return;
     }
 
+    // =====================================================================
+    // 🔍 VALIDAÇÃO DE MATERIAL E ESPESSURA (TRAVA DE SEGURANÇA)
+    // =====================================================================
+    const firstPart = partsToNest[0];
+    const referenceMaterial = firstPart.material;
+    const referenceThickness = firstPart.espessura;
+
+    // Verifica se alguma peça é diferente da primeira (material OU espessura)
+    const hasMixedParts = partsToNest.some((p) => 
+        p.material !== referenceMaterial || p.espessura !== referenceThickness
+    );
+
+    if (hasMixedParts) {
+        alert("Use o filtro de produção para selecionar peças com mesmo material e a mesma espessura antes de calcular o arranjo.");
+        return; // <--- ABORTA O CÁLCULO AQUI
+    }
+    // =====================================================================
+
     if (nestingResult.length > 0) {
       if (
         !window.confirm(
@@ -871,7 +938,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       )
         return;
     }
+
+   // 1. INÍCIO: Marca a hora e limpa o tempo anterior
+    const startTime = Date.now();
+    setCalculationTime(null);
     setIsComputing(true);
+    
     resetNestingResult([]);
     setCurrentBinIndex(0);
     setTotalBins(1);
@@ -884,10 +956,17 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
     nestingWorkerRef.current.onmessage = (e) => {
       const result = e.data;
+      
+      // 2. FIM: Calcula a diferença
+      const endTime = Date.now();
+      const duration = (endTime - startTime) / 1000; // Converte ms para segundos
+      setCalculationTime(duration);
+
       resetNestingResult(result.placed);
       setFailedCount(result.failed.length);
       setTotalBins(result.totalBins || 1);
       setIsComputing(false);
+      
       if (result.placed.length === 0) alert("Nenhuma peça coube!");
     };
 
@@ -947,6 +1026,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     setCurrentBinIndex,
     setParts,
   ]);
+
+  // Função para o botão do Menu de Contexto
+  const handleContextDelete = useCallback(() => {
+      if (selectedPartIds.length > 0) {
+          handleReturnToBank(selectedPartIds);
+          setContextMenu(null); // Fecha o menu
+      }
+  }, [selectedPartIds, handleReturnToBank]);
+
 
   // --- FUNÇÃO DE BUSCA MANUAL BLINDADA ---
   const handleDBSearch = async () => {
@@ -1437,11 +1525,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
       {contextMenu && contextMenu.visible && selectedPartIds.length > 0 && (
         <ContextControl
+          key={`${contextMenu.x}-${contextMenu.y}`}
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
           onMove={handleContextMove}
           onRotate={handleContextRotate}
+          onDelete={handleContextDelete}
         />
       )}
 
@@ -1590,7 +1680,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               margin: "0 5px",
             }}
           ></div>
-          <button
+          <SidebarMenu 
+            onNavigate={(screen) => {
+                // Se precisar navegar para a home (dashboard admin)
+                if (screen === 'home' && onBack) onBack(); 
+            }}
+            onOpenProfile={() => alert("Janela de Dados da Conta abrirá aqui!")}
+        />
+          {/* <button
             onClick={toggleTheme}
             title="Alternar Tema"
             style={{
@@ -1607,7 +1704,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             }}
           >
             {isDarkMode ? "☀️" : "🌙"}
-          </button>
+          </button> */}
         </div>
       </div>
 
@@ -1804,14 +1901,24 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           Nova Chapa
         </button>
 
+        {/* Adicionamos um estilo inline para a animação de rotação */}
+        <style>
+          {`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}
+        </style>
+
         <button
           onClick={handleCalculate}
           disabled={isComputing}
           style={{
             marginLeft: "auto",
-            background: isComputing ? "#666" : "#28a745",
-            color: "white",
-            border: "none",
+            background: isComputing ? theme.panelBg : "#28a745",
+            color: isComputing ? theme.text : "white",
+            border: isComputing ? `1px solid ${theme.border}` : "none",
             padding: "8px 15px",
             cursor: isComputing ? "wait" : "pointer",
             borderRadius: "4px",
@@ -1819,9 +1926,29 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             fontSize: "13px",
             whiteSpace: "nowrap",
             boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            minWidth: "140px",
+            justifyContent: "center"
           }}
         >
-          {isComputing ? "..." : "▶ Calcular Nesting"}
+          {isComputing ? (
+            <>
+              {/* Animação CSS inline mantida */}
+              <style>
+                {`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}
+              </style>
+              <div style={{ animation: "spin 1s linear infinite", display: "flex" }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                </svg>
+              </div>
+              <span>Processando...</span> {/* SEM OS SEGUNDOS AQUI */}
+            </>
+          ) : (
+            <><span>▶</span> Calcular Nesting</>
+          )}
         </button>
       </div>
 
@@ -1969,18 +2096,22 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             onCanvasDrop={handleExternalDrop}
           />
 
+          {/* --- BARRA DE RODAPÉ (FOOTER) --- */}
           <div
             style={{
-              padding: "10px 20px",
+              padding: "1px 10px",
               display: "flex",
-              justifyContent: "space-between",
+              justifyContent: "space-between", // Garante esquerda/direita
               alignItems: "center",
               borderTop: `1px solid ${theme.border}`,
               background: theme.panelBg,
               zIndex: 5,
               color: theme.text,
+              position: 'relative', // Necessário para o centro absoluto funcionar
+              height: '50px' // Altura fixa ajuda na centralização vertical
             }}
           >
+            {/* LADO ESQUERDO: TOTAL DE PEÇAS */}
             <span
               style={{ opacity: 0.9, fontSize: "12px", fontWeight: "bold" }}
             >
@@ -1988,76 +2119,92 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               Peças
             </span>
 
+            {/* CENTRO: EFICIÊNCIA E DENSIDADE (Limpo) */}
             <div
               style={{
+                position: 'absolute',
+                left: '50%',
+                top: '50%',
+                transform: 'translate(-50%, -50%)', // Centraliza exato X e Y
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
-                marginLeft: "auto",
-                marginRight: "auto",
+                whiteSpace: "nowrap"
               }}
             >
-              <span
-                style={{
-                  fontSize: "14px",
-                  fontWeight: "bold",
-                  color: theme.text,
-                }}
-              >
+              <span style={{ fontSize: "14px", fontWeight: "bold", color: theme.text }}>
                 Aprov. Real:{" "}
-                <span
-                  style={{
-                    color:
-                      Number(currentEfficiencies.real.replace(",", ".")) > 70
-                        ? "#28a745"
-                        : theme.text,
-                  }}
-                >
+                <span style={{ color: Number(currentEfficiencies.real.replace(",", ".")) > 70 ? "#28a745" : theme.text }}>
                   {currentEfficiencies.real}%
                 </span>
               </span>
 
-              <span
-                style={{
-                  fontSize: "11px",
-                  color: theme.label,
-                  marginTop: "-2px",
-                }}
-              >
-                Densidade de Encaixe:{" "}
-                <span style={{ color: "#007bff" }}>
-                  {currentEfficiencies.effective}%
-                </span>
-              </span>
+              {/* DENSIDADE (Sempre visível se calculado, ou condicional se preferir) */}
+              {calculationTime !== null && (
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      color: theme.label,
+                      marginTop: "-2px"
+                    }}
+                  >
+                    Densidade: <span style={{ color: "#007bff" }}>{currentEfficiencies.effective}%</span>
+                  </span>
+              )}
             </div>
 
-            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            {/* LADO DIREITO: TEMPO + STATUS */}
+            <div style={{ display: "flex", gap: "15px", alignItems: "center" }}>
+              
+              {/* 1. TEMPO DE CÁLCULO (Agora aqui na direita) */}
+              {calculationTime !== null && (
+                 <span 
+                    style={{ 
+                        fontSize: "12px", 
+                        color: theme.label, 
+                        borderRight: `1px solid ${theme.border}`, // Separador visual
+                        paddingRight: '15px',
+                        height: '20px',
+                        display: 'flex',
+                        alignItems: 'center'
+                    }}
+                 >
+                    ⏱️ <strong style={{ color: theme.text, marginLeft: '5px' }}>{calculationTime.toFixed(2)}s</strong>
+                 </span>
+              )}
+
+              {/* 2. STATUS DE SALVO */}
               {isCurrentSheetSaved && (
                 <span
                   style={{
                     color: "#28a745",
                     fontWeight: "bold",
                     fontSize: "13px",
-                    lineHeight: "1",
+                    display: "flex", 
+                    alignItems: "center",
+                    gap: "5px"
                   }}
                 >
-                  ✅ ARRANJO SALVO
+                  ✅ <span style={{fontSize: '11px'}}>SALVO</span>
                 </span>
               )}
 
+              {/* 3. PEÇAS QUE NÃO COUBERAM */}
               {failedCount > 0 && (
                 <span
                   style={{
                     color: "#dc3545",
                     fontWeight: "bold",
                     fontSize: "12px",
-                    background: "rgba(255,0,0,0.1)",
-                    padding: "2px 8px",
+                    background: "rgba(220, 53, 69, 0.1)",
+                    padding: "4px 8px",
                     borderRadius: "4px",
-                    lineHeight: "1",
+                    display: "flex", 
+                    alignItems: "center",
+                    gap: "5px"
                   }}
                 >
-                  ⚠️ {failedCount} NÃO COUBERAM
+                  ⚠️ {failedCount} FALHARAM
                 </span>
               )}
             </div>
@@ -2088,11 +2235,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             onTogglePink={() => toggleGlobal("pink")}
             theme={theme}
           />
+          {/* --- ABAS DE NAVEGAÇÃO + SELECT ALL --- */}
           <div
             style={{
               display: "flex",
+              alignItems: "center", // Garante alinhamento vertical
               borderBottom: `1px solid ${theme.border}`,
               background: theme.headerBg,
+              paddingRight: "15px" // Margem direita para não colar na borda
             }}
           >
             <button
@@ -2107,7 +2257,35 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             >
               📄 Lista Técnica
             </button>
+
+            {/* --- NOVO: CHECKBOX ALINHADO À DIREITA --- */}
+            <div style={{ marginLeft: "auto" }}>
+              <label
+                style={{
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                  color: theme.text,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  cursor: parts.length === 0 ? "not-allowed" : "pointer",
+                  userSelect: "none",
+                  opacity: parts.length === 0 ? 0.5 : 1
+                }}
+                title={isAllEnabled ? "Remover todas do cálculo" : "Incluir todas no cálculo"}
+              >
+                <input
+                  type="checkbox"
+                  checked={isAllEnabled}
+                  onChange={handleToggleAll}
+                  disabled={parts.length === 0}
+                  style={{ cursor: "pointer" }}
+                />
+                Selecionar Todos
+              </label>
+            </div>
           </div>
+          
           <div
             style={{
               flex: 1,

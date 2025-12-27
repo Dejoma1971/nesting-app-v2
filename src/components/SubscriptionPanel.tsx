@@ -9,7 +9,6 @@ interface SubscriptionData {
     daysLeft: number;
 }
 
-// --- NOVO: Aceita a prop isDarkMode ---
 interface SubscriptionPanelProps {
     isDarkMode: boolean;
 }
@@ -42,13 +41,32 @@ export const SubscriptionPanel: React.FC<SubscriptionPanelProps> = ({ isDarkMode
     
     if (error || !data) return null;
 
-    const isTrial = data.status === 'trial';
-    // No tema claro, o amarelo do trial pode ficar ruim de ler, escurecemos um pouco
-    const statusColor = isTrial 
-        ? (isDarkMode ? '#ffc107' : '#d39e00') 
-        : '#28a745'; 
-        
-    const statusText = isTrial ? `Teste Gratuito (${data.daysLeft} dias restantes)` : 'Plano Premium Ativo';
+    // --- LÓGICA DE STATUS CORRIGIDA ---
+    let statusColor = '#666';
+    let statusText = '';
+
+    switch (data.status) {
+        case 'trial':
+            statusColor = isDarkMode ? '#ffc107' : '#d39e00'; // Amarelo
+            statusText = `Teste Gratuito (${data.daysLeft} dias)`;
+            break;
+        case 'active':
+            statusColor = '#28a745'; // Verde
+            // Mostra o nome real do plano (Ex: "Premium Dev") vindo do banco
+            statusText = `${data.plan || 'Plano Ativo'}`; 
+            break;
+        case 'past_due':
+            statusColor = '#dc3545'; // Vermelho
+            statusText = 'Pagamento Pendente';
+            break;
+        case 'canceled':
+            statusColor = '#6c757d'; // Cinza
+            statusText = 'Cancelado';
+            break;
+        default:
+            statusColor = '#17a2b8'; // Azul (Fallback)
+            statusText = data.plan;
+    }
 
     // --- PALETA DE CORES ADAPTATIVA ---
     const textColor = isDarkMode ? '#fff' : '#333';
@@ -64,19 +82,19 @@ export const SubscriptionPanel: React.FC<SubscriptionPanelProps> = ({ isDarkMode
             display: 'flex',
             alignItems: 'center',
             gap: '15px',
-            color: textColor, // <--- Cor adaptativa
+            color: textColor,
             fontSize: '12px',
             whiteSpace: 'nowrap' as const,
             transition: 'all 0.3s ease'
         },
         userText: {
             fontWeight: 'bold' as const,
-            color: textColor // <--- Cor adaptativa
+            color: textColor
         },
         divider: {
             width: '1px',
             height: '14px',
-            background: dividerColor // <--- Divisória adaptativa
+            background: dividerColor
         },
         statusText: {
             color: statusColor,
@@ -85,7 +103,7 @@ export const SubscriptionPanel: React.FC<SubscriptionPanelProps> = ({ isDarkMode
     };
 
     return (
-        <div style={styles.container} title={`Plano: ${data.plan}`}>
+        <div style={styles.container} title={`Status: ${data.status}`}>
             <span style={styles.userText}>
                 👤 {user?.name || 'Usuário'}
             </span>

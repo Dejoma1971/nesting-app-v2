@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { SidebarMenu } from "../components/SidebarMenu";
 
 type ScreenType = "home" | "engineering" | "nesting";
 
@@ -7,7 +8,7 @@ interface HomeProps {
 }
 
 export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isDarkMode] = useState(true);
 
   // --- TEMAS ---
   const theme = {
@@ -67,20 +68,13 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
     <div style={containerStyle}>
       {/* Botão de Tema no Canto */}
       <div style={{ position: "absolute", top: 20, right: 20 }}>
-        <button
-          onClick={() => setIsDarkMode(!isDarkMode)}
-          style={{
-            background: "transparent",
-            border: `1px solid ${theme.cardBorder}`,
-            color: theme.text,
-            padding: "8px 12px",
-            borderRadius: "10px",
-            cursor: "pointer",
-            fontSize: "16px",
-          }}
-        >
-          {isDarkMode ? "☀️" : "🌙"}
-        </button>
+        {/* MENU PRINCIPAL (Substitui o botão de tema) */}
+        <div style={{ position: "absolute", top: 20, right: 20, zIndex: 1000 }}>
+          <SidebarMenu
+            onNavigate={onNavigate}
+            onOpenProfile={() => alert("Perfil do Usuário (Em breve)")}
+          />
+        </div>
       </div>
 
       <div
@@ -93,7 +87,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
             letterSpacing: "-1px",
           }}
         >
-          Sistema de Nesting
+          AutoNest Hub
         </h1>
         <p style={{ fontSize: "1.1rem", opacity: 0.7, margin: 0 }}>
           Selecione o fluxo de trabalho desejado para iniciar.
