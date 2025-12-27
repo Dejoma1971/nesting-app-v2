@@ -517,6 +517,28 @@ app.post('/api/materials', authenticateToken, async (req, res) => {
     }
 });
 
+// 2.1. Editar Material (NOVO)
+app.put('/api/materials/:id', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const materialId = req.params.id;
+    const { name, density } = req.body;
+
+    if (!name) return res.status(400).json({ error: "Nome obrigatório" });
+    const densidadeValor = density ? parseFloat(density) : 7.85;
+
+    try {
+        // Garante que só edita se for DO USUÁRIO (usuario_id = ?)
+        const query = "UPDATE materiais_personalizados SET nome = ?, densidade = ? WHERE id = ? AND usuario_id = ?";
+        const [result] = await db.query(query, [name, densidadeValor, materialId, userId]);
+
+        if (result.affectedRows === 0) return res.status(404).json({ error: "Material não encontrado ou não permitido." });
+        
+        res.json({ message: "Material atualizado!" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // 3. Deletar material
 app.delete('/api/materials/:id', authenticateToken, async (req, res) => {
     const userId = req.user.id;
@@ -576,6 +598,26 @@ app.post('/api/thicknesses', authenticateToken, async (req, res) => {
     } catch (err) {
         console.error("Erro ao salvar espessura:", err);
         res.status(500).json({ error: "Erro ao salvar espessura" });
+    }
+});
+
+// 5.1. Editar Espessura (NOVO)
+app.put('/api/thicknesses/:id', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const thicknessId = req.params.id;
+    const { value } = req.body;
+
+    if (!value) return res.status(400).json({ error: "Valor obrigatório" });
+
+    try {
+        const query = "UPDATE espessuras_personalizadas SET valor = ? WHERE id = ? AND usuario_id = ?";
+        const [result] = await db.query(query, [value, thicknessId, userId]);
+
+        if (result.affectedRows === 0) return res.status(404).json({ error: "Espessura não encontrada ou não permitida." });
+        
+        res.json({ message: "Espessura atualizada!" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 

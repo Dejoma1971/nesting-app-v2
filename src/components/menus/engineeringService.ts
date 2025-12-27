@@ -124,5 +124,33 @@ export const EngineeringService = {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
+  },
+
+  updateCustomMaterial: async (token: string, id: number, name: string, density: string) => {
+    const response = await fetch(`${API_BASE}/materials/${id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ name, density }),
+    });
+
+    if (!response.ok) throw new Error("Erro ao atualizar material");
+    return response.json();
+  },
+
+  updateCustomThickness: async (token: string, id: number, value: string) => {
+    const response = await fetch(`${API_BASE}/thicknesses/${id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ value }),
+    });
+
+    if (!response.ok) throw new Error("Erro ao atualizar espessura");
+    return response.json();
   }
 };
