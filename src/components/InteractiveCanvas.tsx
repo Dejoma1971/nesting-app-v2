@@ -35,7 +35,7 @@ interface InteractiveCanvasProps {
 
   // Funções de Manipulação
   onPartsMove: (moves: { partId: string; dx: number; dy: number }[]) => void;
-  onPartRotate: (partId: string, newRotation: number) => void;
+  
   onPartReturn: (uuids: string[]) => void;
   onLabelDrag?: (
     partId: string,
@@ -383,8 +383,7 @@ interface PartElementProps {
   isSelected: boolean;
   isColliding?: boolean;
   onMouseDown: (e: React.MouseEvent, uuid: string) => void;
-  onLabelDown: (e: React.MouseEvent, type: "white" | "pink") => void;
-  onRotateStart: (e: React.MouseEvent, uuid: string) => void;
+  onLabelDown: (e: React.MouseEvent, type: "white" | "pink") => void;  
   onDoubleClick: (e: React.MouseEvent, uuid: string) => void;
   onContextMenu: (e: React.MouseEvent, uuid: string) => void;
   onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void;
@@ -404,8 +403,7 @@ const PartElement = React.memo(
         isSelected,
         isColliding,
         onMouseDown,
-        onLabelDown,
-        onRotateStart,
+        onLabelDown,        
         onDoubleClick,
         onContextMenu,
         onEntityContextMenu,
@@ -413,8 +411,7 @@ const PartElement = React.memo(
         showDebug,
         strategy,
         transformData,
-        theme,
-        globalScale,
+        theme,        
       },
       ref
     ) => {
@@ -436,11 +433,7 @@ const PartElement = React.memo(
       if (isSelected) strokeColor = "#01ff3cff";
       if (isColliding) strokeColor = "#ff0000";
 
-      const fillColor = isColliding ? "rgba(255, 0, 0, 0.3)" : "transparent";
-
-      const handleSize = 25 / globalScale;
-      const handleStickLength = 60 / globalScale;
-      const handleStrokeWidth = 3 / globalScale;
+      const fillColor = isColliding ? "rgba(255, 0, 0, 0.3)" : "transparent";      
 
       return (
         <g ref={ref}>
@@ -490,51 +483,7 @@ const PartElement = React.memo(
                 )
               )}
             </g>
-          </g>
-          {isSelected && strategy === "true-shape" && (
-            <g
-              transform={`translate(${placed.x + occupiedW / 2}, ${
-                placed.y + occupiedH / 2
-              }) rotate(${placed.rotation})`}
-            >
-              <line
-                x1={0}
-                y1={localH / 2}
-                x2={0}
-                y2={localH / 2 + handleStickLength}
-                stroke="#01ff3cff"
-                strokeWidth={handleStrokeWidth}
-                vectorEffect="non-scaling-stroke"
-              />
-              <circle
-                cx={0}
-                cy={localH / 2 + handleStickLength}
-                r={handleSize}
-                fill="#01ff3cff"
-                stroke="#fff"
-                strokeWidth={handleStrokeWidth}
-                style={{ cursor: "grab" }}
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                  onRotateStart(e, placed.uuid);
-                }}
-              />
-              <text
-                x={0}
-                y={localH / 2 + handleStickLength}
-                textAnchor="middle"
-                dominantBaseline="central"
-                fill="white"
-                fontSize={handleSize * 1.2}
-                style={{ pointerEvents: "none", userSelect: "none" }}
-                transform={`rotate(${-placed.rotation}, 0, ${
-                  localH / 2 + handleStickLength
-                })`}
-              >
-                ⟳
-              </text>
-            </g>
-          )}
+          </g>          
         </g>
       );
     }
@@ -553,8 +502,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   showDebug,
   strategy,
   selectedPartIds,
-  onPartsMove,
-  onPartRotate,
+  onPartsMove,  
   onLabelDrag,
   onPartSelect,
   onContextMenu,
@@ -600,13 +548,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   const partRefs = useRef<{ [key: string]: SVGGElement | null }>({});
   const draggingIdsRef = useRef<string[]>([]);
   const currentDragDeltaRef = useRef({ dx: 0, dy: 0 });
-  const rotationRef = useRef({
-    startAngle: 0,
-    initialPartRotation: 0,
-    activePartId: "",
-    centerX: 0,
-    centerY: 0,
-  });
+  
   const dragRef = useRef({
     startX: 0,
     startY: 0,
@@ -763,37 +705,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     },
     [strategy, selectedPartIds, getSVGPoint]
   );
-
-  const handleRotateStart = useCallback(
-    (e: React.MouseEvent, uuid: string) => {
-      const placed = placedParts.find((p) => p.uuid === uuid);
-      const info = partTransforms[uuid];
-      if (!placed || !info) return;
-
-      const svgPos = getSVGPoint(e.clientX, e.clientY);
-
-      const centerX = placed.x + info.occupiedW / 2;
-      const centerY = placed.y + info.occupiedH / 2;
-      const visualCenterX = centerX;
-      const visualCenterY = binHeight - centerY;
-
-      const startAngleRad = Math.atan2(
-        svgPos.y - visualCenterY,
-        svgPos.x - visualCenterX
-      );
-      const startAngleDeg = startAngleRad * (180 / Math.PI);
-
-      rotationRef.current = {
-        startAngle: startAngleDeg,
-        initialPartRotation: placed.rotation,
-        activePartId: uuid,
-        centerX: visualCenterX,
-        centerY: visualCenterY,
-      };
-      setDragMode("rotate");
-    },
-    [placedParts, partTransforms, getSVGPoint, binHeight]
-  );
+  
 
   const handleLabelDown = useCallback(
     (e: React.MouseEvent, partId: string, type: "white" | "pink") => {
@@ -1016,29 +928,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           onLabelDrag(draggingLabel.partId, draggingLabel.type, dx, -dy);
           dragRef.current.startSvgX = currentSvgPos.x;
           dragRef.current.startSvgY = currentSvgPos.y;
-        } else if (dragMode === "rotate") {
-          const {
-            activePartId,
-            startAngle,
-            initialPartRotation,
-            centerX,
-            centerY,
-          } = rotationRef.current;
-          const currentAngleRad = Math.atan2(
-            currentSvgPos.y - centerY,
-            currentSvgPos.x - centerX
-          );
-          const currentAngleDeg = currentAngleRad * (180 / Math.PI);
-          let deltaRotation = currentAngleDeg - startAngle;
-
-          if (e.shiftKey) {
-            const snapStep = 15;
-            const rawNewRot = initialPartRotation - deltaRotation;
-            const snappedRot = Math.round(rawNewRot / snapStep) * snapStep;
-            deltaRotation = initialPartRotation - snappedRot;
-          }
-          const newRotation = (initialPartRotation - deltaRotation + 360) % 360;
-          onPartRotate(activePartId, newRotation);
         } else if (dragMode === "parts") {
           let deltaX = currentSvgPos.x - dragRef.current.startSvgX;
           let deltaY = currentSvgPos.y - dragRef.current.startSvgY;
@@ -1105,8 +994,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     dragMode,
     getSVGPoint,
     calculateSnap,
-    onLabelDrag,
-    onPartRotate,
+    onLabelDrag,    
     onPartReturn,
     onPartsMove,
     draggingLabel,
@@ -1346,8 +1234,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                     onMouseDown={handleMouseDownPart}
                     onLabelDown={(e, type) =>
                       handleLabelDown(e, placed.uuid, type)
-                    }
-                    onRotateStart={handleRotateStart}
+                    }                    
                     onDoubleClick={handleDoubleClickPart}
                     onContextMenu={onContextMenu}
                     onEntityContextMenu={onEntityContextMenu}

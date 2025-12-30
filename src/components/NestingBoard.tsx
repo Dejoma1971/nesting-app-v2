@@ -891,16 +891,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     markBinAsSaved(currentBinIndex);
   };
 
-  const handlePartRotate = useCallback(
-    (uuid: string, newRotation: number) => {
-      setNestingResult((prev) =>
-        prev.map((p) => (p.uuid === uuid ? { ...p, rotation: newRotation } : p))
-      );
-    },
-    [setNestingResult]
-  );
-
-  
+    
 
 const handleCalculate = useCallback(() => {
     // 1. Identifica quais peças vão para o cálculo
@@ -2079,8 +2070,7 @@ const handleCalculate = useCallback(() => {
             onCropLineMove={moveCropLine}
             onCropLineContextMenu={handleLineContextMenu}
             onBackgroundContextMenu={handleBackgroundContextMenu}
-            onPartsMove={handlePartsMoveWithClear}
-            onPartRotate={handlePartRotate}
+            onPartsMove={handlePartsMoveWithClear}            
             onPartSelect={handlePartSelect}
             onContextMenu={handlePartContextMenu}
             onPartReturn={handleReturnToBank}
