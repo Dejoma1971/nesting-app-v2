@@ -306,3 +306,87 @@ export const clipperShapeToPolygons = (shape: ClipperShape): { x: number, y: num
     });
 };
 
+// ... (Mantenha todo o código anterior do geometryCore.ts igual) ...
+
+// --- ADICIONE ISTO NO FINAL DO ARQUIVO ---
+
+// Interface compatível com o Worker
+export interface WorkerPartGeometry {
+    outer: Point[];
+    holes: Point[][];
+    bounds: { minX: number; maxX: number; minY: number; maxY: number };
+    area: number;
+}
+
+/**
+ * Gera a geometria da peça já inflada com metade do GAP.
+ * Isso permite que a colisão seja checada com gap=0, garantindo precisão True Shape.
+ */
+export const getOffsetPartGeometry = (part: ImportedPart, offset: number): WorkerPartGeometry => {
+    // 1. Converte para Clipper
+    const shape = convertPartToClipperShape(part);
+    
+    // 2. Aplica o Offset (Inflar)
+    // jointType: 'jtMiter' mantém cantos vivos (ou use 'jtRound' para arredondados)
+    // miterLimit: Limita pontas muito agudas
+    const inflatedShape = shape.offset(offset, { 
+        jointType: 'jtRound', 
+        endType: 'etClosedPolygon', 
+        miterLimit: 2.0,
+        arcTolerance: 0.25 
+    });
+
+    // 3. Converte de volta para Polígonos Simples
+    const polygons = clipperShapeToPolygons(inflatedShape);
+
+    if (polygons.length === 0) {
+        // Fallback se algo der errado (retorna caixa básica inflada)
+        const p = offset; 
+        return {
+            outer: [{x: -p, y: -p}, {x: part.width+p, y: -p}, {x: part.width+p, y: part.height+p}, {x: -p, y: part.height+p}],
+            holes: [],
+            bounds: { minX: -p, maxX: part.width+p, minY: -p, maxY: part.height+p },
+            area: (part.width + p*2) * (part.height + p*2)
+        };
+    }
+
+    // 4. Identifica qual é o Outer Loop (maior área) e quais são Holes
+    let maxArea = -1;
+    let outerIndex = 0;
+
+    polygons.forEach((poly, idx) => {
+        const area = calculatePolygonArea(poly);
+        if (area > maxArea) {
+            maxArea = area;
+            outerIndex = idx;
+        }
+    });
+
+    const outerLoop = polygons[outerIndex];
+    const holes = polygons.filter((_, idx) => idx !== outerIndex);
+
+    // 5. Calcula Bounds e Área Total
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    outerLoop.forEach(p => {
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+    });
+
+    // Normaliza para começar em 0,0 (opcional, mas bom para padronizar rotação depois)
+    // O Worker já lida com translação, mas aqui retornamos a geometria local inflada.
+    // NOTA: Não normalizamos aqui para manter coerência com o centro da peça original se necessário,
+    // mas para cálculo de área e bounds, os valores absolutos importam.
+    
+    let totalArea = maxArea;
+    holes.forEach(h => totalArea -= calculatePolygonArea(h));
+
+    return {
+        outer: outerLoop,
+        holes: holes,
+        bounds: { minX, maxX, minY, maxY },
+        area: totalArea
+    };
+};
+

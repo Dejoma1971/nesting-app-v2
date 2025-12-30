@@ -406,7 +406,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     "auto" | "vertical" | "horizontal"
   >("horizontal");
   const [iterations] = useState(50);
-  const [rotationStep, setRotationStep] = useState(90);
+  const [rotationStep] = useState(90);
   const [isComputing, setIsComputing] = useState(false);
   const [calculationTime, setCalculationTime] = useState<number | null>(null);
   const [failedCount, setFailedCount] = useState(0);
@@ -1728,7 +1728,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             style={inputStyle}
           >
             <option value="rect">🔳 Retangular</option>
-            <option value="true-shape">🧩 True Shape</option>
+            <option value="true-shape">🧩 Smart Nest</option>
           </select>
         </div>
         <div
@@ -1822,7 +1822,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           />
         </div>
 
-        {strategy === "true-shape" && (
+        {/* {strategy === "true-shape" && (
           <div style={{ display: "flex", alignItems: "center" }}>
             <label style={{ fontSize: 12, marginRight: 5 }}>Rot:</label>
             <select
@@ -1835,7 +1835,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               <option value="10">10°</option>
             </select>
           </div>
-        )}
+        )} */}
         <label
           style={{
             fontSize: "12px",
@@ -1843,6 +1843,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             alignItems: "center",
             cursor: "pointer",
             userSelect: "none",
+            marginLeft: "15px"
           }}
         >
           <input
