@@ -7,7 +7,10 @@ import React, {
   useMemo,
 } from "react";
 import type { ImportedPart } from "./types";
-import type { PlacedPart } from "../utils/nestingCore";
+import { 
+  runGuillotineNesting, // <--- É uma função (valor), não use type aqui
+  type PlacedPart       // <--- PlacedPart continua sendo um type
+} from "../utils/nestingCore";
 import { ContextControl } from "./ContextControl";
 import { InteractiveCanvas } from "./InteractiveCanvas";
 import { useUndoRedo } from "../hooks/useUndoRedo";
@@ -401,7 +404,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const [gap, setGap] = useState(5);
   const [margin, setMargin] = useState(5);
-  const [strategy, setStrategy] = useState<"rect" | "true-shape">("true-shape");
+  const [strategy, setStrategy] = useState<"guillotine" | "true-shape">("true-shape");
   const [direction, setDirection] = useState<
     "auto" | "vertical" | "horizontal"
   >("horizontal");
@@ -899,106 +902,97 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   
 
- const handleCalculate = useCallback(() => {
+const handleCalculate = useCallback(() => {
     // 1. Identifica quais peças vão para o cálculo
     const partsToNest = displayedParts.filter(
       (p) => !disabledNestingIds.has(p.id)
     );
 
     if (partsToNest.length === 0) {
-      alert(
-        "Nenhuma peça selecionada para o cálculo! Marque pelo menos uma peça."
-      );
+      alert("Selecione pelo menos uma peça.");
       return;
     }
 
-    // =====================================================================
-    // 🔍 VALIDAÇÃO DE MATERIAL E ESPESSURA (TRAVA DE SEGURANÇA)
-    // =====================================================================
-    const firstPart = partsToNest[0];
-    const referenceMaterial = firstPart.material;
-    const referenceThickness = firstPart.espessura;
-
-    // Verifica se alguma peça é diferente da primeira (material OU espessura)
-    const hasMixedParts = partsToNest.some((p) => 
-        p.material !== referenceMaterial || p.espessura !== referenceThickness
-    );
-
-    if (hasMixedParts) {
-        alert("Use o filtro de produção para selecionar peças com mesmo material e a mesma espessura antes de calcular o arranjo.");
-        return; // <--- ABORTA O CÁLCULO AQUI
-    }
-    // =====================================================================
-
-    if (nestingResult.length > 0) {
-      if (
-        !window.confirm(
-          "O cálculo automático irá REORGANIZAR TODA A MESA... Deseja continuar?"
-        )
-      )
+    // Validação de Material (Segurança)
+    const refMat = partsToNest[0].material;
+    const refThick = partsToNest[0].espessura;
+    if (partsToNest.some(p => p.material !== refMat || p.espessura !== refThick)) {
+        alert("Mistura de materiais detectada! Filtre antes de calcular.");
         return;
     }
 
-   // 1. INÍCIO: Marca a hora e limpa o tempo anterior
+    // Reset Prévio
+    if (nestingResult.length > 0) {
+       if (!confirm("Recalcular o arranjo? Isso limpará a mesa atual.")) return;
+    }
+    
     const startTime = Date.now();
     setCalculationTime(null);
     setIsComputing(true);
-    
     resetNestingResult([]);
     setCurrentBinIndex(0);
     setTotalBins(1);
     setSelectedPartIds([]);
     resetAllSaveStatus();
 
-    if (nestingWorkerRef.current) nestingWorkerRef.current.terminate();
+    // --- DECISÃO DO MOTOR ---
+    
+    if (strategy === "guillotine") {
+        // --- 1. MOTOR GUILHOTINA (Síncrono / Main Thread) ---
+        // Como é matemática simples, é instantâneo, não precisa de Worker.
+        setTimeout(() => { // Timeout minúsculo só para o UI atualizar o loading
+            const result = runGuillotineNesting(
+                partsToNest,
+                quantities,
+                binSize.width,
+                binSize.height,
+                margin,
+                direction
+            );
 
-    nestingWorkerRef.current = new NestingWorker();
+            const duration = (Date.now() - startTime) / 1000;
+            setCalculationTime(duration);
+            resetNestingResult(result.placed);
+            setFailedCount(result.failed.length);
+            setTotalBins(result.totalBins || 1);
+            setIsComputing(false);
+            
+            if (result.placed.length === 0) alert("Nenhuma peça coube!");
+        }, 50);
 
-    nestingWorkerRef.current.onmessage = (e) => {
-      const result = e.data;
-      
-      // 2. FIM: Calcula a diferença
-      const endTime = Date.now();
-      const duration = (endTime - startTime) / 1000; // Converte ms para segundos
-      setCalculationTime(duration);
+    } else {
+        // --- 2. MOTOR SMART NEST (Web Worker) ---
+        if (nestingWorkerRef.current) nestingWorkerRef.current.terminate();
+        nestingWorkerRef.current = new NestingWorker();
 
-      resetNestingResult(result.placed);
-      setFailedCount(result.failed.length);
-      setTotalBins(result.totalBins || 1);
-      setIsComputing(false);
-      
-      if (result.placed.length === 0) alert("Nenhuma peça coube!");
-    };
+        nestingWorkerRef.current.onmessage = (e) => {
+            const result = e.data;
+            const duration = (Date.now() - startTime) / 1000;
+            setCalculationTime(duration);
+            resetNestingResult(result.placed);
+            setFailedCount(result.failed.length);
+            setTotalBins(result.totalBins || 1);
+            setIsComputing(false);
+            if (result.placed.length === 0) alert("Nenhuma peça coube!");
+        };
 
-    nestingWorkerRef.current.postMessage({
-      parts: JSON.parse(JSON.stringify(partsToNest)),
-      quantities,
-      gap,
-      margin,
-      binWidth: binSize.width,
-      binHeight: binSize.height,
-      strategy,
-      iterations,
-      rotationStep,
-      direction,
-    });
+        nestingWorkerRef.current.postMessage({
+            parts: JSON.parse(JSON.stringify(partsToNest)),
+            quantities,
+            gap,
+            margin,
+            binWidth: binSize.width,
+            binHeight: binSize.height,
+            strategy,
+            iterations,
+            rotationStep, // Será sempre 90
+            direction,
+        });
+    }
   }, [
-    displayedParts,
-    nestingResult.length,
-    resetNestingResult,
-    setCurrentBinIndex,
-    setTotalBins,
-    resetAllSaveStatus,
-    quantities,
-    gap,
-    margin,
-    binSize.width,
-    binSize.height,
-    strategy,
-    iterations,
-    rotationStep,
-    direction,
-    disabledNestingIds,
+    displayedParts, disabledNestingIds, nestingResult.length,
+    resetNestingResult, setCurrentBinIndex, setTotalBins, resetAllSaveStatus,
+    quantities, gap, margin, binSize, strategy, iterations, rotationStep, direction
   ]);
 
   const handleClearTable = useCallback(() => {
@@ -1727,7 +1721,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             onChange={(e) => setStrategy(e.target.value as any)}
             style={inputStyle}
           >
-            <option value="rect">🔳 Retangular</option>
+            <option value="guillotine">✂️ Guilhotina</option> {/* Mudou de "rect" */}
             <option value="true-shape">🧩 Smart Nest</option>
           </select>
         </div>

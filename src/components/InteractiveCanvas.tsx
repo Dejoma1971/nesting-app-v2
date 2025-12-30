@@ -22,7 +22,7 @@ interface InteractiveCanvasProps {
   binHeight: number;
   margin: number;
   showDebug: boolean;
-  strategy: "rect" | "true-shape";
+  strategy: "guillotine" | "true-shape";
   selectedPartIds: string[];
   theme: AppTheme;
 
@@ -390,7 +390,7 @@ interface PartElementProps {
   onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void;
   partData: ImportedPart | undefined;
   showDebug: boolean;
-  strategy: "rect" | "true-shape";
+  strategy: "guillotine" | "true-shape";
   transformData: any;
   theme: AppTheme;
   globalScale: number;
@@ -450,7 +450,7 @@ const PartElement = React.memo(
             onContextMenu={(e) => onContextMenu(e, placed.uuid)}
             style={{
               cursor:
-                strategy === "rect"
+                strategy === "guillotine"
                   ? "default"
                   : isSelected
                   ? "move"
@@ -745,7 +745,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     (e: React.MouseEvent, uuid: string) => {
       e.stopPropagation();
       if (!selectedPartIds.includes(uuid)) return;
-      if (strategy !== "rect" && e.button === 0) {
+      if (strategy !== "guillotine" && e.button === 0) {
         e.preventDefault();
         setDragMode("parts");
         draggingIdsRef.current = selectedPartIds;
@@ -996,11 +996,11 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         if (dragMode === "cropline" && draggingLine && onCropLineMove) {
           const rawDx = currentSvgPos.x - dragRef.current.startSvgX;
           const rawDy = currentSvgPos.y - dragRef.current.startSvgY;
-            
-            // AQUI ESTÁ A CORREÇÃO: Dividir pelo zoom (transform.k)
-            const dx = rawDx / transformRef.current.k;
-            const dy = rawDy / transformRef.current.k;
-          
+
+          // AQUI ESTÁ A CORREÇÃO: Dividir pelo zoom (transform.k)
+          const dx = rawDx / transformRef.current.k;
+          const dy = rawDy / transformRef.current.k;
+
           let newValue = draggingLine.startVal;
           if (draggingLine.type === "vertical") {
             newValue += dx;
@@ -1135,11 +1135,15 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   }, []);
 
   const handleReturnAll = useCallback(() => {
-      if (placedParts.length === 0) return;
-      if (window.confirm("Deseja recolher todas as peças da mesa de volta para o banco?")) {
-          const allUuids = placedParts.map(p => p.uuid);
-          onPartReturn(allUuids);
-      }
+    if (placedParts.length === 0) return;
+    if (
+      window.confirm(
+        "Deseja recolher todas as peças da mesa de volta para o banco?"
+      )
+    ) {
+      const allUuids = placedParts.map((p) => p.uuid);
+      onPartReturn(allUuids);
+    }
   }, [placedParts, onPartReturn]);
 
   const binViewBox = useMemo(
@@ -1260,7 +1264,19 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         >
           ⛶
         </button>
-        <button onClick={handleReturnAll} style={{ ...btnStyle, marginTop: "10px", color: "#dc3545", borderColor: "#dc3545" }} title="Recolher Todas para o Banco" disabled={placedParts.length === 0}>📥</button>
+        <button
+          onClick={handleReturnAll}
+          style={{
+            ...btnStyle,
+            marginTop: "10px",
+            color: "#dc3545",
+            borderColor: "#dc3545",
+          }}
+          title="Recolher Todas para o Banco"
+          disabled={placedParts.length === 0}
+        >
+          📥
+        </button>
       </div>
 
       <div
@@ -1346,47 +1362,59 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
               })}
 
               {/* --- RENDERIZAÇÃO DAS LINHAS DE RETALHO (Espessura Fixa) --- */}
-                {cropLines.map((line) => {
-                   // ALTERAÇÃO: Valores fixos (pixels de tela), sem dividir por transform.k
-                   const strokeW = 2;  // Sempre 2px de espessura visual
-                   const hitW = 20;    // Sempre 20px de área de clique visual
-                   
-                   const cursor = line.type === 'vertical' ? 'col-resize' : 'row-resize';
-                   
-                   const x1 = line.type === 'vertical' ? line.position : 0;
-                   const x2 = line.type === 'vertical' ? line.position : binWidth;
-                   const y1 = line.type === 'horizontal' ? line.position : 0;
-                   const y2 = line.type === 'horizontal' ? line.position : binHeight;
+              {cropLines.map((line) => {
+                // ALTERAÇÃO: Valores fixos (pixels de tela), sem dividir por transform.k
+                const strokeW = 2; // Sempre 2px de espessura visual
+                const hitW = 20; // Sempre 20px de área de clique visual
 
-                   return (
-                     <g key={line.id} 
-                        onMouseDown={(e) => handleLineDown(e, line.id, line.type, line.position)}
-                        onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (onCropLineContextMenu) onCropLineContextMenu(e, line.id);
-                        }}
-                        style={{ cursor: cursor }}
-                     >
-                        {/* 1. Área de clique (Invisível) */}
-                        <line 
-                            x1={x1} y1={y1} x2={x2} y2={y2} 
-                            stroke="transparent" 
-                            strokeWidth={hitW} 
-                            vectorEffect="non-scaling-stroke" // Garante que a área de clique não mude com zoom
-                        />
-                        
-                        {/* 2. Linha Visível (Verde Sólido) */}
-                        <line 
-                            x1={x1} y1={y1} x2={x2} y2={y2} 
-                            stroke="#00ff3cff"
-                            strokeWidth={strokeW} 
-                            vectorEffect="non-scaling-stroke" // Garante que a linha não afine/engrosse com zoom
-                            style={{ pointerEvents: 'none' }} 
-                        />
-                     </g>
-                   );
-                })}
+                const cursor =
+                  line.type === "vertical" ? "col-resize" : "row-resize";
+
+                const x1 = line.type === "vertical" ? line.position : 0;
+                const x2 = line.type === "vertical" ? line.position : binWidth;
+                const y1 = line.type === "horizontal" ? line.position : 0;
+                const y2 =
+                  line.type === "horizontal" ? line.position : binHeight;
+
+                return (
+                  <g
+                    key={line.id}
+                    onMouseDown={(e) =>
+                      handleLineDown(e, line.id, line.type, line.position)
+                    }
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (onCropLineContextMenu)
+                        onCropLineContextMenu(e, line.id);
+                    }}
+                    style={{ cursor: cursor }}
+                  >
+                    {/* 1. Área de clique (Invisível) */}
+                    <line
+                      x1={x1}
+                      y1={y1}
+                      x2={x2}
+                      y2={y2}
+                      stroke="transparent"
+                      strokeWidth={hitW}
+                      vectorEffect="non-scaling-stroke" // Garante que a área de clique não mude com zoom
+                    />
+
+                    {/* 2. Linha Visível (Verde Sólido) */}
+                    <line
+                      x1={x1}
+                      y1={y1}
+                      x2={x2}
+                      y2={y2}
+                      stroke="#00ff3cff"
+                      strokeWidth={strokeW}
+                      vectorEffect="non-scaling-stroke" // Garante que a linha não afine/engrosse com zoom
+                      style={{ pointerEvents: "none" }}
+                    />
+                  </g>
+                );
+              })}
 
               {snapLines.map((line) => (
                 <line
