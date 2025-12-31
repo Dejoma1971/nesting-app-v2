@@ -30,6 +30,7 @@ import { SheetContextMenu } from "./SheetContextMenu";
 import { useAuth } from "../context/AuthContext"; // <--- 1. IMPORTAÇÃO DE SEGURANÇA
 import { SubscriptionPanel } from "./SubscriptionPanel";
 import { SidebarMenu } from "../components/SidebarMenu";
+// import { generateGuillotineReport } from "../utils/pdfGenerator";
 
 interface Size {
   width: number;
@@ -380,6 +381,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     removeCropLine,
     handleDeleteCurrentBin,
     addCropLine,
+    setCropLines,
   } = useSheetManager({ initialBins: 1 });
 
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || "");
@@ -849,14 +851,30 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const handleReturnToBank = useCallback(
     (uuidsToRemove: string[]) => {
+      // 1. Calcula como ficará a mesa antes de atualizar o estado
+      const newResult = nestingResult.filter(
+        (p) => !uuidsToRemove.includes(p.uuid)
+      );
+
+      // 2. Verifica se limpou tudo (ou se a lista resultante está vazia)
+      const isRemovingAll = uuidsToRemove.length === nestingResult.length;
+
+      if (newResult.length === 0 || isRemovingAll) {
+        // Se o hook já foi atualizado no Passo 1, isso funcionará
+        if (setCropLines) setCropLines([]);
+      }
+
+      // 3. Atualiza o estado das peças
+      setNestingResult(newResult);
+
+      // 4. Lógica de Scroll (mantida)
       const targetPlaced = nestingResult.find((p) =>
         uuidsToRemove.includes(p.uuid)
       );
       const partIdToScroll = targetPlaced?.partId;
-      setNestingResult((prev) =>
-        prev.filter((p) => !uuidsToRemove.includes(p.uuid))
-      );
+
       setSelectedPartIds([]);
+
       if (partIdToScroll) {
         setTimeout(() => {
           const element = thumbnailRefs.current[partIdToScroll];
@@ -865,7 +883,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         }, 100);
       }
     },
-    [nestingResult, setNestingResult]
+    [nestingResult, setNestingResult, setCropLines]
   );
 
   useEffect(() => {
@@ -976,7 +994,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           partsToNest,
           quantities,
           binSize.width,
-          binSize.height,          
+          binSize.height,
           direction
         );
 
@@ -1044,16 +1062,18 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
     // Usa a nova lógica simples e síncrona (não precisa de Worker pois é muito leve)
     const collisions = checkGuillotineCollisions(
-        currentPlacedParts,
-        parts,
-        binSize.width,
-        binSize.height
+      currentPlacedParts,
+      parts,
+      binSize.width,
+      binSize.height
     );
 
     setCollidingPartIds(collisions);
 
     if (collisions.length > 0) {
-      alert(`⚠️ ALERTA DE GUILHOTINA!\n\n${collisions.length} peças sobrepostas ou fora da chapa.`);
+      alert(
+        `⚠️ ALERTA DE GUILHOTINA!\n\n${collisions.length} peças sobrepostas ou fora da chapa.`
+      );
     } else {
       alert("✅ Corte Guilhotina Validado! Tudo OK.");
     }
@@ -1075,6 +1095,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       setSearchQuery("");
       resetProduction();
       resetAllSaveStatus();
+      // --- ALTERAÇÃO AQUI: Limpa as linhas de corte ---
+      if (setCropLines) setCropLines([]);
+      // ------------------------------------------------
     }
   }, [
     resetNestingResult,
@@ -1083,6 +1106,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     setTotalBins,
     setCurrentBinIndex,
     setParts,
+    setCropLines,
   ]);
 
   // Função para o botão do Menu de Contexto
@@ -1457,6 +1481,53 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       </div>
     );
   };
+
+  //   // --- FUNÇÃO DE EXPORTAÇÃO PDF (Versão Corrigida) ---
+  // const handleExportPDF = useCallback(() => {
+  //     if (nestingResult.length === 0) {
+  //       alert("Faça o nesting antes de gerar o PDF.");
+  //       return;
+  //     }
+
+  //     const refPart = parts.find((p) => p.id === nestingResult[0].partId);
+  //     const currentMaterial = refPart?.material || "Desconhecido";
+  //     const currentThickness = refPart?.espessura || "0";
+  //     const defaultDensity = 7.85; // Aço padrão
+
+  //     // Busca pedidos
+  //     const uniqueOrders = Array.from(new Set(
+  //         nestingResult.map((p) => {
+  //             const orig = parts.find((op) => op.id === p.partId);
+  //             return orig?.pedido || "";
+  //         }).filter(Boolean)
+  //     ));
+
+  //     const safeUser = user as any;
+
+  //     const companyName =
+  //         safeUser?.empresaNome ||
+  //         safeUser?.companyName ||
+  //         "Minha Serralheria (Nome não configurado)";
+
+  //     const operatorName =
+  //         safeUser?.nome ||
+  //         safeUser?.name ||
+  //         safeUser?.email ||
+  //         "Operador";
+
+  //     generateGuillotineReport({
+  //       companyName: companyName,
+  //       operatorName: operatorName,
+  //       orders: uniqueOrders,
+  //       material: currentMaterial,
+  //       thickness: currentThickness,
+  //       density: defaultDensity,
+  //       binWidth: binSize.width,
+  //       binHeight: binSize.height,
+  //       parts: parts,
+  //       placedParts: nestingResult, // Envia TODAS as chapas
+  //     });
+  // }, [nestingResult, parts, binSize, user]);
 
   return (
     <div style={containerStyle}>
@@ -1857,6 +1928,26 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               ? "✅ Chapa Salva"
               : "💾 Salvar DXF"}
           </button>
+          {/* <button
+            onClick={handleExportPDF}
+            title="Gerar Relatório de Produção (PDF)"
+            style={{
+              background: "#6610f2", // Cor roxa/indigo para diferenciar
+              color: "white",
+              border: "none",
+              padding: "6px 12px",
+              borderRadius: "4px",
+              cursor: "pointer",
+              fontWeight: "bold",
+              fontSize: "13px",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              marginLeft: "5px",
+            }}
+          >
+            📄 PDF
+          </button> */}
 
           <button
             onClick={handleClearTable}
@@ -2011,35 +2102,57 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           />
         </div>
 
-       {/* INPUTS GAP/MARGEM (COM LÓGICA DE DESABILITAR) */}
+        {/* INPUTS GAP/MARGEM (COM LÓGICA DE DESABILITAR) */}
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <label style={{ fontSize: 12, opacity: strategy === "guillotine" ? 0.5 : 1 }}>Gap:</label>
+          <label
+            style={{
+              fontSize: 12,
+              opacity: strategy === "guillotine" ? 0.5 : 1,
+            }}
+          >
+            Gap:
+          </label>
           <input
             type="number"
             value={gap}
             onChange={(e) => setGap(Number(e.target.value))}
             disabled={strategy === "guillotine"}
-            style={{ 
-                ...inputStyle, 
-                width: 40,
-                opacity: strategy === "guillotine" ? 0.5 : 1,
-                cursor: strategy === "guillotine" ? "not-allowed" : "text"
+            style={{
+              ...inputStyle,
+              width: 40,
+              opacity: strategy === "guillotine" ? 0.5 : 1,
+              cursor: strategy === "guillotine" ? "not-allowed" : "text",
             }}
-            title={strategy === "guillotine" ? "Não utilizado no modo Guilhotina" : ""}
+            title={
+              strategy === "guillotine"
+                ? "Não utilizado no modo Guilhotina"
+                : ""
+            }
           />
-          <label style={{ fontSize: 12, opacity: strategy === "guillotine" ? 0.5 : 1 }}>Margem:</label>
+          <label
+            style={{
+              fontSize: 12,
+              opacity: strategy === "guillotine" ? 0.5 : 1,
+            }}
+          >
+            Margem:
+          </label>
           <input
             type="number"
             value={margin}
             onChange={(e) => setMargin(Number(e.target.value))}
             disabled={strategy === "guillotine"}
-            style={{ 
-                ...inputStyle, 
-                width: 40,
-                opacity: strategy === "guillotine" ? 0.5 : 1,
-                cursor: strategy === "guillotine" ? "not-allowed" : "text"
+            style={{
+              ...inputStyle,
+              width: 40,
+              opacity: strategy === "guillotine" ? 0.5 : 1,
+              cursor: strategy === "guillotine" ? "not-allowed" : "text",
             }}
-            title={strategy === "guillotine" ? "Não utilizado no modo Guilhotina" : ""}
+            title={
+              strategy === "guillotine"
+                ? "Não utilizado no modo Guilhotina"
+                : ""
+            }
           />
         </div>
 
@@ -2080,47 +2193,47 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
         {/* LÓGICA DOS BOTÕES DE COLISÃO (CORRIGIDA) */}
         {strategy === "guillotine" ? (
-            <button
-              onClick={handleCheckGuillotineCollisions}
-              title="Validação rápida para cortes retos"
-              style={{
-                background: "#fd7e14",
-                border: `1px solid ${theme.border}`,
-                color: "#fff",
-                padding: "5px 10px",
-                borderRadius: "4px",
-                cursor: "pointer",
-                fontWeight: "bold",
-                fontSize: "12px",
-                display: "flex",
-                alignItems: "center",
-                gap: "5px",
-                marginLeft: "10px",
-              }}
-            >
-              📏 Validar Guilhotina
-            </button>
+          <button
+            onClick={handleCheckGuillotineCollisions}
+            title="Validação rápida para cortes retos"
+            style={{
+              background: "#ee390cff",
+              border: `1px solid ${theme.border}`,
+              color: "#fff",
+              padding: "5px 10px",
+              borderRadius: "4px",
+              cursor: "pointer",
+              fontWeight: "bold",
+              fontSize: "11px",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              marginLeft: "10px",
+            }}
+          >
+            📏 Validar Guilhotina
+          </button>
         ) : (
-            <button
-              onClick={handleCheckCollisions}
-              title="Verificar se há peças sobrepostas (Pixel Perfect)"
-              style={{
-                background: "#dc3545",
-                border: `1px solid ${theme.border}`,
-                color: "#fff",
-                padding: "5px 10px",
-                borderRadius: "4px",
-                cursor: "pointer",
-                fontWeight: "bold",
-                fontSize: "12px",
-                display: "flex",
-                alignItems: "center",
-                gap: "5px",
-                marginLeft: "10px",
-              }}
-            >
-              💥 Verificar Colisão
-            </button>
+          <button
+            onClick={handleCheckCollisions}
+            title="Verificar se há peças sobrepostas (Pixel Perfect)"
+            style={{
+              background: "#dc3545",
+              border: `1px solid ${theme.border}`,
+              color: "#fff",
+              padding: "5px 10px",
+              borderRadius: "4px",
+              cursor: "pointer",
+              fontWeight: "bold",
+              fontSize: "12px",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              marginLeft: "10px",
+            }}
+          >
+            💥 Verificar Colisão
+          </button>
         )}
 
         {/* BOTÃO NOVA CHAPA */}

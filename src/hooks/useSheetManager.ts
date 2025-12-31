@@ -122,7 +122,7 @@ export const useSheetManager = ({ initialBins = 1 }: UseSheetManagerProps = {}) 
     currentBinIndex,
     setCurrentBinIndex,
     cropLines: cropLines.filter(l => l.binId === currentBinIndex), // Retorna apenas as da chapa atual
-    
+    setCropLines,
     // Actions
     handleAddBin,
     handlePreviousBin,
