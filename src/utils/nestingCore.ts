@@ -222,14 +222,13 @@ export const runGuillotineNesting = (
   parts: ImportedPart[],
   quantities: { [key: string]: number },
   binWidth: number,
-  binHeight: number,
-  margin: number,
+  binHeight: number,  
   direction: "vertical" | "horizontal" | "auto"
 ): NestingResult => {
   const gap = 0;
-  const numMargin = Number(margin);
-  const usableWidth = binWidth - numMargin * 2;
-  const usableHeight = binHeight - numMargin * 2;
+  const numMargin = 0;
+  const usableWidth = binWidth;  // Sem margem
+  const usableHeight = binHeight; // Sem margem
 
   // 1. Simulações
   const boxesVertical = prepareOptimizedBoxes(

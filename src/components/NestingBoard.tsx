@@ -11,6 +11,7 @@ import {
   runGuillotineNesting, // <--- É uma função (valor), não use type aqui
   type PlacedPart, // <--- PlacedPart continua sendo um type
 } from "../utils/nestingCore";
+import { checkGuillotineCollisions } from "../utils/guillotineCollision";
 import { ContextControl } from "./ContextControl";
 import { InteractiveCanvas } from "./InteractiveCanvas";
 import { useUndoRedo } from "../hooks/useUndoRedo";
@@ -975,8 +976,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           partsToNest,
           quantities,
           binSize.width,
-          binSize.height,
-          margin,
+          binSize.height,          
           direction
         );
 
@@ -1035,6 +1035,29 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     rotationStep,
     direction,
   ]);
+
+  const handleCheckGuillotineCollisions = useCallback(() => {
+    if (currentPlacedParts.length < 1) {
+      alert("A mesa está vazia.");
+      return;
+    }
+
+    // Usa a nova lógica simples e síncrona (não precisa de Worker pois é muito leve)
+    const collisions = checkGuillotineCollisions(
+        currentPlacedParts,
+        parts,
+        binSize.width,
+        binSize.height
+    );
+
+    setCollidingPartIds(collisions);
+
+    if (collisions.length > 0) {
+      alert(`⚠️ ALERTA DE GUILHOTINA!\n\n${collisions.length} peças sobrepostas ou fora da chapa.`);
+    } else {
+      alert("✅ Corte Guilhotina Validado! Tudo OK.");
+    }
+  }, [currentPlacedParts, parts, binSize]);
 
   const handleClearTable = useCallback(() => {
     if (
@@ -1956,6 +1979,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             </button>
           </div>
         </div>
+
+        {/* INPUTS DE DIMENSÃO */}
         <div
           style={{
             display: "flex",
@@ -1985,20 +2010,36 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             style={{ ...inputStyle, width: 50 }}
           />
         </div>
+
+       {/* INPUTS GAP/MARGEM (COM LÓGICA DE DESABILITAR) */}
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <label style={{ fontSize: 12 }}>Gap:</label>
+          <label style={{ fontSize: 12, opacity: strategy === "guillotine" ? 0.5 : 1 }}>Gap:</label>
           <input
             type="number"
             value={gap}
             onChange={(e) => setGap(Number(e.target.value))}
-            style={{ ...inputStyle, width: 40 }}
+            disabled={strategy === "guillotine"}
+            style={{ 
+                ...inputStyle, 
+                width: 40,
+                opacity: strategy === "guillotine" ? 0.5 : 1,
+                cursor: strategy === "guillotine" ? "not-allowed" : "text"
+            }}
+            title={strategy === "guillotine" ? "Não utilizado no modo Guilhotina" : ""}
           />
-          <label style={{ fontSize: 12 }}>Margem:</label>
+          <label style={{ fontSize: 12, opacity: strategy === "guillotine" ? 0.5 : 1 }}>Margem:</label>
           <input
             type="number"
             value={margin}
             onChange={(e) => setMargin(Number(e.target.value))}
-            style={{ ...inputStyle, width: 40 }}
+            disabled={strategy === "guillotine"}
+            style={{ 
+                ...inputStyle, 
+                width: 40,
+                opacity: strategy === "guillotine" ? 0.5 : 1,
+                cursor: strategy === "guillotine" ? "not-allowed" : "text"
+            }}
+            title={strategy === "guillotine" ? "Não utilizado no modo Guilhotina" : ""}
           />
         </div>
 
@@ -2016,6 +2057,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             </select>
           </div>
         )} */}
+
+        {/* CHECKBOX DEBUG */}
         <label
           style={{
             fontSize: "12px",
@@ -2035,27 +2078,52 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           Ver Box
         </label>
 
-        <button
-          onClick={handleCheckCollisions}
-          title="Verificar se há peças sobrepostas"
-          style={{
-            background: "#dc3545",
-            border: `1px solid ${theme.border}`,
-            color: "#fff",
-            padding: "5px 10px",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontWeight: "bold",
-            fontSize: "12px",
-            display: "flex",
-            alignItems: "center",
-            gap: "5px",
-            marginLeft: "10px",
-          }}
-        >
-          💥 Verificar Colisão
-        </button>
+        {/* LÓGICA DOS BOTÕES DE COLISÃO (CORRIGIDA) */}
+        {strategy === "guillotine" ? (
+            <button
+              onClick={handleCheckGuillotineCollisions}
+              title="Validação rápida para cortes retos"
+              style={{
+                background: "#fd7e14",
+                border: `1px solid ${theme.border}`,
+                color: "#fff",
+                padding: "5px 10px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontWeight: "bold",
+                fontSize: "12px",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                marginLeft: "10px",
+              }}
+            >
+              📏 Validar Guilhotina
+            </button>
+        ) : (
+            <button
+              onClick={handleCheckCollisions}
+              title="Verificar se há peças sobrepostas (Pixel Perfect)"
+              style={{
+                background: "#dc3545",
+                border: `1px solid ${theme.border}`,
+                color: "#fff",
+                padding: "5px 10px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontWeight: "bold",
+                fontSize: "12px",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                marginLeft: "10px",
+              }}
+            >
+              💥 Verificar Colisão
+            </button>
+        )}
 
+        {/* BOTÃO NOVA CHAPA */}
         <button
           onClick={handleAddBin}
           title="Criar uma nova chapa vazia para nesting manual"
