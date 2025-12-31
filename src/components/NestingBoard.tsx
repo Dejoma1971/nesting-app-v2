@@ -7,9 +7,9 @@ import React, {
   useMemo,
 } from "react";
 import type { ImportedPart } from "./types";
-import { 
+import {
   runGuillotineNesting, // <--- É uma função (valor), não use type aqui
-  type PlacedPart       // <--- PlacedPart continua sendo um type
+  type PlacedPart, // <--- PlacedPart continua sendo um type
 } from "../utils/nestingCore";
 import { ContextControl } from "./ContextControl";
 import { InteractiveCanvas } from "./InteractiveCanvas";
@@ -28,7 +28,7 @@ import { useSheetManager } from "../hooks/useSheetManager";
 import { SheetContextMenu } from "./SheetContextMenu";
 import { useAuth } from "../context/AuthContext"; // <--- 1. IMPORTAÇÃO DE SEGURANÇA
 import { SubscriptionPanel } from "./SubscriptionPanel";
-import { SidebarMenu } from '../components/SidebarMenu';
+import { SidebarMenu } from "../components/SidebarMenu";
 
 interface Size {
   width: number;
@@ -324,17 +324,17 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   useEffect(() => {
     if (user && user.token) {
-      fetch('http://localhost:3001/api/subscription/status', {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+      fetch("http://localhost:3001/api/subscription/status", {
+        headers: { Authorization: `Bearer ${user.token}` },
       })
-      .then(res => res.json())
-      .then(data => {
-         // Normaliza para garantir que 'trial' ou 'TRIAL' funcione
-         if (data.status && data.status.toLowerCase() === 'trial') {
-             setIsTrial(true);
-         }
-      })
-      .catch(err => console.error("Erro ao verificar status:", err));
+        .then((res) => res.json())
+        .then((data) => {
+          // Normaliza para garantir que 'trial' ou 'TRIAL' funcione
+          if (data.status && data.status.toLowerCase() === "trial") {
+            setIsTrial(true);
+          }
+        })
+        .catch((err) => console.error("Erro ao verificar status:", err));
     }
   }, [user]);
 
@@ -364,6 +364,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     x: number;
     y: number;
     lineId?: string;
+    binX?: number; // <--- ADICIONE ISSO
+    binY?: number; // <--- ADICIONE ISSO
   } | null>(null);
 
   const {
@@ -399,12 +401,16 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     visible: boolean;
     x: number;
     y: number;
+    binX?: number; // Posição REAL do clique na Chapa (mm)
+    binY?: number; // Posição REAL do clique na Chapa (mm)
   } | null>(null);
   const [editingPartId, setEditingPartId] = useState<string | null>(null);
 
   const [gap, setGap] = useState(5);
   const [margin, setMargin] = useState(5);
-  const [strategy, setStrategy] = useState<"guillotine" | "true-shape">("true-shape");
+  const [strategy, setStrategy] = useState<"guillotine" | "true-shape">(
+    "true-shape"
+  );
   const [direction, setDirection] = useState<
     "auto" | "vertical" | "horizontal"
   >("horizontal");
@@ -484,35 +490,38 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   useEffect(() => {
     if (isSearchModalOpen && user?.token) {
       setLoadingOrders(true);
-      fetch('http://localhost:3001/api/pedidos/disponiveis', {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+      fetch("http://localhost:3001/api/pedidos/disponiveis", {
+        headers: { Authorization: `Bearer ${user.token}` },
       })
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) setAvailableOrders(data);
-      })
-      .catch(err => console.error("Erro ao carregar pedidos:", err))
-      .finally(() => setLoadingOrders(false));
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) setAvailableOrders(data);
+        })
+        .catch((err) => console.error("Erro ao carregar pedidos:", err))
+        .finally(() => setLoadingOrders(false));
     }
   }, [isSearchModalOpen, user]);
 
   // Função auxiliar para marcar/desmarcar pedidos
   const toggleOrderSelection = (order: string) => {
     // 1. Pega o que já está escrito no input e transforma em array
-    const currentList = searchQuery.split(',').map(s => s.trim()).filter(Boolean);
+    const currentList = searchQuery
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
     const exists = currentList.includes(order);
 
     let newList;
     if (exists) {
       // Se já tem, remove
-      newList = currentList.filter(s => s !== order);
+      newList = currentList.filter((s) => s !== order);
     } else {
       // Se não tem, adiciona
       newList = [...currentList, order];
     }
 
     // 2. Atualiza o input de busca (separado por vírgula)
-    setSearchQuery(newList.join(', '));
+    setSearchQuery(newList.join(", "));
   };
 
   const {
@@ -542,7 +551,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const handleToggleAll = useCallback(() => {
     if (isAllEnabled) {
       // Se está tudo marcado -> Desmarca tudo (Adiciona todos os IDs na lista de bloqueio)
-      const allIds = parts.map(p => p.id);
+      const allIds = parts.map((p) => p.id);
       setDisabledNestingIds(new Set(allIds));
     } else {
       // Se não está tudo marcado -> Marca tudo (Limpa a lista de bloqueio)
@@ -776,10 +785,22 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     });
   }, [parts]);
 
-  const handleBackgroundContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setSheetMenu({ x: e.clientX, y: e.clientY, lineId: undefined });
-  }, []);
+  const handleBackgroundContextMenu = useCallback(
+    (e: React.MouseEvent, coords?: { x: number; y: number }) => {
+      e.preventDefault();
+
+      // Agora salvamos no 'setSheetMenu' (Menu da Chapa)
+      setSheetMenu({
+        x: e.clientX,
+        y: e.clientY,
+        // Se coords vier do InteractiveCanvas, usamos. Se não, 0.
+        binX: coords ? coords.x : 0,
+        binY: coords ? coords.y : 0,
+        lineId: undefined, // Sem ID de linha significa que clicou no fundo
+      });
+    },
+    []
+  );
 
   const handleLineContextMenu = useCallback(
     (e: React.MouseEvent, lineId: string) => {
@@ -791,18 +812,29 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const handleAddCropLineWrapper = useCallback(
     (type: "horizontal" | "vertical") => {
-      const position =
+      // Valor padrão (meio da chapa) caso algo falhe
+      let position =
         type === "vertical" ? binSize.width / 2 : binSize.height / 2;
+
+      // Se tivermos a posição do clique salva, usamos ela!
+      if (
+        sheetMenu &&
+        sheetMenu.binX !== undefined &&
+        sheetMenu.binY !== undefined
+      ) {
+        position = type === "vertical" ? sheetMenu.binX : sheetMenu.binY;
+      }
+
       addCropLine(type, position);
+      setSheetMenu(null); // Fecha o menu após adicionar
     },
-    [addCropLine, binSize]
+    [addCropLine, binSize, sheetMenu] // Adicione sheetMenu nas dependências
   );
 
   const handleDeleteSheetWrapper = useCallback(() => {
     handleDeleteCurrentBin(nestingResult, setNestingResult);
   }, [handleDeleteCurrentBin, nestingResult, setNestingResult]);
 
-  
   useEffect(() => {
     if (selectedPartIds.length > 0) {
       const lastUUID = selectedPartIds[selectedPartIds.length - 1];
@@ -854,16 +886,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       // --- CORREÇÃO: DEVOLVER AO BANCO (DELETE) ---
       if (e.key === "Delete" || e.key === "Backspace") {
         if (selectedPartIds.length > 0) {
-           e.preventDefault();
-           // Chama a função que já existia, mas não era usada
-           handleReturnToBank(selectedPartIds);
+          e.preventDefault();
+          // Chama a função que já existia, mas não era usada
+          handleReturnToBank(selectedPartIds);
         }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [undo, redo, selectedPartIds, handleReturnToBank]);
-
 
   const handleSaveClick = async () => {
     const partsInBin = nestingResult.filter((p) => p.binId === currentBinIndex);
@@ -873,27 +904,32 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     // O valor na tela é texto (ex: "85,5"), precisamos trocar vírgula por ponto.
     let densidadeNumerica = 0;
     if (currentEfficiencies && currentEfficiencies.effective) {
-        densidadeNumerica = Number(currentEfficiencies.effective.replace(',', '.'));
+      densidadeNumerica = Number(
+        currentEfficiencies.effective.replace(",", ".")
+      );
     }
 
     // DEBUG: Olhe no console (F12) se o número aparece correto
-    console.log("Enviando para o Banco -> Aprov:", currentEfficiencies.real, "| Densidade:", densidadeNumerica);
+    console.log(
+      "Enviando para o Banco -> Aprov:",
+      currentEfficiencies.real,
+      "| Densidade:",
+      densidadeNumerica
+    );
 
     await handleProductionDownload(
       nestingResult,
       currentBinIndex,
       displayedParts,
       cropLines,
-      user,              // 5º Parâmetro: Usuário
-      densidadeNumerica  // 6º Parâmetro: A DENSIDADE CORRETA (Isso que faltava!)
+      user, // 5º Parâmetro: Usuário
+      densidadeNumerica // 6º Parâmetro: A DENSIDADE CORRETA (Isso que faltava!)
     );
-    
+
     markBinAsSaved(currentBinIndex);
   };
 
-    
-
-const handleCalculate = useCallback(() => {
+  const handleCalculate = useCallback(() => {
     // 1. Identifica quais peças vão para o cálculo
     const partsToNest = displayedParts.filter(
       (p) => !disabledNestingIds.has(p.id)
@@ -907,16 +943,18 @@ const handleCalculate = useCallback(() => {
     // Validação de Material (Segurança)
     const refMat = partsToNest[0].material;
     const refThick = partsToNest[0].espessura;
-    if (partsToNest.some(p => p.material !== refMat || p.espessura !== refThick)) {
-        alert("Mistura de materiais detectada! Filtre antes de calcular.");
-        return;
+    if (
+      partsToNest.some((p) => p.material !== refMat || p.espessura !== refThick)
+    ) {
+      alert("Mistura de materiais detectada! Filtre antes de calcular.");
+      return;
     }
 
     // Reset Prévio
     if (nestingResult.length > 0) {
-       if (!confirm("Recalcular o arranjo? Isso limpará a mesa atual.")) return;
+      if (!confirm("Recalcular o arranjo? Isso limpará a mesa atual.")) return;
     }
-    
+
     const startTime = Date.now();
     setCalculationTime(null);
     setIsComputing(true);
@@ -927,63 +965,75 @@ const handleCalculate = useCallback(() => {
     resetAllSaveStatus();
 
     // --- DECISÃO DO MOTOR ---
-    
+
     if (strategy === "guillotine") {
-        // --- 1. MOTOR GUILHOTINA (Síncrono / Main Thread) ---
-        // Como é matemática simples, é instantâneo, não precisa de Worker.
-        setTimeout(() => { // Timeout minúsculo só para o UI atualizar o loading
-            const result = runGuillotineNesting(
-                partsToNest,
-                quantities,
-                binSize.width,
-                binSize.height,
-                margin,
-                direction
-            );
+      // --- 1. MOTOR GUILHOTINA (Síncrono / Main Thread) ---
+      // Como é matemática simples, é instantâneo, não precisa de Worker.
+      setTimeout(() => {
+        // Timeout minúsculo só para o UI atualizar o loading
+        const result = runGuillotineNesting(
+          partsToNest,
+          quantities,
+          binSize.width,
+          binSize.height,
+          margin,
+          direction
+        );
 
-            const duration = (Date.now() - startTime) / 1000;
-            setCalculationTime(duration);
-            resetNestingResult(result.placed);
-            setFailedCount(result.failed.length);
-            setTotalBins(result.totalBins || 1);
-            setIsComputing(false);
-            
-            if (result.placed.length === 0) alert("Nenhuma peça coube!");
-        }, 50);
+        const duration = (Date.now() - startTime) / 1000;
+        setCalculationTime(duration);
+        resetNestingResult(result.placed);
+        setFailedCount(result.failed.length);
+        setTotalBins(result.totalBins || 1);
+        setIsComputing(false);
 
+        if (result.placed.length === 0) alert("Nenhuma peça coube!");
+      }, 50);
     } else {
-        // --- 2. MOTOR SMART NEST (Web Worker) ---
-        if (nestingWorkerRef.current) nestingWorkerRef.current.terminate();
-        nestingWorkerRef.current = new NestingWorker();
+      // --- 2. MOTOR SMART NEST (Web Worker) ---
+      if (nestingWorkerRef.current) nestingWorkerRef.current.terminate();
+      nestingWorkerRef.current = new NestingWorker();
 
-        nestingWorkerRef.current.onmessage = (e) => {
-            const result = e.data;
-            const duration = (Date.now() - startTime) / 1000;
-            setCalculationTime(duration);
-            resetNestingResult(result.placed);
-            setFailedCount(result.failed.length);
-            setTotalBins(result.totalBins || 1);
-            setIsComputing(false);
-            if (result.placed.length === 0) alert("Nenhuma peça coube!");
-        };
+      nestingWorkerRef.current.onmessage = (e) => {
+        const result = e.data;
+        const duration = (Date.now() - startTime) / 1000;
+        setCalculationTime(duration);
+        resetNestingResult(result.placed);
+        setFailedCount(result.failed.length);
+        setTotalBins(result.totalBins || 1);
+        setIsComputing(false);
+        if (result.placed.length === 0) alert("Nenhuma peça coube!");
+      };
 
-        nestingWorkerRef.current.postMessage({
-            parts: JSON.parse(JSON.stringify(partsToNest)),
-            quantities,
-            gap,
-            margin,
-            binWidth: binSize.width,
-            binHeight: binSize.height,
-            strategy,
-            iterations,
-            rotationStep, // Será sempre 90
-            direction,
-        });
+      nestingWorkerRef.current.postMessage({
+        parts: JSON.parse(JSON.stringify(partsToNest)),
+        quantities,
+        gap,
+        margin,
+        binWidth: binSize.width,
+        binHeight: binSize.height,
+        strategy,
+        iterations,
+        rotationStep, // Será sempre 90
+        direction,
+      });
     }
   }, [
-    displayedParts, disabledNestingIds, nestingResult.length,
-    resetNestingResult, setCurrentBinIndex, setTotalBins, resetAllSaveStatus,
-    quantities, gap, margin, binSize, strategy, iterations, rotationStep, direction
+    displayedParts,
+    disabledNestingIds,
+    nestingResult.length,
+    resetNestingResult,
+    setCurrentBinIndex,
+    setTotalBins,
+    resetAllSaveStatus,
+    quantities,
+    gap,
+    margin,
+    binSize,
+    strategy,
+    iterations,
+    rotationStep,
+    direction,
   ]);
 
   const handleClearTable = useCallback(() => {
@@ -1014,12 +1064,11 @@ const handleCalculate = useCallback(() => {
 
   // Função para o botão do Menu de Contexto
   const handleContextDelete = useCallback(() => {
-      if (selectedPartIds.length > 0) {
-          handleReturnToBank(selectedPartIds);
-          setContextMenu(null); // Fecha o menu
-      }
+    if (selectedPartIds.length > 0) {
+      handleReturnToBank(selectedPartIds);
+      setContextMenu(null); // Fecha o menu
+    }
   }, [selectedPartIds, handleReturnToBank]);
-
 
   // --- FUNÇÃO DE BUSCA MANUAL BLINDADA ---
   const handleDBSearch = async () => {
@@ -1391,114 +1440,248 @@ const handleCalculate = useCallback(() => {
       {isSearchModalOpen && (
         <div
           style={{
-            position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
-            backgroundColor: "rgba(0,0,0,0.6)", zIndex: 9999,
-            display: "flex", justifyContent: "center", alignItems: "center",
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            backgroundColor: "rgba(0,0,0,0.6)",
+            zIndex: 9999,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
           }}
           onClick={() => setIsSearchModalOpen(false)}
         >
           <div
             style={{
               backgroundColor: theme.panelBg,
-              padding: "25px", borderRadius: "8px",
+              padding: "25px",
+              borderRadius: "8px",
               width: "400px", // Aumentei um pouco a largura
               maxHeight: "85vh", // Limite de altura para telas pequenas
-              display: "flex", flexDirection: "column",
+              display: "flex",
+              flexDirection: "column",
               border: `1px solid ${theme.border}`,
               boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 15}}>
-                 <h3 style={{ margin: 0, color: theme.text }}>🔍 Buscar Pedido(s)</h3>
-                 <button onClick={() => setIsSearchModalOpen(false)} style={{background:'transparent', border:'none', color: theme.text, fontSize: 20, cursor:'pointer'}}>✕</button>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 15,
+              }}
+            >
+              <h3 style={{ margin: 0, color: theme.text }}>
+                🔍 Buscar Pedido(s)
+              </h3>
+              <button
+                onClick={() => setIsSearchModalOpen(false)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: theme.text,
+                  fontSize: 20,
+                  cursor: "pointer",
+                }}
+              >
+                ✕
+              </button>
             </div>
 
             {/* --- LISTA DE CHECKBOX (ESTILO EXCEL) --- */}
-            <div style={{ marginBottom: "15px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-                <span style={{ fontSize: "12px", fontWeight: "bold", color: theme.label, marginBottom: "5px" }}>
-                    SELECIONE OS PEDIDOS DISPONÍVEIS:
-                </span>
-                
-                <div style={{
-                    flex: 1, 
-                    overflowY: "auto", 
-                    background: theme.inputBg, 
-                    border: `1px solid ${theme.border}`,
-                    borderRadius: "4px",
-                    padding: "5px",
-                    minHeight: "150px", // Altura mínima para a lista
-                    maxHeight: "250px"  // Altura máxima antes de scrollar
-                }}>
-                    {loadingOrders ? (
-                        <div style={{padding: 10, fontSize: 12, color: theme.label}}>Carregando lista...</div>
-                    ) : availableOrders.length === 0 ? (
-                        <div style={{padding: 10, fontSize: 12, color: theme.label}}>Nenhum pedido encontrado no banco.</div>
-                    ) : (
-                        availableOrders.map(order => {
-                            // Verifica se este pedido está no input de texto
-                            const isChecked = searchQuery.split(',').map(s => s.trim()).includes(order);
-                            return (
-                                <label key={order} style={{
-                                    display: "flex", alignItems: "center", padding: "6px",
-                                    cursor: "pointer", borderBottom: `1px solid ${theme.hoverRow}`,
-                                    fontSize: "13px", color: theme.text
-                                }}>
-                                    <input 
-                                        type="checkbox" 
-                                        checked={isChecked}
-                                        onChange={() => toggleOrderSelection(order)}
-                                        style={{ marginRight: "8px" }}
-                                    />
-                                    {order}
-                                </label>
-                            );
-                        })
-                    )}
-                </div>
+            <div
+              style={{
+                marginBottom: "15px",
+                flex: 1,
+                minHeight: 0,
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                  color: theme.label,
+                  marginBottom: "5px",
+                }}
+              >
+                SELECIONE OS PEDIDOS DISPONÍVEIS:
+              </span>
+
+              <div
+                style={{
+                  flex: 1,
+                  overflowY: "auto",
+                  background: theme.inputBg,
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: "4px",
+                  padding: "5px",
+                  minHeight: "150px", // Altura mínima para a lista
+                  maxHeight: "250px", // Altura máxima antes de scrollar
+                }}
+              >
+                {loadingOrders ? (
+                  <div
+                    style={{ padding: 10, fontSize: 12, color: theme.label }}
+                  >
+                    Carregando lista...
+                  </div>
+                ) : availableOrders.length === 0 ? (
+                  <div
+                    style={{ padding: 10, fontSize: 12, color: theme.label }}
+                  >
+                    Nenhum pedido encontrado no banco.
+                  </div>
+                ) : (
+                  availableOrders.map((order) => {
+                    // Verifica se este pedido está no input de texto
+                    const isChecked = searchQuery
+                      .split(",")
+                      .map((s) => s.trim())
+                      .includes(order);
+                    return (
+                      <label
+                        key={order}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          padding: "6px",
+                          cursor: "pointer",
+                          borderBottom: `1px solid ${theme.hoverRow}`,
+                          fontSize: "13px",
+                          color: theme.text,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleOrderSelection(order)}
+                          style={{ marginRight: "8px" }}
+                        />
+                        {order}
+                      </label>
+                    );
+                  })
+                )}
+              </div>
             </div>
 
             {/* INPUT MANUAL (Mantido para ver o resultado ou digitar avulso) */}
-            <div style={{marginBottom: 15}}>
-                 <span style={{ fontSize: "11px", fontWeight: "bold", opacity: 0.7, color: theme.label }}>SELEÇÃO ATUAL:</span>
-                 <input
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Selecione acima ou digite (Ex: 35040, 35041)"
-                  style={{
-                    width: "100%", padding: "10px", marginTop: "5px",
-                    background: theme.inputBg, color: theme.text,
-                    border: `1px solid ${theme.border}`, borderRadius: "4px",
-                    boxSizing: "border-box", fontWeight: 'bold'
-                  }}
-                />
+            <div style={{ marginBottom: 15 }}>
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontWeight: "bold",
+                  opacity: 0.7,
+                  color: theme.label,
+                }}
+              >
+                SELEÇÃO ATUAL:
+              </span>
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Selecione acima ou digite (Ex: 35040, 35041)"
+                style={{
+                  width: "100%",
+                  padding: "10px",
+                  marginTop: "5px",
+                  background: theme.inputBg,
+                  color: theme.text,
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: "4px",
+                  boxSizing: "border-box",
+                  fontWeight: "bold",
+                }}
+              />
             </div>
 
             {/* OPÇÕES DE MODO */}
-            <div style={{
-                marginBottom: "20px", padding: "10px", background: theme.inputBg,
-                borderRadius: "4px", display: "flex", gap: "15px", alignItems: 'center'
-            }}>
-                <span style={{ fontSize: "11px", fontWeight: "bold", opacity: 0.7, color: theme.label }}>MODO:</span>
-                <label style={{ display: "flex", alignItems: "center", cursor: "pointer", fontSize: "12px", color: theme.text }}>
-                  <input type="radio" name="searchMode" checked={searchMode === "replace"} onChange={() => setSearchMode("replace")} style={{ marginRight: "5px" }} />
-                  Limpar Mesa
-                </label>
-                <label style={{ display: "flex", alignItems: "center", cursor: "pointer", fontSize: "12px", fontWeight: "bold", color: "#28a745" }}>
-                  <input type="radio" name="searchMode" checked={searchMode === "append"} onChange={() => setSearchMode("append")} style={{ marginRight: "5px" }} />
-                  Adicionar (Mix)
-                </label>
+            <div
+              style={{
+                marginBottom: "20px",
+                padding: "10px",
+                background: theme.inputBg,
+                borderRadius: "4px",
+                display: "flex",
+                gap: "15px",
+                alignItems: "center",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontWeight: "bold",
+                  opacity: 0.7,
+                  color: theme.label,
+                }}
+              >
+                MODO:
+              </span>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  cursor: "pointer",
+                  fontSize: "12px",
+                  color: theme.text,
+                }}
+              >
+                <input
+                  type="radio"
+                  name="searchMode"
+                  checked={searchMode === "replace"}
+                  onChange={() => setSearchMode("replace")}
+                  style={{ marginRight: "5px" }}
+                />
+                Limpar Mesa
+              </label>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  cursor: "pointer",
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                  color: "#28a745",
+                }}
+              >
+                <input
+                  type="radio"
+                  name="searchMode"
+                  checked={searchMode === "append"}
+                  onChange={() => setSearchMode("append")}
+                  style={{ marginRight: "5px" }}
+                />
+                Adicionar (Mix)
+              </label>
             </div>
 
             {/* BOTÕES DE AÇÃO */}
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "10px",
+              }}
+            >
               <button
                 onClick={handleDBSearch} // Chama a função original
                 disabled={isSearching || !searchQuery}
                 style={{
-                  padding: "10px 20px", background: "#6f42c1", border: "none",
-                  color: "white", borderRadius: "4px", cursor: "pointer",
-                  fontWeight: "bold", width: '100%'
+                  padding: "10px 20px",
+                  background: "#6f42c1",
+                  border: "none",
+                  color: "white",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                  width: "100%",
                 }}
               >
                 {isSearching ? "Buscando Peças..." : "📥 Importar Selecionados"}
@@ -1564,10 +1747,17 @@ const handleCalculate = useCallback(() => {
           </h2>
         </div>
         {/* --- NOVO: PAINEL DE ASSINATURA CENTRALIZADO --- */}
-        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', margin: '0 20px' }}>
-             <div style={{ maxWidth: '400px' }}>
-                 <SubscriptionPanel isDarkMode={isDarkMode} />
-             </div>
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            justifyContent: "center",
+            margin: "0 20px",
+          }}
+        >
+          <div style={{ maxWidth: "400px" }}>
+            <SubscriptionPanel isDarkMode={isDarkMode} />
+          </div>
         </div>
         {/* ----------------------------------------------- */}
         <div
@@ -1581,10 +1771,14 @@ const handleCalculate = useCallback(() => {
           {/* BOTÃO BUSCAR PEDIDO (ALTERADO) */}
           <button
             onClick={() => {
-                if (isTrial) return; // Bloqueio funcional
-                setIsSearchModalOpen(true);
+              if (isTrial) return; // Bloqueio funcional
+              setIsSearchModalOpen(true);
             }}
-            title={isTrial ? "Recurso indisponível no modo Trial" : "Buscar peças salvas no banco"}
+            title={
+              isTrial
+                ? "Recurso indisponível no modo Trial"
+                : "Buscar peças salvas no banco"
+            }
             style={{
               background: isTrial ? "#6c757d" : "#6f42c1", // Cinza se Trial, Roxo se Premium
               color: "white",
@@ -1598,7 +1792,7 @@ const handleCalculate = useCallback(() => {
               alignItems: "center",
               gap: "5px",
               fontSize: "13px",
-              transition: "all 0.3s ease"
+              transition: "all 0.3s ease",
             }}
           >
             🔍 Buscar Pedido {isTrial && "🔒"}
@@ -1665,13 +1859,13 @@ const handleCalculate = useCallback(() => {
               margin: "0 5px",
             }}
           ></div>
-          <SidebarMenu 
+          <SidebarMenu
             onNavigate={(screen) => {
-                // Se precisar navegar para a home (dashboard admin)
-                if (screen === 'home' && onBack) onBack(); 
+              // Se precisar navegar para a home (dashboard admin)
+              if (screen === "home" && onBack) onBack();
             }}
             onOpenProfile={() => alert("Janela de Dados da Conta abrirá aqui!")}
-        />
+          />
           {/* <button
             onClick={toggleTheme}
             title="Alternar Tema"
@@ -1712,7 +1906,8 @@ const handleCalculate = useCallback(() => {
             onChange={(e) => setStrategy(e.target.value as any)}
             style={inputStyle}
           >
-            <option value="guillotine">✂️ Guilhotina</option> {/* Mudou de "rect" */}
+            <option value="guillotine">✂️ Guilhotina</option>{" "}
+            {/* Mudou de "rect" */}
             <option value="true-shape">🧩 Smart Nest</option>
           </select>
         </div>
@@ -1828,7 +2023,7 @@ const handleCalculate = useCallback(() => {
             alignItems: "center",
             cursor: "pointer",
             userSelect: "none",
-            marginLeft: "15px"
+            marginLeft: "15px",
           }}
         >
           <input
@@ -1916,7 +2111,7 @@ const handleCalculate = useCallback(() => {
             alignItems: "center",
             gap: "8px",
             minWidth: "140px",
-            justifyContent: "center"
+            justifyContent: "center",
           }}
         >
           {isComputing ? (
@@ -1925,15 +2120,31 @@ const handleCalculate = useCallback(() => {
               <style>
                 {`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}
               </style>
-              <div style={{ animation: "spin 1s linear infinite", display: "flex" }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <div
+                style={{
+                  animation: "spin 1s linear infinite",
+                  display: "flex",
+                }}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                 </svg>
               </div>
               <span>Processando...</span> {/* SEM OS SEGUNDOS AQUI */}
             </>
           ) : (
-            <><span>▶</span> Calcular Nesting</>
+            <>
+              <span>▶</span> Calcular Nesting
+            </>
           )}
         </button>
       </div>
@@ -2070,7 +2281,7 @@ const handleCalculate = useCallback(() => {
             onCropLineMove={moveCropLine}
             onCropLineContextMenu={handleLineContextMenu}
             onBackgroundContextMenu={handleBackgroundContextMenu}
-            onPartsMove={handlePartsMoveWithClear}            
+            onPartsMove={handlePartsMoveWithClear}
             onPartSelect={handlePartSelect}
             onContextMenu={handlePartContextMenu}
             onPartReturn={handleReturnToBank}
@@ -2092,8 +2303,8 @@ const handleCalculate = useCallback(() => {
               background: theme.panelBg,
               zIndex: 5,
               color: theme.text,
-              position: 'relative', // Necessário para o centro absoluto funcionar
-              height: '50px' // Altura fixa ajuda na centralização vertical
+              position: "relative", // Necessário para o centro absoluto funcionar
+              height: "50px", // Altura fixa ajuda na centralização vertical
             }}
           >
             {/* LADO ESQUERDO: TOTAL DE PEÇAS */}
@@ -2107,55 +2318,73 @@ const handleCalculate = useCallback(() => {
             {/* CENTRO: EFICIÊNCIA E DENSIDADE (Limpo) */}
             <div
               style={{
-                position: 'absolute',
-                left: '50%',
-                top: '50%',
-                transform: 'translate(-50%, -50%)', // Centraliza exato X e Y
+                position: "absolute",
+                left: "50%",
+                top: "50%",
+                transform: "translate(-50%, -50%)", // Centraliza exato X e Y
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
-                whiteSpace: "nowrap"
+                whiteSpace: "nowrap",
               }}
             >
-              <span style={{ fontSize: "14px", fontWeight: "bold", color: theme.text }}>
+              <span
+                style={{
+                  fontSize: "14px",
+                  fontWeight: "bold",
+                  color: theme.text,
+                }}
+              >
                 Aprov. Real:{" "}
-                <span style={{ color: Number(currentEfficiencies.real.replace(",", ".")) > 70 ? "#28a745" : theme.text }}>
+                <span
+                  style={{
+                    color:
+                      Number(currentEfficiencies.real.replace(",", ".")) > 70
+                        ? "#28a745"
+                        : theme.text,
+                  }}
+                >
                   {currentEfficiencies.real}%
                 </span>
               </span>
 
               {/* DENSIDADE (Sempre visível se calculado, ou condicional se preferir) */}
               {calculationTime !== null && (
-                  <span
-                    style={{
-                      fontSize: "11px",
-                      color: theme.label,
-                      marginTop: "-2px"
-                    }}
-                  >
-                    Densidade: <span style={{ color: "#007bff" }}>{currentEfficiencies.effective}%</span>
+                <span
+                  style={{
+                    fontSize: "11px",
+                    color: theme.label,
+                    marginTop: "-2px",
+                  }}
+                >
+                  Densidade:{" "}
+                  <span style={{ color: "#007bff" }}>
+                    {currentEfficiencies.effective}%
                   </span>
+                </span>
               )}
             </div>
 
             {/* LADO DIREITO: TEMPO + STATUS */}
             <div style={{ display: "flex", gap: "15px", alignItems: "center" }}>
-              
               {/* 1. TEMPO DE CÁLCULO (Agora aqui na direita) */}
               {calculationTime !== null && (
-                 <span 
-                    style={{ 
-                        fontSize: "12px", 
-                        color: theme.label, 
-                        borderRight: `1px solid ${theme.border}`, // Separador visual
-                        paddingRight: '15px',
-                        height: '20px',
-                        display: 'flex',
-                        alignItems: 'center'
-                    }}
-                 >
-                    ⏱️ <strong style={{ color: theme.text, marginLeft: '5px' }}>{calculationTime.toFixed(2)}s</strong>
-                 </span>
+                <span
+                  style={{
+                    fontSize: "12px",
+                    color: theme.label,
+                    borderRight: `1px solid ${theme.border}`, // Separador visual
+                    paddingRight: "15px",
+                    height: "20px",
+                    display: "flex",
+                    alignItems: "center",
+                  }}
+                >
+                  ⏱️{" "}
+                  <strong style={{ color: theme.text, marginLeft: "5px" }}>
+                    {calculationTime.toFixed(2)}s
+                  </strong>
+                </span>
               )}
 
               {/* 2. STATUS DE SALVO */}
@@ -2165,12 +2394,12 @@ const handleCalculate = useCallback(() => {
                     color: "#28a745",
                     fontWeight: "bold",
                     fontSize: "13px",
-                    display: "flex", 
+                    display: "flex",
                     alignItems: "center",
-                    gap: "5px"
+                    gap: "5px",
                   }}
                 >
-                  ✅ <span style={{fontSize: '11px'}}>SALVO</span>
+                  ✅ <span style={{ fontSize: "11px" }}>SALVO</span>
                 </span>
               )}
 
@@ -2184,9 +2413,9 @@ const handleCalculate = useCallback(() => {
                     background: "rgba(220, 53, 69, 0.1)",
                     padding: "4px 8px",
                     borderRadius: "4px",
-                    display: "flex", 
+                    display: "flex",
                     alignItems: "center",
-                    gap: "5px"
+                    gap: "5px",
                   }}
                 >
                   ⚠️ {failedCount} FALHARAM
@@ -2227,7 +2456,7 @@ const handleCalculate = useCallback(() => {
               alignItems: "center", // Garante alinhamento vertical
               borderBottom: `1px solid ${theme.border}`,
               background: theme.headerBg,
-              paddingRight: "15px" // Margem direita para não colar na borda
+              paddingRight: "15px", // Margem direita para não colar na borda
             }}
           >
             <button
@@ -2255,9 +2484,13 @@ const handleCalculate = useCallback(() => {
                   gap: "6px",
                   cursor: parts.length === 0 ? "not-allowed" : "pointer",
                   userSelect: "none",
-                  opacity: parts.length === 0 ? 0.5 : 1
+                  opacity: parts.length === 0 ? 0.5 : 1,
                 }}
-                title={isAllEnabled ? "Remover todas do cálculo" : "Incluir todas no cálculo"}
+                title={
+                  isAllEnabled
+                    ? "Remover todas do cálculo"
+                    : "Incluir todas no cálculo"
+                }
               >
                 <input
                   type="checkbox"
@@ -2270,7 +2503,7 @@ const handleCalculate = useCallback(() => {
               </label>
             </div>
           </div>
-          
+
           <div
             style={{
               flex: 1,

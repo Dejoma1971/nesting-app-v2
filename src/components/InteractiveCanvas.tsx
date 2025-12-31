@@ -31,7 +31,7 @@ interface InteractiveCanvasProps {
   // Props de Linhas de Retalho
   cropLines?: CropLine[];
   onCropLineMove?: (lineId: string, newPosition: number) => void;
-  onBackgroundContextMenu?: (e: React.MouseEvent) => void;
+  onBackgroundContextMenu?: (e: React.MouseEvent, coords: { x: number; y: number }) => void;
 
   // Funções de Manipulação
   onPartsMove: (moves: { partId: string; dx: number; dy: number }[]) => void;
@@ -929,15 +929,23 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           dragRef.current.startSvgX = currentSvgPos.x;
           dragRef.current.startSvgY = currentSvgPos.y;
         } else if (dragMode === "parts") {
-          let deltaX = currentSvgPos.x - dragRef.current.startSvgX;
-          let deltaY = currentSvgPos.y - dragRef.current.startSvgY;
+          // 1. Calcula o deslocamento bruto do mouse (em coordenadas SVG)
+          const rawDx = currentSvgPos.x - dragRef.current.startSvgX;
+          const rawDy = currentSvgPos.y - dragRef.current.startSvgY;
+          
+          // 2. CORREÇÃO DEFINITIVA DO ZOOM:
+          // Dividimos o deslocamento pelo fator de escala (k).
+          // Se o zoom é 2x, precisamos mover apenas 0.5 unidades na peça para acompanhar 1 unidade do mouse.
           const currentZoom = transformRef.current.k;
-          if (currentZoom > 1.5) {
-            const dampFactor = 1 / Math.pow(currentZoom, 0.6);
-            deltaX *= dampFactor;
-            deltaY *= dampFactor;
-          }
-          const machineDeltaY = -deltaY;
+          
+          const deltaX = rawDx / currentZoom;
+          const deltaY = rawDy / currentZoom;
+
+          // (Removemos aquela lógica antiga de 'dampFactor' que tentava adivinhar o ajuste)
+
+          // 3. Aplica inversão do Y (pois o sistema CNC usa Y para cima)
+          const machineDeltaY = -deltaY; 
+
           const { snapedDx, snapedDy, guides } = calculateSnap(
             deltaX,
             machineDeltaY
@@ -945,11 +953,28 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
 
           setSnapLines(guides);
           currentDragDeltaRef.current = { dx: snapedDx, dy: snapedDy };
-          const visualSnapDy = snapedDy;
-
+          
+          // Nota: Para visualização suave durante o arraste (transform CSS), 
+          // precisamos multiplicar de volta pelo zoom visual apenas para o translate3d na tela, 
+          // OU aplicar o valor ajustado. 
+          // Como o 'el.style.transform' é visual e a peça está dentro do grupo escalado, 
+          // aplicamos o deslocamento local (snapedDx).
+          // Porém, o translate3d do CSS opera em pixels de tela ou locais? 
+          // No SVG, transform em <g> opera no espaço local.
+          
+          const visualSnapDy = snapedDy; // Y já invertido para coordenada de máquina, cuidado aqui.
+          // O translate visual precisa ser no sistema de coordenadas da tela ou do SVG?
+          // O ref `partRefs` aponta para o <g> da peça.
+          // O <g> da peça está dentro do `panGroupRef` (que tem o scale).
+          // Então o transform deve ser em unidades locais.
+          // Mas espere: snapedDy é "machine coords" (Y para cima).
+          // O SVG desenha Y para baixo, mas nós temos um `scale(1, -1)` no pai.
+          // Então, aumentar Y localmente faz a peça subir. Está correto.
+          
           draggingIdsRef.current.forEach((id) => {
             const el = partRefs.current[id];
             if (el)
+              // Atualizamos visualmente a posição
               el.style.transform = `translate3d(${snapedDx}px, ${visualSnapDy}px, 0)`;
           });
         }
@@ -1199,9 +1224,25 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                 style={{ pointerEvents: "all" }}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  if (onBackgroundContextMenu) onBackgroundContextMenu(e);
-                }}
-              />
+                  if (onBackgroundContextMenu) {
+          // 1. Pega a coordenada bruta do SVG (Screen -> SVG)
+          const svgPos = getSVGPoint(e.clientX, e.clientY);
+          
+          // 2. Remove o Pan e o Zoom (transform visual)
+          const visualX = (svgPos.x - transformRef.current.x) / transformRef.current.k;
+          const visualY = (svgPos.y - transformRef.current.y) / transformRef.current.k;
+
+          // 3. Corrige o sistema de coordenadas da máquina (Y invertido)
+          // O grupo CNC tem scale(1, -1) e translate(0, binHeight)
+          // Portanto: Y_Real = Altura_Chapa - Y_Visual
+          const binX = visualX;
+          const binY = binHeight - visualY;
+          
+          // Envia o evento E as coordenadas reais calculadas
+          onBackgroundContextMenu(e, { x: binX, y: binY });
+      }
+    }}
+  />
 
               {/* CORREÇÃO: Mostra a margem sempre que ela for maior que 0, independente do Debug */}
               {margin > 0 && (

@@ -3,11 +3,12 @@ import React from 'react';
 interface SheetContextMenuProps {
   x: number;
   y: number;
-  targetLineId?: string | null; // <--- NOVO: Saber se clicou numa linha
+  targetLineId?: string | null;
   onClose: () => void;
   onDeleteSheet: () => void;
-  onAddCropLine: (type: 'horizontal' | 'vertical') => void;
-  onDeleteLine: (lineId: string) => void; // <--- NOVO: Função de excluir linha
+  // ATUALIZADO: Agora aceita a posição onde a linha deve ser criada
+  onAddCropLine: (type: 'horizontal' | 'vertical', position: number) => void;
+  onDeleteLine: (lineId: string) => void;
 }
 
 export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
@@ -50,9 +51,9 @@ export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
                 <button 
                     style={itemStyle} 
                     onClick={() => { 
-    if (targetLineId) onDeleteLine(targetLineId); 
-    onClose(); 
-}}
+                        if (targetLineId) onDeleteLine(targetLineId); 
+                        onClose(); 
+                    }}
                     onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(220, 53, 69, 0.2)'}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                 >
@@ -65,20 +66,27 @@ export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
                 <div style={{ padding: '5px 15px', fontSize: '11px', fontWeight: 'bold', color: '#888', textTransform: 'uppercase' }}>
                     Ações da Chapa
                 </div>
+                
+                {/* LINHA VERTICAL: Passamos a coordenada X do mouse */}
                 <button 
-                    style={itemStyle} onClick={() => { onAddCropLine('vertical'); onClose(); }}
+                    style={itemStyle} 
+                    onClick={() => { onAddCropLine('vertical', x); onClose(); }}
                     onMouseEnter={(e) => e.currentTarget.style.background = '#3d3d3d'}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                 >
                     <span style={{ color: '#007bff', fontWeight:'bold' }}>│</span> Add Linha Vertical (X)
                 </button>
+                
+                {/* LINHA HORIZONTAL: Passamos a coordenada Y do mouse */}
                 <button 
-                    style={itemStyle} onClick={() => { onAddCropLine('horizontal'); onClose(); }}
+                    style={itemStyle} 
+                    onClick={() => { onAddCropLine('horizontal', y); onClose(); }}
                     onMouseEnter={(e) => e.currentTarget.style.background = '#3d3d3d'}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                 >
                     <span style={{ color: '#007bff', fontWeight:'bold' }}>—</span> Add Linha Horizontal (Y)
                 </button>
+
                 <div style={{ height: '1px', backgroundColor: '#444', margin: '5px 0' }} />
                 <button 
                     style={itemStyle} onClick={() => { onDeleteSheet(); onClose(); }}
