@@ -12,6 +12,15 @@ import type { PlacedPart } from "../utils/nestingCore";
 import type { AppTheme } from "../styles/theme";
 import type { CropLine } from "../hooks/useSheetManager";
 
+// --- COLE ISTO LOGO APÓS OS IMPORTS ---
+const calculateRotatedDimensions = (w: number, h: number, rotationDeg: number) => {
+  const rad = rotationDeg * (Math.PI / 180);
+  // Calcula o bounding box real trigonométrico
+  const occupiedW = w * Math.abs(Math.cos(rad)) + h * Math.abs(Math.sin(rad));
+  const occupiedH = w * Math.abs(Math.sin(rad)) + h * Math.abs(Math.cos(rad));
+  return { occupiedW, occupiedH };
+};
+
 // CONFIGURAÇÃO DO SNAP
 const SNAP_THRESHOLD = 15;
 
@@ -416,10 +425,7 @@ const PartElement = React.memo(
       ref
     ) => {
       if (!partData) return null;
-      const localW = partData.width;
-      const localH = partData.height;
-      const occupiedW = placed.rotation % 180 !== 0 ? localH : localW;
-      const occupiedH = placed.rotation % 180 !== 0 ? localW : localH;
+      const { occupiedW, occupiedH } = calculateRotatedDimensions(partData.width, partData.height, placed.rotation);
 
       const finalTransform = transformData
         ? `translate(${placed.x + transformData.occupiedW / 2}, ${
@@ -637,6 +643,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     placedParts.forEach((placed) => {
       const part = parts.find((p) => p.id === placed.partId);
       if (!part) return;
+      
       const cachedBox = boundingBoxCache[placed.partId];
       let box;
       if (cachedBox) {
@@ -653,13 +660,23 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         });
         box = newBox;
       }
+
+      // --- AQUI ESTÁ A CORREÇÃO ---
+      // Calculamos a caixa envolvente exata usando a função trigonométrica
+      // (Certifique-se de que a função 'calculateRotatedDimensions' foi adicionada no topo do arquivo)
+      const { occupiedW, occupiedH } = calculateRotatedDimensions(
+        part.width, 
+        part.height, 
+        placed.rotation
+      );
+
       transforms[placed.uuid] = {
         centerX: box.centerX,
         centerY: box.centerY,
-        occupiedW: placed.rotation % 180 !== 0 ? part.height : part.width,
-        occupiedH: placed.rotation % 180 !== 0 ? part.width : part.height,
-        rawWidth: placed.rotation % 180 !== 0 ? part.height : part.width,
-        rawHeight: placed.rotation % 180 !== 0 ? part.width : part.height,
+        occupiedW: occupiedW, // Valor correto calculado
+        occupiedH: occupiedH, // Valor correto calculado
+        rawWidth: occupiedW,
+        rawHeight: occupiedH,
       };
     });
     return transforms;
