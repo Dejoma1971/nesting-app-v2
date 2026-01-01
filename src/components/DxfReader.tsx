@@ -1,19 +1,27 @@
-import React from 'react';
-import { NestingBoard } from './NestingBoard';
-import type { ImportedPart } from './types';
+import React from "react";
+import { NestingBoard } from "./NestingBoard";
+import type { ImportedPart } from "./types";
 
 interface DxfReaderProps {
-    preLoadedParts?: ImportedPart[];
-    autoSearchQuery?: string; // <--- NOVO PROP
-    onBack: () => void;
+  preLoadedParts?: ImportedPart[];
+  autoSearchQuery?: string; // <--- NOVO PROP
+  onBack: () => void;
+  onNavigate?: (screen: "home" | "engineering" | "nesting") => void;
 }
 
-export const DxfReader: React.FC<DxfReaderProps> = ({ preLoadedParts, autoSearchQuery, onBack }) => {
-    return (
-        <NestingBoard 
-            initialParts={preLoadedParts || []} 
-            initialSearchQuery={autoSearchQuery} // <--- Repassa para a mesa
-            onBack={onBack} 
-        />
-    );
+// CORREÇÃO 1: Adicionar 'onNavigate' na desestruturação das props
+export const DxfReader: React.FC<DxfReaderProps> = ({
+  preLoadedParts,
+  autoSearchQuery,
+  onBack,
+  onNavigate, // <--- ADICIONE AQUI
+}) => {
+  return (
+    <NestingBoard
+      initialParts={preLoadedParts || []}
+      initialSearchQuery={autoSearchQuery}
+      onBack={onBack}
+      onNavigate={onNavigate} // <--- CORREÇÃO 2: Repassar para o componente filho
+    />
+  );
 };

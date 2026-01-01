@@ -41,6 +41,7 @@ interface NestingBoardProps {
   initialParts: ImportedPart[];
   initialSearchQuery?: string;
   onBack?: () => void;
+  onNavigate?: (screen: "home" | "engineering" | "nesting") => void;
 }
 
 const cleanTextContent = (text: string): string => {
@@ -317,6 +318,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   initialParts,
   initialSearchQuery,
   onBack,
+  onNavigate,
 }) => {
   // --- 2. PEGAR O USUÁRIO DO CONTEXTO DE SEGURANÇA ---
   const { user } = useAuth();
@@ -1801,14 +1803,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
           {onBack && (
             <button
-              onClick={onBack}
-              title="Voltar"
+              onClick={() => onNavigate ? onNavigate('home') : onBack?.()}
+              title="Home"
               style={{
                 background: "transparent",
                 border: "none",
                 color: theme.text,
                 cursor: "pointer",
-                fontSize: "24px",
+                fontSize: "22px",
                 display: "flex",
                 alignItems: "center",
                 padding: 0,
@@ -1827,8 +1829,30 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
                 <polyline points="9 22 9 12 15 12 15 22"></polyline>
               </svg>
-            </button>
+            </button>            
           )}
+          {/* BOTÃO 2: IR PARA ENGENHARIA (LISTA DE PEÇAS) */}
+            <button
+              onClick={() => onNavigate ? onNavigate('engineering') : onBack?.()} 
+              title="Ir para a Engenharia"
+              style={{
+                background: "transparent",
+                border: "none",
+                color: theme.text,
+                cursor: "pointer",
+                fontSize: "20px",
+                padding: "4px",
+                display: "flex",
+                alignItems: "center",
+                borderRadius: "4px",
+                transition: "background 0.2s",
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = theme.hoverRow}
+              onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+            >
+              🛠️
+            </button>
+
           <h2
             style={{
               margin: 0,
