@@ -64,5 +64,20 @@ export const useNestingAutoSave = (
     localStorage.removeItem('nesting_autosave');
   }, []);
 
+  // --- NOVA IMPLEMENTAÇÃO: Limpeza no Reload/F5 ---
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // O navegador vai disparar isso no F5 ou ao fechar a aba.
+      // Limpamos o storage para garantir que o reload comece zerado.
+      localStorage.removeItem('nesting_autosave');
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
+
   return { loadSavedState, clearSavedState };
 };

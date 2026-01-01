@@ -1200,6 +1200,30 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     clearSavedState,
   ]);
 
+  // --- NOVA FUNÇÃO: Navegação Segura para Home ---
+  const handleSafeHomeExit = useCallback(() => {
+    // Verifica se tem "trabalho na mesa" (Peças carregadas ou Nesting feito)
+    const hasWorkInProgress = parts.length > 0 || nestingResult.length > 0;
+
+    if (hasWorkInProgress) {
+      const confirmExit = window.confirm(
+        "Atenção: Você tem um trabalho em andamento não salvo.\n\nSe sair agora, o progresso será perdido. Deseja continuar?"
+      );
+
+      if (confirmExit) {
+        clearSavedState(); // Limpa o cache explicitamente
+        if (onNavigate) onNavigate("home");
+        else if (onBack) onBack();
+      }
+      // Se cancelar, não faz nada (fica na tela e mantem o cache)
+    } else {
+      // Se não tem trabalho, limpa e sai direto
+      clearSavedState();
+      if (onNavigate) onNavigate("home");
+      else if (onBack) onBack();
+    }
+  }, [parts.length, nestingResult.length, clearSavedState, onNavigate, onBack]);
+
   // Função para o botão do Menu de Contexto
   const handleContextDelete = useCallback(() => {
     if (selectedPartIds.length > 0) {
@@ -1939,7 +1963,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
           {onBack && (
             <button
-              onClick={() => (onNavigate ? onNavigate("home") : onBack?.())}
+              onClick={handleSafeHomeExit}
               title="Home"
               style={{
                 background: "transparent",
