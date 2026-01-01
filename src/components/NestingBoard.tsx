@@ -31,6 +31,7 @@ import { useAuth } from "../context/AuthContext"; // <--- 1. IMPORTAÇÃO DE SEG
 import { SubscriptionPanel } from "./SubscriptionPanel";
 import { SidebarMenu } from "../components/SidebarMenu";
 // import { generateGuillotineReport } from "../utils/pdfGenerator";
+import { useNestingAutoSave } from "../hooks/useNestingAutoSave";
 
 interface Size {
   width: number;
@@ -482,6 +483,70 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     canUndo,
     canRedo,
   ] = useUndoRedo<PlacedPart[]>([]);
+
+  // --- AUTO-SAVE HOOK ---
+  // Agrupa o estado atual para passar para o hook
+  const currentAutoSaveState = useMemo(
+    () => ({
+      nestingResult,
+      parts,
+      quantities,
+      binSize,
+      totalBins,
+      currentBinIndex,
+      cropLines,
+    }),
+    [
+      nestingResult,
+      parts,
+      quantities,
+      binSize,
+      totalBins,
+      currentBinIndex,
+      cropLines,
+    ]
+  );
+
+  const { loadSavedState, clearSavedState } = useNestingAutoSave(
+    isTrial,
+    currentAutoSaveState
+  );
+  // --- EFEITO: RESTAURAÇÃO DE ESTADO (AUTO-LOAD) ---
+  useEffect(() => {
+    // Cenário A: Usuário veio da Engenharia com peças novas
+    if (initialParts && initialParts.length > 0) {
+      return;
+    }
+
+    // Cenário B: Usuário veio pelo Menu ou Recarregou
+    const savedData = loadSavedState();
+
+    if (savedData && !isTrial) {
+      if (savedData.parts.length > 0 || savedData.nestingResult.length > 0) {
+        console.log("Restaurando sessão anterior...");
+        // Restaura todos os estados
+        setParts(savedData.parts);
+        setQuantities(savedData.quantities);
+        setNestingResult(savedData.nestingResult);
+        setBinSize(savedData.binSize);
+        setTotalBins(savedData.totalBins);
+        setCurrentBinIndex(savedData.currentBinIndex);
+        if (setCropLines) setCropLines(savedData.cropLines);
+      }
+    }
+  }, [
+    initialParts,
+    isTrial,
+    loadSavedState,
+    // Dependências adicionadas para corrigir o aviso do ESLint:
+    setParts,
+    setQuantities,
+    setNestingResult,
+    setBinSize,
+    setTotalBins,
+    setCurrentBinIndex,
+    setCropLines,
+  ]);
 
   const {
     isSaving,
@@ -1089,6 +1154,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     ) {
       resetNestingResult([]);
       setParts([]);
+      clearSavedState();
       setFailedCount(0);
       setTotalBins(1);
       setCurrentBinIndex(0);
@@ -1109,6 +1175,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     setCurrentBinIndex,
     setParts,
     setCropLines,
+    clearSavedState,
   ]);
 
   // Função para o botão do Menu de Contexto
@@ -1803,7 +1870,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
           {onBack && (
             <button
-              onClick={() => onNavigate ? onNavigate('home') : onBack?.()}
+              onClick={() => (onNavigate ? onNavigate("home") : onBack?.())}
               title="Home"
               style={{
                 background: "transparent",
@@ -1829,29 +1896,35 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
                 <polyline points="9 22 9 12 15 12 15 22"></polyline>
               </svg>
-            </button>            
+            </button>
           )}
           {/* BOTÃO 2: IR PARA ENGENHARIA (LISTA DE PEÇAS) */}
-            <button
-              onClick={() => onNavigate ? onNavigate('engineering') : onBack?.()} 
-              title="Ir para a Engenharia"
-              style={{
-                background: "transparent",
-                border: "none",
-                color: theme.text,
-                cursor: "pointer",
-                fontSize: "20px",
-                padding: "4px",
-                display: "flex",
-                alignItems: "center",
-                borderRadius: "4px",
-                transition: "background 0.2s",
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.background = theme.hoverRow}
-              onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-            >
-              🛠️
-            </button>
+          <button
+            onClick={() =>
+              onNavigate ? onNavigate("engineering") : onBack?.()
+            }
+            title="Ir para a Engenharia"
+            style={{
+              background: "transparent",
+              border: "none",
+              color: theme.text,
+              cursor: "pointer",
+              fontSize: "20px",
+              padding: "4px",
+              display: "flex",
+              alignItems: "center",
+              borderRadius: "4px",
+              transition: "background 0.2s",
+            }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.background = theme.hoverRow)
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.background = "transparent")
+            }
+          >
+            🛠️
+          </button>
 
           <h2
             style={{
@@ -1978,8 +2051,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             title="Reiniciar Página"
             style={{
               background: "transparent",
-              color: "#dc3545",
-              border: `1px solid #dc3545`,
+              color: "#6610f2",
+              border: `1px solid #6610f2`,
               padding: "5px 10px",
               borderRadius: "4px",
               cursor: "pointer",
