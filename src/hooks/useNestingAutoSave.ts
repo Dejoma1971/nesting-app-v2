@@ -1,7 +1,6 @@
 import { useEffect, useCallback } from 'react';
 import type { PlacedPart } from '../utils/nestingCore';
 import type { ImportedPart } from '../components/types';
-// CORREÇÃO 1: Importar o tipo CropLine corretamente
 import type { CropLine } from './useSheetManager';
 
 interface AutoSaveData {
@@ -11,7 +10,8 @@ interface AutoSaveData {
   binSize: { width: number; height: number };
   totalBins: number;
   currentBinIndex: number;
-  cropLines: CropLine[]; // CORREÇÃO 2: Tipo específico em vez de 'any[]'
+  cropLines: CropLine[];
+  calculationTime: number | null; // <--- NOVO CAMPO
   timestamp: number;
 }
 
@@ -24,16 +24,16 @@ export const useNestingAutoSave = (
     binSize: { width: number; height: number };
     totalBins: number;
     currentBinIndex: number;
-    cropLines: CropLine[]; // CORREÇÃO 3: Tipo específico aqui também
+    cropLines: CropLine[];
+    calculationTime: number | null; // <--- NOVO CAMPO
   }
 ) => {
-  // 1. Efeito de Salvamento Automático (Auto-Save)
+  // 1. Efeito de Salvamento
   useEffect(() => {
-    // Se for Trial, não salva nada (Recurso Premium)
     if (isTrial) return;
 
     const timer = setTimeout(() => {
-      // Só salva se houver alguma peça carregada ou posicionada
+      // Só salva se houver dados relevantes
       if (currentState.parts.length === 0 && currentState.nestingResult.length === 0) return;
 
       const data: AutoSaveData = {
@@ -42,12 +42,12 @@ export const useNestingAutoSave = (
       };
       
       localStorage.setItem('nesting_autosave', JSON.stringify(data));
-    }, 1000); // Debounce de 1 segundo
+    }, 1000);
 
     return () => clearTimeout(timer);
   }, [currentState, isTrial]);
 
-  // 2. Função de Carregamento (Restore)
+  // 2. Carregamento
   const loadSavedState = useCallback((): AutoSaveData | null => {
     const saved = localStorage.getItem('nesting_autosave');
     if (!saved) return null;
@@ -59,7 +59,7 @@ export const useNestingAutoSave = (
     }
   }, []);
 
-  // 3. Função de Limpeza (Clear)
+  // 3. Limpeza
   const clearSavedState = useCallback(() => {
     localStorage.removeItem('nesting_autosave');
   }, []);

@@ -496,6 +496,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       totalBins,
       currentBinIndex,
       cropLines,
+      calculationTime,
     }),
     [
       nestingResult,
@@ -505,6 +506,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       totalBins,
       currentBinIndex,
       cropLines,
+      calculationTime,
     ]
   );
 
@@ -513,27 +515,27 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     currentAutoSaveState
   );
   // --- EFEITO: RESTAURAÇÃO DE ESTADO (AUTO-LOAD) ---
+  // --- EFEITO: RESTAURAÇÃO DE ESTADO (AUTO-LOAD) ---
   useEffect(() => {
     // Função interna para gerenciar o fluxo assíncrono visual
     const restoreSession = async () => {
       // Pequeno delay para garantir que o React renderize a tela de "Carregando"
-      // antes de travar a thread processando o JSON pesado
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 200));
 
       // Cenário A: Usuário veio da Engenharia com peças novas (Prioridade)
       if (initialParts && initialParts.length > 0) {
         setIsRestoring(false); // Libera a tela
-        return; 
+        return;
       }
 
       // Cenário B: Tenta restaurar do backup
       const savedData = loadSavedState();
-      
+
       if (savedData && !isTrial) {
         if (savedData.parts.length > 0 || savedData.nestingResult.length > 0) {
           console.log("Restaurando sessão anterior...");
-          
-          // Batch updates (React 18 faz automático, mas garante consistência)
+
+          // Batch updates
           setParts(savedData.parts);
           setQuantities(savedData.quantities);
           setNestingResult(savedData.nestingResult);
@@ -541,26 +543,31 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           setTotalBins(savedData.totalBins);
           setCurrentBinIndex(savedData.currentBinIndex);
           if (setCropLines) setCropLines(savedData.cropLines);
+
+          // Restaura o tempo de cálculo (Densidade)
+          if (savedData.calculationTime !== undefined) {
+            setCalculationTime(savedData.calculationTime);
+          }
         }
-      }
-      
+      } // <--- ESTE FECHAMENTO ESTAVA FALTANDO (Fecha o if !isTrial)
+
       // Finaliza o loading independente se achou dados ou não
       setIsRestoring(false);
     };
 
     restoreSession();
-
   }, [
-    initialParts, 
-    isTrial, 
-    loadSavedState, 
-    setParts, 
-    setQuantities, 
-    setNestingResult, 
-    setBinSize, 
-    setTotalBins, 
-    setCurrentBinIndex, 
-    setCropLines
+    initialParts,
+    isTrial,
+    loadSavedState,
+    setParts,
+    setQuantities,
+    setNestingResult,
+    setBinSize,
+    setTotalBins,
+    setCurrentBinIndex,
+    setCropLines,
+    setCalculationTime, // Adicionei setCalculationTime nas dependências também por segurança
   ]);
 
   const {
@@ -1653,11 +1660,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               marginBottom: "20px",
             }}
           />
-          <h2 style={{ fontSize: "24px", margin: 0 }}>Restaurando sua mesa...</h2>
-          <p style={{ color: "#666", marginTop: "10px" }}>Isso pode levar alguns segundos.</p>
+          <h2 style={{ fontSize: "24px", margin: 0 }}>
+            Restaurando sua mesa...
+          </h2>
+          <p style={{ color: "#666", marginTop: "10px" }}>
+            Isso pode levar alguns segundos.
+          </p>
         </div>
       )}
-      
+
       {isSearchModalOpen && (
         <div
           style={{
