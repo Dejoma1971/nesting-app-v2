@@ -326,6 +326,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   // --- NOVO: Estado para bloquear recursos do Trial ---
   const [isTrial, setIsTrial] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(true); // Começa carregando
 
   useEffect(() => {
     if (user && user.token) {
@@ -513,39 +514,53 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   );
   // --- EFEITO: RESTAURAÇÃO DE ESTADO (AUTO-LOAD) ---
   useEffect(() => {
-    // Cenário A: Usuário veio da Engenharia com peças novas
-    if (initialParts && initialParts.length > 0) {
-      return;
-    }
+    // Função interna para gerenciar o fluxo assíncrono visual
+    const restoreSession = async () => {
+      // Pequeno delay para garantir que o React renderize a tela de "Carregando"
+      // antes de travar a thread processando o JSON pesado
+      await new Promise(resolve => setTimeout(resolve, 100));
 
-    // Cenário B: Usuário veio pelo Menu ou Recarregou
-    const savedData = loadSavedState();
-
-    if (savedData && !isTrial) {
-      if (savedData.parts.length > 0 || savedData.nestingResult.length > 0) {
-        console.log("Restaurando sessão anterior...");
-        // Restaura todos os estados
-        setParts(savedData.parts);
-        setQuantities(savedData.quantities);
-        setNestingResult(savedData.nestingResult);
-        setBinSize(savedData.binSize);
-        setTotalBins(savedData.totalBins);
-        setCurrentBinIndex(savedData.currentBinIndex);
-        if (setCropLines) setCropLines(savedData.cropLines);
+      // Cenário A: Usuário veio da Engenharia com peças novas (Prioridade)
+      if (initialParts && initialParts.length > 0) {
+        setIsRestoring(false); // Libera a tela
+        return; 
       }
-    }
+
+      // Cenário B: Tenta restaurar do backup
+      const savedData = loadSavedState();
+      
+      if (savedData && !isTrial) {
+        if (savedData.parts.length > 0 || savedData.nestingResult.length > 0) {
+          console.log("Restaurando sessão anterior...");
+          
+          // Batch updates (React 18 faz automático, mas garante consistência)
+          setParts(savedData.parts);
+          setQuantities(savedData.quantities);
+          setNestingResult(savedData.nestingResult);
+          setBinSize(savedData.binSize);
+          setTotalBins(savedData.totalBins);
+          setCurrentBinIndex(savedData.currentBinIndex);
+          if (setCropLines) setCropLines(savedData.cropLines);
+        }
+      }
+      
+      // Finaliza o loading independente se achou dados ou não
+      setIsRestoring(false);
+    };
+
+    restoreSession();
+
   }, [
-    initialParts,
-    isTrial,
-    loadSavedState,
-    // Dependências adicionadas para corrigir o aviso do ESLint:
-    setParts,
-    setQuantities,
-    setNestingResult,
-    setBinSize,
-    setTotalBins,
-    setCurrentBinIndex,
-    setCropLines,
+    initialParts, 
+    isTrial, 
+    loadSavedState, 
+    setParts, 
+    setQuantities, 
+    setNestingResult, 
+    setBinSize, 
+    setTotalBins, 
+    setCurrentBinIndex, 
+    setCropLines
   ]);
 
   const {
@@ -1600,6 +1615,49 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   return (
     <div style={containerStyle}>
+      {/* --- TELA DE CARREGAMENTO (LOADING OVERLAY) --- */}
+      {isRestoring && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            backgroundColor: "rgba(255, 255, 255, 0.9)", // Fundo branco semi-transparente
+            zIndex: 9999, // Fica acima de tudo
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            alignItems: "center",
+            color: "#333",
+          }}
+        >
+          {/* Animação CSS simples */}
+          <style>
+            {`
+              @keyframes spin-large {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+            `}
+          </style>
+          <div
+            style={{
+              width: "50px",
+              height: "50px",
+              border: "5px solid #e0e0e0",
+              borderTop: "5px solid #007bff",
+              borderRadius: "50%",
+              animation: "spin-large 1s linear infinite",
+              marginBottom: "20px",
+            }}
+          />
+          <h2 style={{ fontSize: "24px", margin: 0 }}>Restaurando sua mesa...</h2>
+          <p style={{ color: "#666", marginTop: "10px" }}>Isso pode levar alguns segundos.</p>
+        </div>
+      )}
+      
       {isSearchModalOpen && (
         <div
           style={{
