@@ -158,6 +158,19 @@ export const useEngineeringLogic = ({
     }
   };
 
+  // --- NOVO: EXCLUSÃO EM MASSA (CORRIGIDO) ---
+  const handleBulkDelete = (idsToRemove: string[]) => {
+    if (idsToRemove.length === 0) return;
+
+    if (window.confirm(`Tem certeza que deseja excluir ${idsToRemove.length} peças selecionadas?`)) {
+      // Filtra removendo os IDs selecionados
+      const newParts = parts.filter((p) => !idsToRemove.includes(p.id));
+      
+      // CORREÇÃO: Atualiza o estado diretamente usando setParts
+      setParts(newParts);
+    }
+  };
+
   const handleReset = () => {
     if (
       parts.length > 0 &&
@@ -421,6 +434,7 @@ export const useEngineeringLogic = ({
     }
     onSendToNesting([], "");
   };
+  
 
   const handleRotatePart = (direction: "cw" | "ccw") => {
     if (!viewingPartId) return;
@@ -496,6 +510,7 @@ export const useEngineeringLogic = ({
     applyToAll,
     handleRowChange,
     handleDeletePart,
+    handleBulkDelete,
     handleReset,
     handleConvertToBlock,
     handleConvertAllToBlocks,
