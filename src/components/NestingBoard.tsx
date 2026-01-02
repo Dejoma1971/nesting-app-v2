@@ -675,7 +675,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       if (!state) return part;
       const bounds = calculateBoundingBox(part.entities, part.blocks);
       const newEntities = [...part.entities];
-      const rawText = part.pedido || part.op || part.name;
+      const rawText = part.pedido || part.op || "";
       const finalText =
         typeof cleanTextContent === "function"
           ? cleanTextContent(rawText)
