@@ -390,16 +390,16 @@ app.get("/api/pedidos/disponiveis", authenticateToken, async (req, res) => {
   }
 });
 
-// --- ROTA: REGISTRAR PRODUÇÃO (BUSCANDO DADOS REAIS NO BANCO) ---
+// --- ROTA: REGISTRAR PRODUÇÃO (ATUALIZADA COM MOTOR) ---
 app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
-  // Recebemos do front apenas o que é calculado na hora (aproveitamento, densidade, itens)
-  const { chapaIndex, aproveitamento, densidade, itens } = req.body;
+  // 1. Recebemos 'motor' do body agora
+  const { chapaIndex, aproveitamento, densidade, itens, motor } = req.body;
   
   const usuarioId = req.user.id;
   const empresaId = req.user.empresa_id;
   const plano = req.user.plano;
 
-  // 1. Validação de Plano
+  // Validação de Plano (Mantida)
   if (plano !== 'Premium Dev' && plano !== 'Premium' && plano !== 'Corporativo') {
      return res.status(403).json({ error: "Plano não permite registro histórico." });
   }
@@ -412,57 +412,58 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    // 2. BUSCA INTELIGENTE: Descobre Material e Espessura direto da Engenharia
-    // Pegamos o ID da primeira peça da lista para consultar suas propriedades originais
+    // 2. BUSCA INTELIGENTE (Mantida)
     let materialReal = "Desconhecido";
     let espessuraReal = "N/A";
 
-    const primeiraPecaId = itens[0].id; // ID que veio do frontend (pecas_engenharia.id)
-
+    const primeiraPecaId = itens[0].id;
     const [pecaRows] = await connection.query(
         "SELECT material, espessura FROM pecas_engenharia WHERE id = ? AND empresa_id = ?",
         [primeiraPecaId, empresaId]
     );
-
     if (pecaRows.length > 0) {
         materialReal = pecaRows[0].material;
         espessuraReal = pecaRows[0].espessura;
     }
 
-    // 3. Grava o Histórico com os dados CONFIÁVEIS do banco
+    // 3. Grava o Histórico COM O MOTOR 
     const [result] = await connection.query(
       `INSERT INTO producao_historico 
-       (empresa_id, usuario_id, data_producao, chapa_index, aproveitamento, densidade, material, espessura) 
-       VALUES (?, ?, NOW(), ?, ?, ?, ?, ?)`,
+       (empresa_id, usuario_id, data_producao, chapa_index, aproveitamento, densidade, material, espessura, motor) 
+       VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?)`,
       [
         empresaId, 
         usuarioId, 
         chapaIndex, 
         aproveitamento, 
-        densidade || aproveitamento, // Se densidade não vier, usa o aproveitamento
-        materialReal, // <--- Veio do SELECT acima
-        espessuraReal // <--- Veio do SELECT acima
+        densidade || aproveitamento,
+        materialReal,
+        espessuraReal,
+        motor || 'true-shape' // <--- NOVO CAMPO INSERIDO AQUI
       ]
     );
     
     const producaoId = result.insertId;
 
-    // 4. Salva os Itens
-    const values = itens.map(item => [producaoId, item.id, item.qtd]);
+    // 4. Salva os Itens (Mantido)
+    const values = itens.map(item => [producaoId, item.id, item.quantidade || item.qtd]); // Garante compatibilidade de nome
     await connection.query(
         `INSERT INTO producao_itens (producao_id, peca_original_id, quantidade) VALUES ?`,
         [values]
     );
-
+    
     await connection.commit();
     res.json({ 
         message: "Produção registrada com sucesso!", 
-        detalhes: { material: materialReal, espessura: espessuraReal }
+        detalhes: { material: materialReal, espessura: espessuraReal, motor }
     });
-
   } catch (error) {
     await connection.rollback();
     console.error("Erro ao registrar produção:", error);
+    // Tratamento para evitar erro genérico se for duplicado (opcional, mas recomendado pelo hook novo)
+    if (error.code === 'ER_DUP_ENTRY') {
+        return res.status(409).json({ error: "Duplicate entry for nesting signature" });
+    }
     res.status(500).json({ error: "Erro ao salvar no banco." });
   } finally {
     connection.release();

@@ -3,11 +3,13 @@ import { useState, useCallback } from 'react';
 import type { PlacedPart } from '../utils/nestingCore';
 import type { ImportedPart } from '../components/types';
 
-// CORREÇÃO 2: Definição de interfaces para evitar 'any'
+// Removemos a linha "[key: string]: unknown;"
+// Agora ele aceita o objeto User do AuthContext sem reclamar do Index Signature
 interface User {
   token?: string;
   empresa_id?: string;
-  [key: string]: unknown; // Permite outras propriedades genéricas
+  plano?: string; // Adicionei plano pois usamos ele na validação
+  id?: string;
 }
 
 interface RegisterProps {

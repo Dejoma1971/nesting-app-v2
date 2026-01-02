@@ -33,23 +33,24 @@ export const useProductionManager = (
     displayedParts: ImportedPart[],
     cropLines: CropLine[] = [],
     user: any = null,
-    densityValue: number = 0 // <--- Recebe a densidade calculada na tela
+    densityValue: number = 0,
+    externalDbSuccess: boolean = false // <--- Indica se já salvou no banco pelo hook novo
   ) => {
     
-    // Validação
-    if (state.lockedBins.includes(currentBinIndex)) {
-      if (!window.confirm("Esta chapa já foi processada. Baixar novamente?")) {
-        return;
-      }
-    }
-
+    // 1. VALIDAÇÃO INICIAL
     const currentBinParts = nestingResult.filter(p => p.binId === currentBinIndex);
     if (currentBinParts.length === 0 && cropLines.length === 0) {
       alert("Esta chapa está vazia.");
       return;
     }
 
-    // Contagem e Área para DXF
+    if (state.lockedBins.includes(currentBinIndex)) {
+      if (!window.confirm("Esta chapa já foi baixada anteriormente. Deseja baixar o arquivo novamente?")) {
+        return;
+      }
+    }
+
+    // 2. CÁLCULOS (Área e Eficiência)
     const partsCount: Record<string, number> = {};
     let usedArea = 0;
 
@@ -61,31 +62,18 @@ export const useProductionManager = (
 
     const totalBinArea = binSize.width * binSize.height;
     const efficiency = totalBinArea > 0 ? Number(((usedArea / totalBinArea) * 100).toFixed(2)) : 0;
-    
-    // Usamos o valor que veio da tela, ou o aproveitamento se for zero (fallback)
     const finalDensity = densityValue > 0 ? densityValue : efficiency;
 
-    // Confirmação
-    let confirmMessage = `Confirma a produção desta chapa?\n`;
-    confirmMessage += `📊 Aprov. Real: ${efficiency}%\n`;
-    confirmMessage += `📦 Densidade: ${finalDensity}%\n`; 
-    
-    if (cropLines.length > 0) confirmMessage += `✂️ Linhas de Retalho: ${cropLines.length}\n\n`;
-    else confirmMessage += `\n`;
-    
-    Object.entries(partsCount).forEach(([pId, qty]) => {
-      const partName = displayedParts.find(dp => dp.id === pId)?.name || "Item";
-      confirmMessage += `- ${partName}: ${qty} un.\n`;
-    });
-
-    const isFirstTime = !state.lockedBins.includes(currentBinIndex);
-
-    if (isFirstTime) {
-        const confirm = window.confirm(confirmMessage);
-        if (!confirm) return;
+    // 3. CONFIRMAÇÃO VISUAL (Se ainda não foi salvo no banco)
+    if (!state.lockedBins.includes(currentBinIndex) && !externalDbSuccess) {
+        let confirmMessage = `Confirma a produção desta chapa?\n`;
+        confirmMessage += `📊 Aprov. Real: ${efficiency}%\n`;
+        confirmMessage += `📦 Densidade: ${finalDensity}%\n\n`; 
+        
+        if (!window.confirm(confirmMessage)) return;
     }
 
-    // Gera DXF
+    // 4. GERAÇÃO DO CONTEÚDO DXF
     const dxfString = generateDxfContent(
         currentBinParts, 
         displayedParts, 
@@ -96,16 +84,18 @@ export const useProductionManager = (
     const blob = new Blob([dxfString], { type: "application/dxf" });
     const suggestedName = `Nesting_Chapa_${currentBinIndex + 1}_${new Date().toISOString().slice(0, 10)}.dxf`;
 
-    // Salvar
     setState(prev => ({ ...prev, isSaving: true }));
-    let dbSuccess = false;
+
+    // Define sucesso do banco (se veio de fora, já é true)
+    let dbSuccess = externalDbSuccess; 
 
     try {
-        // --- ETAPA A: Registrar no Banco ---
-        if (isFirstTime) {
-            if (user && user.plano === 'Premium Dev' && user.token) {
+        // --- ETAPA A: TENTATIVA DE SALVAR NO BANCO (Fallback legado) ---
+        // Só executa se NÃO veio sucesso externo E temos usuário/token
+        if (!externalDbSuccess && user && user.token) {
+             const validPlans = ['Premium Dev', 'Premium', 'Corporativo'];
+             if (validPlans.includes(user.plano)) {
                 const itensPayload = Object.entries(partsCount).map(([id, qtd]) => ({ id, qtd }));
-                
                 if (itensPayload.length > 0) {
                     try {
                         const response = await fetch('http://localhost:3001/api/producao/registrar', {
@@ -117,23 +107,65 @@ export const useProductionManager = (
                             body: JSON.stringify({
                                 chapaIndex: currentBinIndex,
                                 aproveitamento: efficiency,
-                                densidade: finalDensity, // <--- Envia o valor correto
+                                densidade: finalDensity,
                                 itens: itensPayload
                             })
                         });
-
-                        if (response.ok) {
-                            dbSuccess = true;
-                        } else {
-                            console.warn("Banco recusou registro.");
-                        }
+                        if (response.ok) dbSuccess = true;
                     } catch (dbErr) {
-                        console.warn("Erro ao conectar com o banco.", dbErr);
+                        console.warn("Falha no registro legado:", dbErr);
                     }
                 }
+             }
+        }
+
+       // --- ETAPA B: ABRIR JANELA "SALVAR COMO" (File System Access API) ---
+        let fileSaved = false;
+
+        if ('showSaveFilePicker' in window) {
+            try {
+                // CORREÇÃO AQUI: (window as any) garante que o TS aceite a função
+                const fileHandle = await (window as any).showSaveFilePicker({
+                    suggestedName: suggestedName,
+                    types: [{
+                        description: 'Arquivo DXF AutoCAD',
+                        accept: { 'application/dxf': ['.dxf'] }
+                    }],
+                });
+
+                // Se chegou aqui, o usuário escolheu a pasta e clicou em "Salvar"
+                // fileHandle também pode vir sem tipo, então garantimos o acesso com 'any' se necessário
+                const writable = await (fileHandle as any).createWritable();
+                await writable.write(blob);
+                await writable.close();
+                fileSaved = true;
+
+            } catch (err: any) {
+                if (err.name === 'AbortError') {
+                    console.log("Usuário cancelou o salvamento.");
+                    return; 
+                }
+                console.error("Erro na API de arquivos:", err);
             }
-            
-            // Atualiza estado local
+        }
+
+        // --- ETAPA C: FALLBACK (Download Clássico) ---
+        // Só executa se o método moderno falhou (e não foi cancelado) ou não é suportado
+        if (!fileSaved) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = suggestedName;
+            document.body.appendChild(a);
+            a.click(); // Dispara o download (pode ir para Downloads ou perguntar, depende do browser)
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            fileSaved = true;
+        }
+
+        // --- ATUALIZAÇÃO DE ESTADO FINAL ---
+        if (fileSaved) {
+            // Atualiza estado local de quantidades produzidas
             setState(prev => {
                 const newQuantities = { ...prev.producedQuantities };
                 Object.entries(partsCount).forEach(([id, qty]) => {
@@ -142,60 +174,29 @@ export const useProductionManager = (
                 return {
                   ...prev,
                   producedQuantities: newQuantities,
-                  lockedBins: [...prev.lockedBins, currentBinIndex]
+                  // Adiciona aos travados apenas se não estava
+                  lockedBins: prev.lockedBins.includes(currentBinIndex) 
+                    ? prev.lockedBins 
+                    : [...prev.lockedBins, currentBinIndex]
                 };
             });
-        }
 
-        // --- ETAPA B: Salvar Arquivo ---
-        let fileHandle: any = null;
-        let fileSaved = false;
-
-        if ('showSaveFilePicker' in window) {
-            try {
-                fileHandle = await (window as any).showSaveFilePicker({
-                    suggestedName: suggestedName,
-                    types: [{ description: 'Arquivo DXF AutoCAD', accept: { 'application/dxf': ['.dxf'] } }],
-                });
-                if (fileHandle) {
-                    const writable = await fileHandle.createWritable();
-                    await writable.write(blob);
-                    await writable.close();
-                    fileSaved = true;
-                }
-            } catch (err: any) {
-                // CORREÇÃO DO ESLINT: Tratamos o erro aqui
-                if (err.name !== 'AbortError') {
-                    console.error("Erro ou cancelamento na API nativa:", err);
-                }
-            }
-        }
-
-        if (!fileSaved && !fileHandle) {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url; a.download = suggestedName;
-            document.body.appendChild(a); a.click();
-            document.body.removeChild(a); URL.revokeObjectURL(url);
-            fileSaved = true;
-        }
-
-        if (fileSaved) {
+            // Mensagem Final ao Usuário
             if (dbSuccess) {
                 alert("✅ Arquivo Salvo e Produção Registrada no Banco!");
             } else {
-                alert("⚠️ Arquivo DXF gerado com sucesso!\n\n(Nota: O registro no banco de dados não foi realizado. Disponível apenas no plano Premium).");
+                alert("⚠️ Arquivo DXF salvo localmente!\n\n(Aviso: O registro no banco de dados não foi confirmado. Verifique sua conexão ou plano).");
             }
         }
 
     } catch (error) {
-        console.error("Erro fatal:", error);
-        alert("❌ Erro ao gerar o arquivo.");
+        console.error("Erro fatal no processo de download:", error);
+        alert("❌ Erro ao processar o arquivo.");
     } finally {
         setState(prev => ({ ...prev, isSaving: false }));
     }
 
-  }, [binSize, state.lockedBins]); 
+  }, [binSize, state.lockedBins]);
 
   const resetProduction = useCallback(() => {
       setState({ producedQuantities: {}, lockedBins: [], isSaving: false });

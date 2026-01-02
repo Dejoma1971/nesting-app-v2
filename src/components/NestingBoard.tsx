@@ -32,6 +32,9 @@ import { SubscriptionPanel } from "./SubscriptionPanel";
 import { SidebarMenu } from "../components/SidebarMenu";
 // import { generateGuillotineReport } from "../utils/pdfGenerator";
 import { useNestingAutoSave } from "../hooks/useNestingAutoSave";
+// ... outras importações
+import { useProductionRegister } from "../hooks/useProductionRegister"; // <--- GARANTA ESTA LINHA
+
 
 interface Size {
   width: number;
@@ -578,6 +581,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     resetProduction,
   } = useProductionManager(binSize);
 
+  // --- NOVO HOOK DE REGISTRO ---
+  const { registerProduction } = useProductionRegister();
+
   // Efeito para carregar a lista quando o modal abrir
   useEffect(() => {
     if (isSearchModalOpen && user?.token) {
@@ -1005,11 +1011,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   }, [undo, redo, selectedPartIds, handleReturnToBank]);
 
   const handleSaveClick = async () => {
+    // Validação básica se tem peças
     const partsInBin = nestingResult.filter((p) => p.binId === currentBinIndex);
     if (partsInBin.length === 0 && cropLines.length === 0) return;
 
-    // 1. CONVERTE A DENSIDADE DA TELA PARA NÚMERO
-    // O valor na tela é texto (ex: "85,5"), precisamos trocar vírgula por ponto.
+    // 1. Prepara a densidade numérica
     let densidadeNumerica = 0;
     if (currentEfficiencies && currentEfficiencies.effective) {
       densidadeNumerica = Number(
@@ -1017,24 +1023,40 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       );
     }
 
-    // DEBUG: Olhe no console (F12) se o número aparece correto
-    console.log(
-      "Enviando para o Banco -> Aprov:",
-      currentEfficiencies.real,
-      "| Densidade:",
-      densidadeNumerica
-    );
+    // 2. ETAPA BANCO DE DADOS (Usa o registerProduction)
+    let bancoSalvoComSucesso = false;
 
+    if (user && user.token) {
+        // Chama o hook dedicado ao banco, passando o MOTOR
+        const registro = await registerProduction({
+            nestingResult,
+            currentBinIndex,
+            parts: displayedParts,
+            user,
+            densidadeNumerica,
+            cropLines,
+            motor: strategy // <--- Passa 'guillotine' ou 'true-shape'
+        });
+
+        if (registro.success) {
+            bancoSalvoComSucesso = true; // Marca que deu certo
+            markBinAsSaved(currentBinIndex); // Atualiza visualmente (ícone verde)
+        } else {
+            console.warn("Aviso do banco:", registro.message);
+        }
+    }
+
+    // 3. ETAPA ARQUIVO DXF (Usa o handleProductionDownload)
+    // Passamos 'bancoSalvoComSucesso' para que ele saiba que não precisa tentar salvar de novo
     await handleProductionDownload(
       nestingResult,
       currentBinIndex,
       displayedParts,
       cropLines,
-      user, // 5º Parâmetro: Usuário
-      densidadeNumerica // 6º Parâmetro: A DENSIDADE CORRETA (Isso que faltava!)
+      null, // User null para garantir que o manager antigo não tente salvar no banco
+      densidadeNumerica,
+      bancoSalvoComSucesso // <--- O PARÂMETRO MAIS IMPORTANTE
     );
-
-    markBinAsSaved(currentBinIndex);
   };
 
   const handleCalculate = useCallback(() => {
