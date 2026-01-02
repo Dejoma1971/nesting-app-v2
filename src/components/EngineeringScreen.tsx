@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React from "react";
+import React, { useState } from "react";
 import { calculateBoundingBox } from "../utils/geometryCore";
 import { SubscriptionPanel } from "./SubscriptionPanel";
 import { useTheme } from "../context/ThemeContext";
@@ -19,6 +19,7 @@ const PRODUCTION_TYPES = [
 
 export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   const { isDarkMode, theme } = useTheme();
+  
 
   // 1. Desestruturando tudo do Hook (inclusive as novas listas)
   const {
@@ -48,6 +49,30 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     thicknessList, // <--- AGORA VAMOS USAR
     refreshData,
   } = useEngineeringLogic(props);
+
+  // --- NOVO: Lógica do Aviso "Cortar Agora" ---
+  const [showCutWarning, setShowCutWarning] = useState(false);
+  const [dontShowAgain, setDontShowAgain] = useState(false);
+
+  const handleCutNowClick = () => {
+    // Verifica se o usuário já marcou para pular este aviso
+    const skip = localStorage.getItem("skipCutNowWarning");
+
+    if (skip === "true") {
+      handleDirectNesting(); // Vai direto pro Nesting
+    } else {
+      setShowCutWarning(true); // Mostra o aviso
+    }
+  };
+
+  const confirmCutNow = () => {
+    if (dontShowAgain) {
+      localStorage.setItem("skipCutNowWarning", "true");
+    }
+    setShowCutWarning(false);
+    handleDirectNesting();
+  };
+  // ---------------------------------------------
 
   const { parts, onBack } = props;
 
@@ -395,7 +420,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             💾 Storage DB
           </button>
           <button
-            onClick={handleDirectNesting}
+            onClick={handleCutNowClick}
             style={{
               background: "#6f42c1",
               color: "white",
@@ -1216,6 +1241,76 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           </div>
         </div>
       )}
+
+      {/* --- MODAL DE ALERTA: CORTAR AGORA --- */}
+      {showCutWarning && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}>
+          <div style={{
+            backgroundColor: theme.modalBg || '#fff', 
+            color: theme.text || '#000',
+            padding: '25px', borderRadius: '8px',
+            maxWidth: '450px', width: '90%', 
+            boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
+            border: `1px solid ${theme.border}`
+          }}>
+            <h3 style={{ marginTop: 0, color: '#d9534f' }}>⚠️ Modo Rápido (Sem Histórico)</h3>
+            
+            <p style={{ lineHeight: '1.5', fontSize: '14px', opacity: 0.9 }}>
+              Você escolheu a opção <strong>"Cortar Agora"</strong>.
+            </p>
+            <p style={{ lineHeight: '1.5', fontSize: '14px', opacity: 0.9 }}>
+              Neste modo, as peças <strong>NÃO serão salvas</strong> no Banco de Dados. 
+              Consequentemente, esta produção não aparecerá nos relatórios de custos, 
+              retrabalho ou rastreabilidade de pedidos.
+            </p>
+            <p style={{ lineHeight: '1.5', fontSize: '14px', opacity: 0.9 }}>
+              Deseja prosseguir mesmo assim?
+            </p>
+
+            <div style={{ margin: '20px 0', display: 'flex', alignItems: 'center' }}>
+              <input 
+                type="checkbox" 
+                id="dontShowAgain" 
+                checked={dontShowAgain}
+                onChange={(e) => setDontShowAgain(e.target.checked)}
+                style={{ width: '18px', height: '18px', marginRight: '10px', cursor: 'pointer' }}
+              />
+              <label htmlFor="dontShowAgain" style={{ cursor: 'pointer', userSelect: 'none', fontSize: '13px' }}>
+                Não mostrar esta mensagem novamente
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button 
+                onClick={() => setShowCutWarning(false)}
+                style={{
+                  padding: '10px 20px', border: `1px solid ${theme.border}`, borderRadius: '4px',
+                  backgroundColor: theme.inputBg, color: theme.text, cursor: 'pointer', fontWeight: 'bold'
+                }}
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={confirmCutNow}
+                style={{
+                  padding: '10px 20px', border: 'none', borderRadius: '4px',
+                  backgroundColor: '#d9534f', color: '#fff', cursor: 'pointer', fontWeight: 'bold'
+                }}
+              >
+                Continuar sem Salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- Fim do Modal --- */}
+
+
       {isMaterialModalOpen && (
         <MaterialConfigModal
           user={user}
