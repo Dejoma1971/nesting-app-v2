@@ -8,6 +8,15 @@ import { MaterialConfigModal } from "../components/MaterialConfigModal";
 import type { EngineeringScreenProps } from "./types"; // <--- Import com type
 import { useEngineeringLogic } from "../hooks/useEngineeringLogic"; // Ajuste o caminho se necessário (ex: ../hooks/)
 
+// Mapeamento amigável para o usuário vs Valor no Banco
+const PRODUCTION_TYPES = [
+  { label: "Normal", value: "NORMAL" },
+  { label: "Peça Extraviada", value: "RETRABALHO_PERDA" },
+  { label: "Erro de Processo", value: "RETRABALHO_PROCESSO" },
+  { label: "Erro de Projeto", value: "ERRO_ENGENHARIA" },
+  { label: "Erro Comercial", value: "ERRO_COMERCIAL" },
+];
+
 export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   const { isDarkMode, theme } = useTheme();
 
@@ -29,7 +38,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     handleRowChange,
     handleDeletePart,
     handleReset,
-    handleConvertToBlock,
     handleConvertAllToBlocks,
     handleStorageDB,
     handleDirectNesting,
@@ -242,18 +250,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     fontSize: "inherit",
     borderBottom: `1px solid ${theme.border}`,
   };
-  const deleteBtnStyle: React.CSSProperties = {
-    background: "transparent",
-    border: "none",
-    cursor: "pointer",
-    fontSize: "14px",
-  };
-  const blockBtnStyle: React.CSSProperties = {
-    background: "transparent",
-    border: "none",
-    cursor: "pointer",
-    fontSize: "14px",
-  };
 
   const viewingPart = viewingPartId
     ? parts.find((p) => p.id === viewingPartId)
@@ -427,16 +423,16 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
       </div>
 
       <div style={batchContainerStyle}>
-        <div
+        {/* <div
           style={{
             color: theme.text,
             fontWeight: "bold",
-            marginRight: "20px",
-            fontSize: "14px",
+            marginRight: "10px",
+            fontSize: "10px",
           }}
         >
           PADRÃO DO LOTE:
-        </div>
+        </div> */}
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
             PEDIDO{" "}
@@ -468,6 +464,38 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             placeholder="Ex: 5020"
           />
         </div>
+
+        {/* --- INSERÇÃO: TIPO DE PRODUÇÃO (BATCH) --- */}
+        <div style={inputGroupStyle}>
+          <label style={labelStyle}>
+            TIPO PRODUÇÃO{" "}
+            <button
+              style={applyButtonStyle}
+              onClick={() => applyToAll("tipo_producao")}
+            >
+              Aplicar Todos
+            </button>
+          </label>
+          <select
+            style={{
+              ...inputStyle,
+              width: "160px",
+              background: theme.inputBg,
+              color: theme.text,
+            }}
+            value={batchDefaults.tipo_producao || "NORMAL"}
+            onChange={(e) =>
+              handleDefaultChange("tipo_producao", e.target.value)
+            }
+          >
+            {PRODUCTION_TYPES.map((pt) => (
+              <option key={pt.value} value={pt.value}>
+                {pt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        {/* ------------------------------------------ */}
 
         {/* --- SELECT DE MATERIAIS DO LOTE (DINÂMICO) --- */}
         <div style={inputGroupStyle}>
@@ -588,7 +616,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           style={{
             background: "#007bff",
             color: "white",
-            padding: "10px 20px",
+            padding: "10px 15px",
             borderRadius: "4px",
             cursor: "pointer",
             fontSize: "13px",
@@ -789,10 +817,17 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 </th>
                 <th style={{ ...tableHeaderStyle, width: "80px" }}>Pedido</th>
                 <th style={{ ...tableHeaderStyle, width: "80px" }}>OP</th>
+                {/* --- INSERIR ESTE TH --- */}
+                <th style={{ ...tableHeaderStyle, width: "140px" }}>
+                  Tipo Produção
+                </th>
+                {/* ----------------------- */}
                 <th style={{ ...tableHeaderStyle, width: "180px" }}>
                   Material
                 </th>
-                <th style={{ ...tableHeaderStyle, width: "250px" }}>Espessura.</th>
+                <th style={{ ...tableHeaderStyle, width: "250px" }}>
+                  Espessura.
+                </th>
                 <th style={tableHeaderStyle}>Dimensões</th>
                 <th style={tableHeaderStyle}>Área (m²)</th>
                 <th style={tableHeaderStyle} title="Complexidade da peça">
@@ -807,17 +842,26 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 >
                   Qtd.
                 </th>
-                <th style={tableHeaderStyle}>Ações</th>
               </tr>
             </thead>
             <tbody>
               {parts.map((part, i) => {
                 const isSelected = part.id === selectedPartId;
+                // --- INSERIR LOGICA DE COR ---
+                const isRetrabalho =
+                  part.tipo_producao && part.tipo_producao !== "NORMAL";
+                const textColor = isRetrabalho ? "#f81010ff" : "inherit"; // Texto vermelho se retrabalho
+
+                // Ajustar background para destacar retrabalho
                 const rowBackground = isSelected
                   ? theme.selectedRow
+                  : isRetrabalho
+                  ? "rgba(220, 53, 69, 0.08)" // Fundo levemente avermelhado
                   : i % 2 === 0
                   ? "transparent"
                   : theme.hoverRow;
+                // -----------------------------
+
                 const entCount = part.entities.length;
                 const entColor =
                   entCount === 1
@@ -868,6 +912,43 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                         }
                       />
                     </td>
+
+                    {/* --- INSERÇÃO: CÉLULA TIPO PRODUÇÃO --- */}
+                    <td style={tableCellStyle}>
+                      <select
+                        style={{
+                          ...cellInputStyle,
+                          width: "100%",
+                          border: "none",
+                          background: "transparent",
+                          color: textColor, // Usa a cor vermelha se necessário
+                          fontWeight: isRetrabalho ? "bold" : "normal",
+                          fontSize: "12px",
+                        }}
+                        value={part.tipo_producao || "NORMAL"}
+                        onChange={(e) =>
+                          handleRowChange(
+                            part.id,
+                            "tipo_producao",
+                            e.target.value
+                          )
+                        }
+                      >
+                        {PRODUCTION_TYPES.map((pt) => (
+                          <option
+                            key={pt.value}
+                            value={pt.value}
+                            style={{
+                              background: theme.cardBg,
+                              color: theme.text,
+                            }}
+                          >
+                            {pt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    {/* -------------------------------------- */}
 
                     {/* --- TABELA: SELECT MATERIAL DINÂMICO --- */}
                     <td style={tableCellStyle}>
@@ -974,26 +1055,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                           color: "#007bff",
                         }}
                       />
-                    </td>
-                    <td style={tableCellStyle}>
-                      <div style={{ display: "flex", gap: "10px" }}>
-                        {entCount > 1 && (
-                          <button
-                            style={blockBtnStyle}
-                            onClick={(e) => handleConvertToBlock(part.id, e)}
-                            title="Converter para Bloco Único"
-                          >
-                            📦
-                          </button>
-                        )}
-                        <button
-                          style={deleteBtnStyle}
-                          onClick={(e) => handleDeletePart(part.id, e)}
-                          title="Excluir peça"
-                        >
-                          🗑️
-                        </button>
-                      </div>
                     </td>
                   </tr>
                 );

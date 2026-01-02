@@ -38,6 +38,7 @@ export const useEngineeringLogic = ({
     material: "Inox 304",
     espessura: "20",
     autor: "",
+    tipo_producao: "NORMAL",
   });
 
   // Estados das Listas Dinâmicas
