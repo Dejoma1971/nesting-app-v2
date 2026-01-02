@@ -4,18 +4,40 @@ import DxfParser from "dxf-parser";
 import { useAuth } from "../context/AuthContext";
 import { flattenGeometry } from "../utils/geometryCore";
 import { EngineeringService } from "../components/menus/engineeringService";
-import type { 
-    BatchDefaults, 
-    EngineeringScreenProps, 
-    ImportedPart, 
-    CustomMaterial, 
-    CustomThickness 
+import type {
+  BatchDefaults,
+  EngineeringScreenProps,
+  ImportedPart,
+  CustomMaterial,
+  CustomThickness,
 } from "../components/types";
-import { processFileToParts, applyRotationToPart } from "../utils/engineeringUtil";
+import {
+  processFileToParts,
+  applyRotationToPart,
+} from "../utils/engineeringUtil";
 
 // LISTAS ESTÁTICAS (Fallback para modo Trial ou erro)
-const STATIC_THICKNESS = ["28", "26", "24", "22", "20", "18", "16", "14", '1/8"', '3/16"', '1/4"', '5/16"'];
-const STATIC_MATERIALS = ["Inox 304", "Inox 430", "Aço Carbono", "Galvanizado", "Alumínio"];
+const STATIC_THICKNESS = [
+  "28",
+  "26",
+  "24",
+  "22",
+  "20",
+  "18",
+  "16",
+  "14",
+  '1/8"',
+  '3/16"',
+  '1/4"',
+  '5/16"',
+];
+const STATIC_MATERIALS = [
+  "Inox 304",
+  "Inox 430",
+  "Aço Carbono",
+  "Galvanizado",
+  "Alumínio",
+];
 
 export const useEngineeringLogic = ({
   parts,
@@ -23,7 +45,7 @@ export const useEngineeringLogic = ({
   onSendToNesting,
 }: EngineeringScreenProps) => {
   const { user } = useAuth();
-  
+
   // --- STATES ---
   const [loading, setLoading] = useState(false);
   const [processingMsg, setProcessingMsg] = useState("");
@@ -31,7 +53,7 @@ export const useEngineeringLogic = ({
   const [viewingPartId, setViewingPartId] = useState<string | null>(null);
   const [isTrial, setIsTrial] = useState(false);
   const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
-  
+
   const [batchDefaults, setBatchDefaults] = useState<BatchDefaults>({
     pedido: "",
     op: "",
@@ -43,7 +65,8 @@ export const useEngineeringLogic = ({
 
   // Estados das Listas Dinâmicas
   const [materialList, setMaterialList] = useState<string[]>(STATIC_MATERIALS);
-  const [thicknessList, setThicknessList] = useState<string[]>(STATIC_THICKNESS);
+  const [thicknessList, setThicknessList] =
+    useState<string[]>(STATIC_THICKNESS);
 
   // --- NOVA FUNÇÃO: REFRESH DATA (Busca dados sem recarregar a página) ---
   const refreshData = useCallback(async () => {
@@ -51,8 +74,10 @@ export const useEngineeringLogic = ({
 
     try {
       // 1. Verifica Status da Assinatura
-      const subData = await EngineeringService.getSubscriptionStatus(user.token);
-      
+      const subData = await EngineeringService.getSubscriptionStatus(
+        user.token
+      );
+
       if (subData.status === "trial") {
         // MODO TRIAL: Usa listas estáticas
         setIsTrial(true);
@@ -61,23 +86,27 @@ export const useEngineeringLogic = ({
       } else {
         // MODO ASSINANTE: Busca do Banco
         setIsTrial(false);
-        
+
         // Busca em paralelo para ser mais rápido
         const [mats, thicks] = await Promise.all([
-            EngineeringService.getCustomMaterials(user.token),
-            EngineeringService.getCustomThicknesses(user.token)
+          EngineeringService.getCustomMaterials(user.token),
+          EngineeringService.getCustomThicknesses(user.token),
         ]);
 
         // Processa Materiais
         if (mats && (mats as CustomMaterial[]).length > 0) {
-            const nomesUnicos = Array.from(new Set((mats as CustomMaterial[]).map(m => m.nome)));
-            setMaterialList(nomesUnicos as string[]);
+          const nomesUnicos = Array.from(
+            new Set((mats as CustomMaterial[]).map((m) => m.nome))
+          );
+          setMaterialList(nomesUnicos as string[]);
         }
-        
+
         // Processa Espessuras
         if (thicks && (thicks as CustomThickness[]).length > 0) {
-            const valoresUnicos = Array.from(new Set((thicks as CustomThickness[]).map(t => t.valor)));
-            setThicknessList(valoresUnicos as string[]);
+          const valoresUnicos = Array.from(
+            new Set((thicks as CustomThickness[]).map((t) => t.valor))
+          );
+          setThicknessList(valoresUnicos as string[]);
         }
       }
     } catch (err) {
@@ -203,52 +232,115 @@ export const useEngineeringLogic = ({
   };
 
   const savePartsToDB = async (silent: boolean = false): Promise<boolean> => {
+    // 1. VALIDAÇÃO BÁSICA
     if (parts.length === 0) {
       if (!silent) alert("A lista está vazia. Importe peças primeiro.");
       return false;
     }
 
     if (!user || !user.token) {
-      alert("Erro de Segurança: Você precisa estar logado para salvar no banco.");
+      alert("Erro de Segurança: Você precisa estar logado para salvar.");
       return false;
     }
 
-    // --- GARANTIA DE AUTORIA ---
-    // Criamos uma cópia das peças forçando o Autor do Cabeçalho (batchDefaults)
-    // Isso garante que o banco receba o autor correto mesmo sem a coluna na tabela.
-    const partsToSave = parts.map(p => ({
-        ...p,
-        autor: batchDefaults.autor || user.name // Usa o do cabeçalho ou o nome do usuário logado como fallback
+    // 2. NORMALIZAÇÃO DE DADOS
+    // Garante que campos vazios recebam o padrão antes de validar
+    const partsToProcess = parts.map((p) => ({
+      ...p,
+      tipo_producao: p.tipo_producao || "NORMAL",
+      autor: p.autor || batchDefaults.autor || user.name,
     }));
 
-    const nonBlocks = partsToSave.filter((p) => p.entities.length > 1); // Use partsToSave aqui também
-    if (nonBlocks.length > 0) {
+    // 3. VALIDAÇÃO DE CAMPOS OBRIGATÓRIOS (Pedido)
+    const invalidParts = partsToProcess.filter(
+      (p) => !p.pedido || p.pedido.trim() === ""
+    );
+    if (invalidParts.length > 0) {
       alert(
-        `ATENÇÃO: Existem ${nonBlocks.length} peças que ainda não são Blocos.\n\nPor favor, clique em "📦 Insert/Block" antes de enviar.`
+        `⚠️ AÇÃO BLOQUEADA\n\nExistem ${invalidParts.length} peças sem o número do 'Pedido'.\nEste campo é obrigatório.`
       );
       return false;
     }
 
     setLoading(true);
-    if (!silent) setProcessingMsg("Salvando no Banco de Dados...");
+    if (!silent) setProcessingMsg("Verificando duplicidades...");
 
     try {
-      // ATENÇÃO: Envie 'partsToSave' em vez de 'parts'
-      const data = await EngineeringService.saveParts(user.token, partsToSave);
-      
-      console.log("Resposta do Servidor:", data);
+      // 4. VALIDAÇÃO INTELIGENTE (PEDIDO + NOME)
+
+      // Filtra apenas as peças marcadas como 'NORMAL'
+      // (Se já estiver como Retrabalho, a gente confia no usuário e deixa passar)
+      const normalParts = partsToProcess.filter(
+        (p) => p.tipo_producao === "NORMAL"
+      );
+
+      if (normalParts.length > 0) {
+        // Monta lista simples para enviar ao backend
+        const checkList = normalParts.map((p) => ({
+          pedido: p.pedido!,
+          nome: p.name,
+        }));
+
+        // Pergunta ao servidor: "Quais destas peças já existem?"
+        const duplicadas = await EngineeringService.checkPartsExistence(
+          user.token,
+          checkList
+        );
+
+        if (duplicadas.length > 0) {
+          setLoading(false);
+
+          // Formata mensagem de erro amigável
+          const nomesDuplicados = duplicadas
+            .map((d: any) => d.nome_arquivo)
+            .slice(0, 5)
+            .join(", ");
+          const mais =
+            duplicadas.length > 5 ? `...e mais ${duplicadas.length - 5}` : "";
+
+          alert(
+            `⛔ BLOQUEIO DE DUPLICIDADE\n\n` +
+              `Detectamos ${duplicadas.length} peças que JÁ EXISTEM no banco de dados para os pedidos informados e estão marcadas como 'NORMAL'.\n\n` +
+              `Peças afetadas: ${nomesDuplicados}${mais}\n\n` +
+              `REGRA:\n` +
+              `Você não pode salvar a mesma peça (mesmo nome) no mesmo pedido como produção Normal.\n\n` +
+              `SOLUÇÃO:\n` +
+              `1. Se for peça de reposição: Mude o Tipo para 'RETRABALHO'.\n` +
+              `2. Se for uma peça nova com nome igual: Renomeie o arquivo ou o nome na lista.`
+          );
+          return false;
+        }
+      }
+
+      // 5. SALVAR NO BANCO
+      if (!silent) setProcessingMsg("Salvando no Banco de Dados...");
+
+      // Verificação de Blocos (Legado)
+      const nonBlocks = partsToProcess.filter((p) => p.entities.length > 1);
+      if (nonBlocks.length > 0) {
+        setLoading(false);
+        alert(
+          `ATENÇÃO: Existem ${nonBlocks.length} peças que ainda não são Blocos. Use o botão 📦 Insert/Block.`
+        );
+        return false;
+      }
+
+      const data = await EngineeringService.saveParts(
+        user.token,
+        partsToProcess
+      );
+
       if (!silent)
         alert(
           `✅ SUCESSO!\n\n${
             data.count || parts.length
-          } peças foram gravadas na conta de ${user.name}.`
+          } peças registradas com sucesso.`
         );
+
       return true;
     } catch (error: any) {
-      console.error("Erro de conexão:", error);
-      alert(
-        `❌ ERRO DE CONEXÃO\n\nNão foi possível salvar.\nDetalhes: ${error.message}`
-      );
+      console.error("Erro:", error);
+      alert(`❌ ERRO: ${error.message}`);
       return false;
     } finally {
       setLoading(false);
@@ -287,7 +379,9 @@ export const useEngineeringLogic = ({
         return;
       }
 
-      const subData = await EngineeringService.getSubscriptionStatus(user.token);
+      const subData = await EngineeringService.getSubscriptionStatus(
+        user.token
+      );
       const status = subData.status ? subData.status.toLowerCase() : "";
 
       if (status === "trial" && parts.length > 10) {
@@ -339,7 +433,9 @@ export const useEngineeringLogic = ({
     );
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
@@ -409,8 +505,8 @@ export const useEngineeringLogic = ({
     handleRotatePart,
     handleFileUpload,
     // EXPORTANDO AS LISTAS E A FUNÇÃO DE REFRESH
-    materialList, 
+    materialList,
     thicknessList,
-    refreshData 
+    refreshData,
   };
 };

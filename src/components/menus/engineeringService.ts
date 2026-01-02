@@ -17,6 +17,7 @@ export const EngineeringService = {
   },
 
   // Salvar peças no banco de dados (Storage DB)
+  // CORREÇÃO 1: Adicionada a tipagem ': ImportedPart[]' abaixo
   saveParts: async (token: string, parts: ImportedPart[]) => {
     const response = await fetch(`${API_BASE}/pecas`, {
       method: "POST",
@@ -34,6 +35,39 @@ export const EngineeringService = {
     }
     
     return data;
+  },
+
+  // Verifica se uma lista de peças já existe no banco (Pedido + Nome)
+  checkPartsExistence: async (token: string, items: { pedido: string; nome: string }[]) => {
+    const response = await fetch(`${API_BASE}/pecas/verificar-existencia`, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}` 
+      },
+      // CORREÇÃO 2: Mapeamos o parâmetro 'items' para a chave 'itens' que o backend espera
+      body: JSON.stringify({ itens: items }),
+    });
+
+    if (!response.ok) return [];
+    
+    const data = await response.json();
+    return data.duplicadas || [];
+  },
+
+  // Verifica se o pedido já existe no banco
+  checkOrderExists: async (token: string, pedido: string): Promise<boolean> => {
+    try {
+      const response = await fetch(`${API_BASE}/pedidos/verificar/${pedido}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) return false;
+      const data = await response.json();
+      return data.exists;
+    } catch (error) {
+      console.error("Erro ao verificar pedido:", error);
+      return false;
+    }
   },
 
   // ==========================================

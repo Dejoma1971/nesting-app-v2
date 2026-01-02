@@ -184,6 +184,43 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
   }
 });
 
+
+// --- NOVO: VERIFICAR DUPLICIDADE DE PEÇAS (Pedido + Nome) ---
+app.post("/api/pecas/verificar-existencia", authenticateToken, async (req, res) => {
+  const { itens } = req.body; // Espera array de { pedido, nome }
+  const empresaId = req.user.empresa_id;
+
+  if (!itens || !Array.isArray(itens) || itens.length === 0) {
+    return res.json({ duplicadas: [] });
+  }
+
+  try {
+    // Monta uma query dinâmica para verificar vários pares ao mesmo tempo
+    // Ex: WHERE empresa_id = X AND ((pedido = 'A' AND nome_arquivo = 'B') OR (pedido = 'C' AND ...))
+    const conditions = itens.map(() => "(pedido = ? AND nome_arquivo = ?)").join(" OR ");
+    const values = [empresaId];
+    
+    itens.forEach(item => {
+      values.push(item.pedido, item.nome);
+    });
+
+    const sql = `
+      SELECT pedido, nome_arquivo 
+      FROM pecas_engenharia 
+      WHERE empresa_id = ? AND (${conditions})
+    `;
+
+    const [rows] = await db.query(sql, values);
+
+    // Retorna a lista de peças que JÁ EXISTEM no banco
+    res.json({ duplicadas: rows });
+
+  } catch (error) {
+    console.error("Erro na verificação de existência:", error);
+    res.status(500).json({ error: "Erro ao verificar duplicidade." });
+  }
+});
+
 // --- BUSCAR PEÇAS (Todos da empresa veem) ---
 app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
   const { pedido } = req.query;
@@ -197,11 +234,11 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
     .filter(Boolean);
 
   try {
-    const sql = `SELECT * FROM pecas_engenharia WHERE pedido IN (?) AND empresa_id = ?`;
+    const sql = `SELECT * FROM pecas_engenharia WHERE pedido IN (?) AND empresa_id = ? AND status = 'AGUARDANDO'`;
     const [rows] = await db.query(sql, [pedidosArray, empresaId]);
 
     if (rows.length === 0)
-      return res.status(404).json({ message: "Não encontrado." });
+      return res.status(404).json({ message: "Não encontrado ou sem peças pendentes" });
 
     const formattedParts = rows.map((row) => ({
       id: row.id,
@@ -225,6 +262,7 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
           ? JSON.parse(row.blocos_def)
           : row.blocos_def || {},
       dataCadastro: row.data_cadastro,
+      tipo_producao: row.tipo_producao,
     }));
 
     res.json(formattedParts);
@@ -382,8 +420,10 @@ function authenticateToken(req, res, next) {
 app.get("/api/pedidos/disponiveis", authenticateToken, async (req, res) => {
   const empresaId = req.user.empresa_id;
   try {
+    // ALTERAÇÃO: Adicionado "AND status = 'AGUARDANDO'"
+    // Isso garante que pedidos 100% "EM PRODUÇÃO" sumam da lista.
     const [rows] = await db.query(
-      "SELECT DISTINCT pedido FROM pecas_engenharia WHERE empresa_id = ? AND pedido IS NOT NULL AND pedido != '' ORDER BY pedido DESC",
+      "SELECT DISTINCT pedido FROM pecas_engenharia WHERE empresa_id = ? AND status = 'AGUARDANDO' AND pedido IS NOT NULL AND pedido != '' ORDER BY pedido DESC",
       [empresaId]
     );
 
