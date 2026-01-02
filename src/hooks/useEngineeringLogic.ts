@@ -51,6 +51,8 @@ export const useEngineeringLogic = ({
   const [processingMsg, setProcessingMsg] = useState("");
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
   const [viewingPartId, setViewingPartId] = useState<string | null>(null);
+
+  // Inicia como false (otimista) para evitar bloquear botões enquanto carrega
   const [isTrial, setIsTrial] = useState(false);
   const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
 
@@ -63,10 +65,9 @@ export const useEngineeringLogic = ({
     tipo_producao: "NORMAL",
   });
 
-  // Estados das Listas Dinâmicas
-  const [materialList, setMaterialList] = useState<string[]>(STATIC_MATERIALS);
-  const [thicknessList, setThicknessList] =
-    useState<string[]>(STATIC_THICKNESS);
+  // CORREÇÃO: Inicia vazio para não mostrar dados de Trial (estáticos) enquanto carrega
+  const [materialList, setMaterialList] = useState<string[]>([]);
+  const [thicknessList, setThicknessList] = useState<string[]>([]);
 
   // --- NOVA FUNÇÃO: REFRESH DATA (Busca dados sem recarregar a página) ---
   const refreshData = useCallback(async () => {
@@ -79,7 +80,7 @@ export const useEngineeringLogic = ({
       );
 
       if (subData.status === "trial") {
-        // MODO TRIAL: Usa listas estáticas
+        // MODO TRIAL: Carrega listas estáticas
         setIsTrial(true);
         setMaterialList(STATIC_MATERIALS);
         setThicknessList(STATIC_THICKNESS);
@@ -99,6 +100,9 @@ export const useEngineeringLogic = ({
             new Set((mats as CustomMaterial[]).map((m) => m.nome))
           );
           setMaterialList(nomesUnicos as string[]);
+        } else {
+          // Fallback: Se assinante não tiver nada cadastrado, usa estático para não quebrar
+          setMaterialList(STATIC_MATERIALS);
         }
 
         // Processa Espessuras
@@ -107,11 +111,17 @@ export const useEngineeringLogic = ({
             new Set((thicks as CustomThickness[]).map((t) => t.valor))
           );
           setThicknessList(valoresUnicos as string[]);
+        } else {
+          // Fallback
+          setThicknessList(STATIC_THICKNESS);
         }
       }
     } catch (err) {
       console.error("Erro ao atualizar dados:", err);
-      // Em caso de erro crítico, mantém o que tem ou fallback
+      // Em caso de erro de conexão, garante que as listas tenham algo
+      // CORREÇÃO: Usamos 'prev' para não criar dependência e evitar loop infinito
+      setMaterialList((prev) => (prev.length === 0 ? STATIC_MATERIALS : prev));
+      setThicknessList((prev) => (prev.length === 0 ? STATIC_THICKNESS : prev));
     }
   }, [user]);
 
@@ -162,11 +172,12 @@ export const useEngineeringLogic = ({
   const handleBulkDelete = (idsToRemove: string[]) => {
     if (idsToRemove.length === 0) return;
 
-    if (window.confirm(`Tem certeza que deseja excluir ${idsToRemove.length} peças selecionadas?`)) {
-      // Filtra removendo os IDs selecionados
+    if (
+      window.confirm(
+        `Tem certeza que deseja excluir ${idsToRemove.length} peças selecionadas?`
+      )
+    ) {
       const newParts = parts.filter((p) => !idsToRemove.includes(p.id));
-      
-      // CORREÇÃO: Atualiza o estado diretamente usando setParts
       setParts(newParts);
     }
   };
@@ -186,6 +197,7 @@ export const useEngineeringLogic = ({
       material: "Inox 304",
       espessura: "20",
       autor: "",
+      tipo_producao: "NORMAL",
     });
   };
 
@@ -245,7 +257,6 @@ export const useEngineeringLogic = ({
   };
 
   const savePartsToDB = async (silent: boolean = false): Promise<boolean> => {
-    // 1. VALIDAÇÃO BÁSICA
     if (parts.length === 0) {
       if (!silent) alert("A lista está vazia. Importe peças primeiro.");
       return false;
@@ -256,15 +267,12 @@ export const useEngineeringLogic = ({
       return false;
     }
 
-    // 2. NORMALIZAÇÃO DE DADOS
-    // Garante que campos vazios recebam o padrão antes de validar
     const partsToProcess = parts.map((p) => ({
       ...p,
       tipo_producao: p.tipo_producao || "NORMAL",
       autor: p.autor || batchDefaults.autor || user.name,
     }));
 
-    // 3. VALIDAÇÃO DE CAMPOS OBRIGATÓRIOS (Pedido)
     const invalidParts = partsToProcess.filter(
       (p) => !p.pedido || p.pedido.trim() === ""
     );
@@ -279,22 +287,16 @@ export const useEngineeringLogic = ({
     if (!silent) setProcessingMsg("Verificando duplicidades...");
 
     try {
-      // 4. VALIDAÇÃO INTELIGENTE (PEDIDO + NOME)
-
-      // Filtra apenas as peças marcadas como 'NORMAL'
-      // (Se já estiver como Retrabalho, a gente confia no usuário e deixa passar)
       const normalParts = partsToProcess.filter(
         (p) => p.tipo_producao === "NORMAL"
       );
 
       if (normalParts.length > 0) {
-        // Monta lista simples para enviar ao backend
         const checkList = normalParts.map((p) => ({
           pedido: p.pedido!,
           nome: p.name,
         }));
 
-        // Pergunta ao servidor: "Quais destas peças já existem?"
         const duplicadas = await EngineeringService.checkPartsExistence(
           user.token,
           checkList
@@ -302,8 +304,6 @@ export const useEngineeringLogic = ({
 
         if (duplicadas.length > 0) {
           setLoading(false);
-
-          // Formata mensagem de erro amigável
           const nomesDuplicados = duplicadas
             .map((d: any) => d.nome_arquivo)
             .slice(0, 5)
@@ -313,22 +313,16 @@ export const useEngineeringLogic = ({
 
           alert(
             `⛔ BLOQUEIO DE DUPLICIDADE\n\n` +
-              `Detectamos ${duplicadas.length} peças que JÁ EXISTEM no banco de dados para os pedidos informados e estão marcadas como 'NORMAL'.\n\n` +
+              `Detectamos ${duplicadas.length} peças duplicadas no banco.\n\n` +
               `Peças afetadas: ${nomesDuplicados}${mais}\n\n` +
-              `REGRA:\n` +
-              `Você não pode salvar a mesma peça (mesmo nome) no mesmo pedido como produção Normal.\n\n` +
-              `SOLUÇÃO:\n` +
-              `1. Se for peça de reposição: Mude o Tipo para 'RETRABALHO'.\n` +
-              `2. Se for uma peça nova com nome igual: Renomeie o arquivo ou o nome na lista.`
+              `Altere para 'RETRABALHO' se for reposição.`
           );
           return false;
         }
       }
 
-      // 5. SALVAR NO BANCO
       if (!silent) setProcessingMsg("Salvando no Banco de Dados...");
 
-      // Verificação de Blocos (Legado)
       const nonBlocks = partsToProcess.filter((p) => p.entities.length > 1);
       if (nonBlocks.length > 0) {
         setLoading(false);
@@ -376,9 +370,8 @@ export const useEngineeringLogic = ({
     if (nonBlocks.length > 0) {
       alert(
         `⚠️ OTIMIZAÇÃO NECESSÁRIA\n\n` +
-          `Detectamos ${nonBlocks.length} peças contendo geometrias soltas (linhas/arcos).\n` +
-          `Para garantir a velocidade e segurança do Nesting, o arquivo deve ser simplificado.\n\n` +
-          `👉 Por favor, clique no botão amarelo "📦 Insert/Block" acima da lista para corrigir isso automaticamente.`
+          `Detectamos ${nonBlocks.length} geometrias soltas.\n` +
+          `Use "📦 Insert/Block" para corrigir.`
       );
       return;
     }
@@ -401,8 +394,7 @@ export const useEngineeringLogic = ({
         alert(
           `🔒 LIMITE DO TRIAL (MÁX 10 PEÇAS)\n\n` +
             `Você tem ${parts.length} peças na lista.\n` +
-            `O modo gratuito permite enviar apenas 10 peças por vez para o corte.\n\n` +
-            `Remova algumas peças ou assine o plano.`
+            `O modo gratuito permite apenas 10 peças.`
         );
         setLoading(false);
         return;
@@ -426,7 +418,7 @@ export const useEngineeringLogic = ({
     if (parts.length > 0) {
       if (
         !window.confirm(
-          "Você tem peças na lista de engenharia. Ir para o Nesting diretamente NÃO levará estas peças.\n\nDeseja ir para o Nesting vazio?"
+          "Ir para o Nesting diretamente NÃO levará estas peças da lista.\n\nDeseja ir para o Nesting vazio?"
         )
       ) {
         return;
@@ -434,7 +426,6 @@ export const useEngineeringLogic = ({
     }
     onSendToNesting([], "");
   };
-  
 
   const handleRotatePart = (direction: "cw" | "ccw") => {
     if (!viewingPartId) return;
@@ -519,7 +510,6 @@ export const useEngineeringLogic = ({
     handleGoToNestingEmpty,
     handleRotatePart,
     handleFileUpload,
-    // EXPORTANDO AS LISTAS E A FUNÇÃO DE REFRESH
     materialList,
     thicknessList,
     refreshData,

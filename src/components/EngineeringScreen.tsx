@@ -50,18 +50,26 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     refreshData,
   } = useEngineeringLogic(props);
 
+  const { parts, onBack } = props;
+
   // --- NOVO: Lógica do Aviso "Cortar Agora" ---
   const [showCutWarning, setShowCutWarning] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
 
   const handleCutNowClick = () => {
-    // Verifica se o usuário já marcou para pular este aviso
+    // --- CORREÇÃO 2: Validação de mesa vazia ---
+    if (parts.length === 0) {
+      alert("Adicione peças antes de cortar!");
+      return;
+    }
+    // -------------------------------------------
+
     const skip = localStorage.getItem("skipCutNowWarning");
 
     if (skip === "true") {
-      handleDirectNesting(); // Vai direto pro Nesting
+      handleDirectNesting();
     } else {
-      setShowCutWarning(true); // Mostra o aviso
+      setShowCutWarning(true);
     }
   };
 
@@ -98,8 +106,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     handleBulkDelete(selectedIds);
     setSelectedIds([]); // Limpa a seleção
   };
-
-  const { parts, onBack } = props;
 
   // --- RENDER ENTITY FUNCTION ---
   const renderEntity = (
@@ -349,7 +355,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             Engenharia & Projetos
           </h2>
           {loading && (
-            <span style={{ fontSize: "12px", color: "#ffd700" }}>
+            <span style={{ fontSize: "12px", color: "#007bff" }}>
               ⏳ {processingMsg}
             </span>
           )}

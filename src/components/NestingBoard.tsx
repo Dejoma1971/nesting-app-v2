@@ -48,10 +48,6 @@ interface NestingBoardProps {
   onNavigate?: (screen: "home" | "engineering" | "nesting") => void;
 }
 
-const cleanTextContent = (text: string): string => {
-  if (!text) return "";
-  return text.replace(/[^a-zA-Z0-9-]/g, "");
-};
 
 // --- FUNÇÃO AUXILIAR: GERAR COR BASEADA NO TEXTO (PEDIDO) ---
 const stringToColor = (str: string) => {
@@ -675,26 +671,34 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       if (!state) return part;
       const bounds = calculateBoundingBox(part.entities, part.blocks);
       const newEntities = [...part.entities];
-      const rawText = part.pedido || part.op || "";
-      const finalText =
-        typeof cleanTextContent === "function"
-          ? cleanTextContent(rawText)
-          : rawText;
+      // 1. DEFINE O TEXTO PADRÃO (FALLBACK)
+      // Se o usuário não digitou nada, usamos: Pedido > OP > Vazio (sem nome de arquivo)
+      const defaultText = part.pedido || part.op || "";
+
+      // Função auxiliar que decide qual texto usar e gera o vetor
       const addLabelVector = (
         config: LabelConfig,
         color: string,
         type: "white" | "pink"
       ) => {
-        if (config.active && finalText) {
+        // 2. LÓGICA DE PRIORIDADE:
+        // Usa o texto editado (config.text). Se estiver vazio, usa o padrão (defaultText).
+        const textToRender = config.text ? config.text : defaultText;
+
+        // Só desenha se estiver ativo e tiver algum texto para mostrar
+        if (config.active && textToRender) {
           const posX = bounds.cx + config.offsetX;
           const posY = bounds.cy + config.offsetY;
+          
+          // Gera as linhas vetoriais (Agora suporta A-Z e símbolos, sem limpar caracteres)
           const vectorLines = textToVectorLines(
-            finalText,
+            textToRender, // <--- Passamos o texto direto, sem filtrar caracteres
             posX,
             posY,
             config.fontSize,
             color
           );
+
           const rotatedLines = vectorLines.map((line: any) => {
             if (config.rotation === 0) return line;
             const rotatePoint = (x: number, y: number) => {
@@ -714,6 +718,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               ],
             };
           });
+
           const taggedLines = rotatedLines.map((line: any) => ({
             ...line,
             isLabel: true,
@@ -724,6 +729,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           newEntities.push(...taggedLines);
         }
       };
+
+      // Adiciona as etiquetas
       addLabelVector(state.white, "#FFFFFF", "white");
       addLabelVector(state.pink, "#FF00FF", "pink");
       return { ...part, entities: newEntities };
