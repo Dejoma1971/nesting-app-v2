@@ -1,5 +1,4 @@
-import React, { createContext, useState, useContext } from 'react';
-// CORREÇÃO 1: Importação explícita de TIPO (resolve o erro TS 1484)
+import React, { createContext, useState, useContext, useEffect } from 'react';
 import type { ReactNode } from 'react';
 
 // Define a estrutura do Usuário
@@ -26,7 +25,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   
-  // Inicialização Preguiçosa (Lazy): Lê o localStorage apenas na criação
+  // Inicialização: Lê o localStorage
   const [user, setUser] = useState<User | null>(() => {
     const storedUser = localStorage.getItem('autoNest_user');
     if (storedUser) {
@@ -41,8 +40,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return null;
   });
 
-  // CORREÇÃO 2: Removemos 'setLoading' pois ele não é usado
-  // Como a leitura acima é síncrona, o loading é sempre false após o render inicial
   const [loading] = useState(false);
 
   // Função de Login
@@ -58,6 +55,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     window.location.href = '/'; 
   };
 
+  // --- NOVO: OUVINTE DE SESSÃO EXPIRADA ---
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      // 1. Avisa o usuário
+      alert("Sua sessão expirou. Por favor, faça login novamente.");
+      
+      // 2. Executa o logout
+      logout();
+    };
+
+    // Adiciona o ouvinte para o evento customizado
+    window.addEventListener('auth:logout', handleSessionExpired);
+
+    // Remove o ouvinte quando o componente desmontar (limpeza)
+    return () => {
+      window.removeEventListener('auth:logout', handleSessionExpired);
+    };
+  }, []);
+
   return (
     <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user, loading }}>
       {children}
@@ -65,7 +81,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   );
 };
 
-// Ignora aviso do ESLint sobre exportação de componentes + hooks no mesmo arquivo
+// --- CORREÇÃO DO AVISO ---
+// A linha abaixo diz ao ESLint para ignorar a regra de Fast Refresh apenas para o Hook
 // eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const context = useContext(AuthContext);
