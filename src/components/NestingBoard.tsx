@@ -1999,7 +1999,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 border: "none",
                 color: theme.text,
                 cursor: "pointer",
-                fontSize: "22px",
+                fontSize: "24px",
                 display: "flex",
                 alignItems: "center",
                 padding: 0,
@@ -2037,6 +2037,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               alignItems: "center",
               borderRadius: "4px",
               transition: "background 0.2s",
+              opacity: isTrial ? 0.5 : 1,
+              marginLeft: "10px"
             }}
             onMouseEnter={(e) =>
               (e.currentTarget.style.background = theme.hoverRow)
@@ -2051,7 +2053,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           <h2
             style={{
               margin: 0,
-              fontSize: "18px",
+              fontSize: "20px",
               color: "#007bff",
               whiteSpace: "nowrap",
             }}
@@ -2063,14 +2065,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         <div
           style={{
             flex: 1,
-            display: "flex",
-            justifyContent: "center",
-            margin: "0 20px",
+            margin: "0 40px",
+            maxWidth: "400px",
+            fontSize: "12px",
           }}
-        >
-          <div style={{ maxWidth: "400px" }}>
-            <SubscriptionPanel isDarkMode={isDarkMode} />
-          </div>
+        >          
+            <SubscriptionPanel isDarkMode={isDarkMode} />          
         </div>
         {/* ----------------------------------------------- */}
         <div

@@ -335,6 +335,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               fontSize: "24px",
               display: "flex",
               alignItems: "center",
+              padding: 0,
             }}
           >
             <svg
@@ -351,7 +352,56 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               <polyline points="9 22 9 12 15 12 15 22"></polyline>
             </svg>
           </button>
-          <h2 style={{ margin: 0, fontSize: "18px", color: "#007bff" }}>
+
+          {/* --- NOVO ÍCONE MESA DE CORTE --- */}
+          <button
+            onClick={isTrial ? undefined : handleGoToNestingEmpty}
+            title={
+              isTrial
+                ? "Indisponível no modo Trial"
+                : "Ir para a Mesa de Nesting (Buscar peças lá)"
+            }
+            style={{
+              background: "transparent",
+              border: "none",
+              color: theme.text,
+              cursor: isTrial ? "not-allowed" : "pointer",
+              fontSize: "24px",
+              padding: "4px",
+              display: "flex",
+              alignItems: "center",
+              borderRadius: "4px",
+              transition: "background 0.2s",
+              opacity: isTrial ? 0.5 : 1,
+              marginLeft: "10px"
+            }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.background = theme.hoverRow)
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.background = "transparent")
+            }
+          >
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="3" width="7" height="7"></rect>
+              <rect x="14" y="3" width="7" height="7"></rect>
+              <rect x="14" y="14" width="7" height="7"></rect>
+              <rect x="3" y="14" width="7" height="7"></rect>
+            </svg>
+          </button>
+          {/* -------------------------------- */}
+
+
+          <h2 style={{ margin: 5, fontSize: "20px", color: "#007bff" }}>
             Engenharia & Projetos
           </h2>
           {loading && (
@@ -373,44 +423,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         </div>
 
         <div style={{ display: "flex", gap: "15px", alignItems: "center" }}>
-          <button
-            onClick={isTrial ? undefined : handleGoToNestingEmpty}
-            title={
-              isTrial
-                ? "Indisponível no modo Trial"
-                : "Ir para a Mesa de Nesting (Buscar peças lá)"
-            }
-            style={{
-              background: "transparent",
-              color: theme.text,
-              border: `1px solid ${theme.border}`,
-              padding: "8px 12px",
-              borderRadius: "4px",
-              cursor: isTrial ? "not-allowed" : "pointer",
-              opacity: isTrial ? 0.5 : 1,
-              display: "flex",
-              alignItems: "center",
-              gap: "5px",
-              marginRight: "10px",
-            }}
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="3" y="3" width="7" height="7"></rect>
-              <rect x="14" y="3" width="7" height="7"></rect>
-              <rect x="14" y="14" width="7" height="7"></rect>
-              <rect x="3" y="14" width="7" height="7"></rect>
-            </svg>
-            <span style={{ fontSize: "13px" }}>Mesa de Corte</span>
-          </button>
+          
           <button
             onClick={handleReset}
             style={{
