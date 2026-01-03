@@ -4,18 +4,40 @@ import DxfParser from "dxf-parser";
 import { useAuth } from "../context/AuthContext";
 import { flattenGeometry } from "../utils/geometryCore";
 import { EngineeringService } from "../components/menus/engineeringService";
-import type { 
-    BatchDefaults, 
-    EngineeringScreenProps, 
-    ImportedPart, 
-    CustomMaterial, 
-    CustomThickness 
+import type {
+  BatchDefaults,
+  EngineeringScreenProps,
+  ImportedPart,
+  CustomMaterial,
+  CustomThickness,
 } from "../components/types";
-import { processFileToParts, applyRotationToPart } from "../utils/engineeringUtil";
+import {
+  processFileToParts,
+  applyRotationToPart,
+} from "../utils/engineeringUtil";
 
 // LISTAS ESTÁTICAS (Fallback para modo Trial ou erro)
-const STATIC_THICKNESS = ["28", "26", "24", "22", "20", "18", "16", "14", '1/8"', '3/16"', '1/4"', '5/16"'];
-const STATIC_MATERIALS = ["Inox 304", "Inox 430", "Aço Carbono", "Galvanizado", "Alumínio"];
+const STATIC_THICKNESS = [
+  "28",
+  "26",
+  "24",
+  "22",
+  "20",
+  "18",
+  "16",
+  "14",
+  '1/8"',
+  '3/16"',
+  '1/4"',
+  '5/16"',
+];
+const STATIC_MATERIALS = [
+  "Inox 304",
+  "Inox 430",
+  "Aço Carbono",
+  "Galvanizado",
+  "Alumínio",
+];
 
 export const useEngineeringLogic = ({
   parts,
@@ -23,26 +45,29 @@ export const useEngineeringLogic = ({
   onSendToNesting,
 }: EngineeringScreenProps) => {
   const { user } = useAuth();
-  
+
   // --- STATES ---
   const [loading, setLoading] = useState(false);
   const [processingMsg, setProcessingMsg] = useState("");
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
   const [viewingPartId, setViewingPartId] = useState<string | null>(null);
+
+  // Inicia como false (otimista) para evitar bloquear botões enquanto carrega
   const [isTrial, setIsTrial] = useState(false);
   const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
-  
+
   const [batchDefaults, setBatchDefaults] = useState<BatchDefaults>({
     pedido: "",
     op: "",
     material: "Inox 304",
     espessura: "20",
     autor: "",
+    tipo_producao: "NORMAL",
   });
 
-  // Estados das Listas Dinâmicas
-  const [materialList, setMaterialList] = useState<string[]>(STATIC_MATERIALS);
-  const [thicknessList, setThicknessList] = useState<string[]>(STATIC_THICKNESS);
+  // CORREÇÃO: Inicia vazio para não mostrar dados de Trial (estáticos) enquanto carrega
+  const [materialList, setMaterialList] = useState<string[]>([]);
+  const [thicknessList, setThicknessList] = useState<string[]>([]);
 
   // --- NOVA FUNÇÃO: REFRESH DATA (Busca dados sem recarregar a página) ---
   const refreshData = useCallback(async () => {
@@ -50,38 +75,53 @@ export const useEngineeringLogic = ({
 
     try {
       // 1. Verifica Status da Assinatura
-      const subData = await EngineeringService.getSubscriptionStatus(user.token);
-      
+      const subData = await EngineeringService.getSubscriptionStatus(
+        user.token
+      );
+
       if (subData.status === "trial") {
-        // MODO TRIAL: Usa listas estáticas
+        // MODO TRIAL: Carrega listas estáticas
         setIsTrial(true);
         setMaterialList(STATIC_MATERIALS);
         setThicknessList(STATIC_THICKNESS);
       } else {
         // MODO ASSINANTE: Busca do Banco
         setIsTrial(false);
-        
+
         // Busca em paralelo para ser mais rápido
         const [mats, thicks] = await Promise.all([
-            EngineeringService.getCustomMaterials(user.token),
-            EngineeringService.getCustomThicknesses(user.token)
+          EngineeringService.getCustomMaterials(user.token),
+          EngineeringService.getCustomThicknesses(user.token),
         ]);
 
         // Processa Materiais
         if (mats && (mats as CustomMaterial[]).length > 0) {
-            const nomesUnicos = Array.from(new Set((mats as CustomMaterial[]).map(m => m.nome)));
-            setMaterialList(nomesUnicos as string[]);
+          const nomesUnicos = Array.from(
+            new Set((mats as CustomMaterial[]).map((m) => m.nome))
+          );
+          setMaterialList(nomesUnicos as string[]);
+        } else {
+          // Fallback: Se assinante não tiver nada cadastrado, usa estático para não quebrar
+          setMaterialList(STATIC_MATERIALS);
         }
-        
+
         // Processa Espessuras
         if (thicks && (thicks as CustomThickness[]).length > 0) {
-            const valoresUnicos = Array.from(new Set((thicks as CustomThickness[]).map(t => t.valor)));
-            setThicknessList(valoresUnicos as string[]);
+          const valoresUnicos = Array.from(
+            new Set((thicks as CustomThickness[]).map((t) => t.valor))
+          );
+          setThicknessList(valoresUnicos as string[]);
+        } else {
+          // Fallback
+          setThicknessList(STATIC_THICKNESS);
         }
       }
     } catch (err) {
       console.error("Erro ao atualizar dados:", err);
-      // Em caso de erro crítico, mantém o que tem ou fallback
+      // Em caso de erro de conexão, garante que as listas tenham algo
+      // CORREÇÃO: Usamos 'prev' para não criar dependência e evitar loop infinito
+      setMaterialList((prev) => (prev.length === 0 ? STATIC_MATERIALS : prev));
+      setThicknessList((prev) => (prev.length === 0 ? STATIC_THICKNESS : prev));
     }
   }, [user]);
 
@@ -128,6 +168,20 @@ export const useEngineeringLogic = ({
     }
   };
 
+  // --- NOVO: EXCLUSÃO EM MASSA (CORRIGIDO) ---
+  const handleBulkDelete = (idsToRemove: string[]) => {
+    if (idsToRemove.length === 0) return;
+
+    if (
+      window.confirm(
+        `Tem certeza que deseja excluir ${idsToRemove.length} peças selecionadas?`
+      )
+    ) {
+      const newParts = parts.filter((p) => !idsToRemove.includes(p.id));
+      setParts(newParts);
+    }
+  };
+
   const handleReset = () => {
     if (
       parts.length > 0 &&
@@ -143,6 +197,7 @@ export const useEngineeringLogic = ({
       material: "Inox 304",
       espessura: "20",
       autor: "",
+      tipo_producao: "NORMAL",
     });
   };
 
@@ -208,46 +263,91 @@ export const useEngineeringLogic = ({
     }
 
     if (!user || !user.token) {
-      alert("Erro de Segurança: Você precisa estar logado para salvar no banco.");
+      alert("Erro de Segurança: Você precisa estar logado para salvar.");
       return false;
     }
 
-    // --- GARANTIA DE AUTORIA ---
-    // Criamos uma cópia das peças forçando o Autor do Cabeçalho (batchDefaults)
-    // Isso garante que o banco receba o autor correto mesmo sem a coluna na tabela.
-    const partsToSave = parts.map(p => ({
-        ...p,
-        autor: batchDefaults.autor || user.name // Usa o do cabeçalho ou o nome do usuário logado como fallback
+    const partsToProcess = parts.map((p) => ({
+      ...p,
+      tipo_producao: p.tipo_producao || "NORMAL",
+      autor: p.autor || batchDefaults.autor || user.name,
     }));
 
-    const nonBlocks = partsToSave.filter((p) => p.entities.length > 1); // Use partsToSave aqui também
-    if (nonBlocks.length > 0) {
+    const invalidParts = partsToProcess.filter(
+      (p) => !p.pedido || p.pedido.trim() === ""
+    );
+    if (invalidParts.length > 0) {
       alert(
-        `ATENÇÃO: Existem ${nonBlocks.length} peças que ainda não são Blocos.\n\nPor favor, clique em "📦 Insert/Block" antes de enviar.`
+        `⚠️ AÇÃO BLOQUEADA\n\nExistem ${invalidParts.length} peças sem o número do 'Pedido'.\nEste campo é obrigatório.`
       );
       return false;
     }
 
     setLoading(true);
-    if (!silent) setProcessingMsg("Salvando no Banco de Dados...");
+    if (!silent) setProcessingMsg("Verificando duplicidades...");
 
     try {
-      // ATENÇÃO: Envie 'partsToSave' em vez de 'parts'
-      const data = await EngineeringService.saveParts(user.token, partsToSave);
-      
-      console.log("Resposta do Servidor:", data);
+      const normalParts = partsToProcess.filter(
+        (p) => p.tipo_producao === "NORMAL"
+      );
+
+      if (normalParts.length > 0) {
+        const checkList = normalParts.map((p) => ({
+          pedido: p.pedido!,
+          nome: p.name,
+        }));
+
+        const duplicadas = await EngineeringService.checkPartsExistence(
+          user.token,
+          checkList
+        );
+
+        if (duplicadas.length > 0) {
+          setLoading(false);
+          const nomesDuplicados = duplicadas
+            .map((d: any) => d.nome_arquivo)
+            .slice(0, 5)
+            .join(", ");
+          const mais =
+            duplicadas.length > 5 ? `...e mais ${duplicadas.length - 5}` : "";
+
+          alert(
+            `⛔ BLOQUEIO DE DUPLICIDADE\n\n` +
+              `Detectamos ${duplicadas.length} peças duplicadas no banco.\n\n` +
+              `Peças afetadas: ${nomesDuplicados}${mais}\n\n` +
+              `Altere para 'RETRABALHO' se for reposição.`
+          );
+          return false;
+        }
+      }
+
+      if (!silent) setProcessingMsg("Salvando no Banco de Dados...");
+
+      const nonBlocks = partsToProcess.filter((p) => p.entities.length > 1);
+      if (nonBlocks.length > 0) {
+        setLoading(false);
+        alert(
+          `ATENÇÃO: Existem ${nonBlocks.length} peças que ainda não são Blocos. Use o botão 📦 Insert/Block.`
+        );
+        return false;
+      }
+
+      const data = await EngineeringService.saveParts(
+        user.token,
+        partsToProcess
+      );
+
       if (!silent)
         alert(
           `✅ SUCESSO!\n\n${
             data.count || parts.length
-          } peças foram gravadas na conta de ${user.name}.`
+          } peças registradas com sucesso.`
         );
+
       return true;
     } catch (error: any) {
-      console.error("Erro de conexão:", error);
-      alert(
-        `❌ ERRO DE CONEXÃO\n\nNão foi possível salvar.\nDetalhes: ${error.message}`
-      );
+      console.error("Erro:", error);
+      alert(`❌ ERRO: ${error.message}`);
       return false;
     } finally {
       setLoading(false);
@@ -270,9 +370,8 @@ export const useEngineeringLogic = ({
     if (nonBlocks.length > 0) {
       alert(
         `⚠️ OTIMIZAÇÃO NECESSÁRIA\n\n` +
-          `Detectamos ${nonBlocks.length} peças contendo geometrias soltas (linhas/arcos).\n` +
-          `Para garantir a velocidade e segurança do Nesting, o arquivo deve ser simplificado.\n\n` +
-          `👉 Por favor, clique no botão amarelo "📦 Insert/Block" acima da lista para corrigir isso automaticamente.`
+          `Detectamos ${nonBlocks.length} geometrias soltas.\n` +
+          `Use "📦 Insert/Block" para corrigir.`
       );
       return;
     }
@@ -286,15 +385,16 @@ export const useEngineeringLogic = ({
         return;
       }
 
-      const subData = await EngineeringService.getSubscriptionStatus(user.token);
+      const subData = await EngineeringService.getSubscriptionStatus(
+        user.token
+      );
       const status = subData.status ? subData.status.toLowerCase() : "";
 
       if (status === "trial" && parts.length > 10) {
         alert(
           `🔒 LIMITE DO TRIAL (MÁX 10 PEÇAS)\n\n` +
             `Você tem ${parts.length} peças na lista.\n` +
-            `O modo gratuito permite enviar apenas 10 peças por vez para o corte.\n\n` +
-            `Remova algumas peças ou assine o plano.`
+            `O modo gratuito permite apenas 10 peças.`
         );
         setLoading(false);
         return;
@@ -318,7 +418,7 @@ export const useEngineeringLogic = ({
     if (parts.length > 0) {
       if (
         !window.confirm(
-          "Você tem peças na lista de engenharia. Ir para o Nesting diretamente NÃO levará estas peças.\n\nDeseja ir para o Nesting vazio?"
+          "Ir para o Nesting diretamente NÃO levará estas peças da lista.\n\nDeseja ir para o Nesting vazio?"
         )
       ) {
         return;
@@ -338,7 +438,9 @@ export const useEngineeringLogic = ({
     );
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
@@ -399,6 +501,7 @@ export const useEngineeringLogic = ({
     applyToAll,
     handleRowChange,
     handleDeletePart,
+    handleBulkDelete,
     handleReset,
     handleConvertToBlock,
     handleConvertAllToBlocks,
@@ -407,9 +510,8 @@ export const useEngineeringLogic = ({
     handleGoToNestingEmpty,
     handleRotatePart,
     handleFileUpload,
-    // EXPORTANDO AS LISTAS E A FUNÇÃO DE REFRESH
-    materialList, 
+    materialList,
     thicknessList,
-    refreshData 
+    refreshData,
   };
 };

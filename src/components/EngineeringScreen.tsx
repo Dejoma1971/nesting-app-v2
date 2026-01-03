@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React from "react";
+import React, { useState } from "react";
 import { calculateBoundingBox } from "../utils/geometryCore";
 import { SubscriptionPanel } from "./SubscriptionPanel";
 import { useTheme } from "../context/ThemeContext";
@@ -7,6 +7,15 @@ import { SidebarMenu } from "../components/SidebarMenu";
 import { MaterialConfigModal } from "../components/MaterialConfigModal";
 import type { EngineeringScreenProps } from "./types"; // <--- Import com type
 import { useEngineeringLogic } from "../hooks/useEngineeringLogic"; // Ajuste o caminho se necessário (ex: ../hooks/)
+
+// Mapeamento amigável para o usuário vs Valor no Banco
+const PRODUCTION_TYPES = [
+  { label: "Normal", value: "NORMAL" },
+  { label: "Peça Extraviada", value: "RETRABALHO_PERDA" },
+  { label: "Erro de Processo", value: "RETRABALHO_PROCESSO" },
+  { label: "Erro de Projeto", value: "ERRO_ENGENHARIA" },
+  { label: "Erro Comercial", value: "ERRO_COMERCIAL" },
+];
 
 export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   const { isDarkMode, theme } = useTheme();
@@ -28,8 +37,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     applyToAll,
     handleRowChange,
     handleDeletePart,
+    handleBulkDelete,
     handleReset,
-    handleConvertToBlock,
     handleConvertAllToBlocks,
     handleStorageDB,
     handleDirectNesting,
@@ -42,6 +51,61 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   } = useEngineeringLogic(props);
 
   const { parts, onBack } = props;
+
+  // --- NOVO: Lógica do Aviso "Cortar Agora" ---
+  const [showCutWarning, setShowCutWarning] = useState(false);
+  const [dontShowAgain, setDontShowAgain] = useState(false);
+
+  const handleCutNowClick = () => {
+    // --- CORREÇÃO 2: Validação de mesa vazia ---
+    if (parts.length === 0) {
+      alert("Adicione peças antes de cortar!");
+      return;
+    }
+    // -------------------------------------------
+
+    const skip = localStorage.getItem("skipCutNowWarning");
+
+    if (skip === "true") {
+      handleDirectNesting();
+    } else {
+      setShowCutWarning(true);
+    }
+  };
+
+  const confirmCutNow = () => {
+    if (dontShowAgain) {
+      localStorage.setItem("skipCutNowWarning", "true");
+    }
+    setShowCutWarning(false);
+    handleDirectNesting();
+  };
+  // --- NOVO: LÓGICA DE SELEÇÃO MÚLTIPLA (CORRIGIDO) ---
+  // Agora o estado aceita array de strings
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  // Toggle Individual (Recebe string)
+  const toggleSelection = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((pid) => pid !== id) : [...prev, id]
+    );
+  };
+
+  // Toggle Selecionar Tudo
+  const toggleSelectAll = () => {
+    if (selectedIds.length === parts.length) {
+      setSelectedIds([]); // Desmarca tudo
+    } else {
+      // Agora o map retorna string[], que bate com o tipo do estado
+      setSelectedIds(parts.map((p) => p.id));
+    }
+  };
+
+  // Executa a exclusão
+  const executeBulkDelete = () => {
+    handleBulkDelete(selectedIds);
+    setSelectedIds([]); // Limpa a seleção
+  };
 
   // --- RENDER ENTITY FUNCTION ---
   const renderEntity = (
@@ -242,18 +306,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     fontSize: "inherit",
     borderBottom: `1px solid ${theme.border}`,
   };
-  const deleteBtnStyle: React.CSSProperties = {
-    background: "transparent",
-    border: "none",
-    cursor: "pointer",
-    fontSize: "14px",
-  };
-  const blockBtnStyle: React.CSSProperties = {
-    background: "transparent",
-    border: "none",
-    cursor: "pointer",
-    fontSize: "14px",
-  };
 
   const viewingPart = viewingPartId
     ? parts.find((p) => p.id === viewingPartId)
@@ -283,6 +335,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               fontSize: "24px",
               display: "flex",
               alignItems: "center",
+              padding: 0,
             }}
           >
             <svg
@@ -299,11 +352,60 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               <polyline points="9 22 9 12 15 12 15 22"></polyline>
             </svg>
           </button>
-          <h2 style={{ margin: 0, fontSize: "18px", color: "#007bff" }}>
+
+          {/* --- NOVO ÍCONE MESA DE CORTE --- */}
+          <button
+            onClick={isTrial ? undefined : handleGoToNestingEmpty}
+            title={
+              isTrial
+                ? "Indisponível no modo Trial"
+                : "Ir para a Mesa de Nesting (Buscar peças lá)"
+            }
+            style={{
+              background: "transparent",
+              border: "none",
+              color: theme.text,
+              cursor: isTrial ? "not-allowed" : "pointer",
+              fontSize: "24px",
+              padding: "4px",
+              display: "flex",
+              alignItems: "center",
+              borderRadius: "4px",
+              transition: "background 0.2s",
+              opacity: isTrial ? 0.5 : 1,
+              marginLeft: "10px"
+            }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.background = theme.hoverRow)
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.background = "transparent")
+            }
+          >
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="3" width="7" height="7"></rect>
+              <rect x="14" y="3" width="7" height="7"></rect>
+              <rect x="14" y="14" width="7" height="7"></rect>
+              <rect x="3" y="14" width="7" height="7"></rect>
+            </svg>
+          </button>
+          {/* -------------------------------- */}
+
+
+          <h2 style={{ margin: 5, fontSize: "20px", color: "#007bff" }}>
             Engenharia & Projetos
           </h2>
           {loading && (
-            <span style={{ fontSize: "12px", color: "#ffd700" }}>
+            <span style={{ fontSize: "12px", color: "#007bff" }}>
               ⏳ {processingMsg}
             </span>
           )}
@@ -321,44 +423,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         </div>
 
         <div style={{ display: "flex", gap: "15px", alignItems: "center" }}>
-          <button
-            onClick={isTrial ? undefined : handleGoToNestingEmpty}
-            title={
-              isTrial
-                ? "Indisponível no modo Trial"
-                : "Ir para a Mesa de Nesting (Buscar peças lá)"
-            }
-            style={{
-              background: "transparent",
-              color: theme.text,
-              border: `1px solid ${theme.border}`,
-              padding: "8px 12px",
-              borderRadius: "4px",
-              cursor: isTrial ? "not-allowed" : "pointer",
-              opacity: isTrial ? 0.5 : 1,
-              display: "flex",
-              alignItems: "center",
-              gap: "5px",
-              marginRight: "10px",
-            }}
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="3" y="3" width="7" height="7"></rect>
-              <rect x="14" y="3" width="7" height="7"></rect>
-              <rect x="14" y="14" width="7" height="7"></rect>
-              <rect x="3" y="14" width="7" height="7"></rect>
-            </svg>
-            <span style={{ fontSize: "13px" }}>Mesa de Corte</span>
-          </button>
+          
           <button
             onClick={handleReset}
             style={{
@@ -399,7 +464,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             💾 Storage DB
           </button>
           <button
-            onClick={handleDirectNesting}
+            onClick={handleCutNowClick}
             style={{
               background: "#6f42c1",
               color: "white",
@@ -427,16 +492,16 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
       </div>
 
       <div style={batchContainerStyle}>
-        <div
+        {/* <div
           style={{
             color: theme.text,
             fontWeight: "bold",
-            marginRight: "20px",
-            fontSize: "14px",
+            marginRight: "10px",
+            fontSize: "10px",
           }}
         >
           PADRÃO DO LOTE:
-        </div>
+        </div> */}
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
             PEDIDO{" "}
@@ -468,6 +533,38 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             placeholder="Ex: 5020"
           />
         </div>
+
+        {/* --- INSERÇÃO: TIPO DE PRODUÇÃO (BATCH) --- */}
+        <div style={inputGroupStyle}>
+          <label style={labelStyle}>
+            TIPO PRODUÇÃO{" "}
+            <button
+              style={applyButtonStyle}
+              onClick={() => applyToAll("tipo_producao")}
+            >
+              Aplicar Todos
+            </button>
+          </label>
+          <select
+            style={{
+              ...inputStyle,
+              width: "160px",
+              background: theme.inputBg,
+              color: theme.text,
+            }}
+            value={batchDefaults.tipo_producao || "NORMAL"}
+            onChange={(e) =>
+              handleDefaultChange("tipo_producao", e.target.value)
+            }
+          >
+            {PRODUCTION_TYPES.map((pt) => (
+              <option key={pt.value} value={pt.value}>
+                {pt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        {/* ------------------------------------------ */}
 
         {/* --- SELECT DE MATERIAIS DO LOTE (DINÂMICO) --- */}
         <div style={inputGroupStyle}>
@@ -588,7 +685,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           style={{
             background: "#007bff",
             color: "white",
-            padding: "10px 20px",
+            padding: "10px 15px",
             borderRadius: "4px",
             cursor: "pointer",
             fontSize: "13px",
@@ -616,9 +713,47 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               fontWeight: "bold",
               fontSize: "12px",
               background: theme.headerBg,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
             }}
           >
-            VISUALIZAÇÃO ({parts.length})
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              {/* CHECKBOX MESTRE (Selecionar Tudo) */}
+              <input
+                type="checkbox"
+                checked={
+                  parts.length > 0 && selectedIds.length === parts.length
+                }
+                onChange={toggleSelectAll}
+                disabled={parts.length === 0}
+                style={{ cursor: "pointer" }}
+              />
+              <span>VISUALIZAÇÃO ({parts.length})</span>
+            </div>
+
+            {/* BOTÃO LIXEIRA (Só aparece se tiver seleção) */}
+            {selectedIds.length > 0 && (
+              <button
+                onClick={executeBulkDelete}
+                title={`Excluir ${selectedIds.length} itens selecionados`}
+                style={{
+                  background: "#ffebee",
+                  border: "1px solid #ffcdd2",
+                  color: "#d32f2f",
+                  borderRadius: "4px",
+                  padding: "4px 8px",
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  fontWeight: "bold",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                }}
+              >
+                🗑️ Excluir ({selectedIds.length})
+              </button>
+            )}
           </div>
           <div
             style={{
@@ -643,7 +778,15 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   key={part.id}
                   style={{
                     ...cardStyle,
-                    borderColor: isSelected ? "#007bff" : theme.border,
+                    // Se selecionado no checkbox, borda e fundo vermelhos. Se selecionado no clique, azul.
+                    borderColor: selectedIds.includes(part.id)
+                      ? "#d32f2f"
+                      : isSelected
+                      ? "#007bff"
+                      : theme.border,
+                    background: selectedIds.includes(part.id)
+                      ? "rgba(220, 53, 69, 0.08)"
+                      : theme.cardBg,
                     boxShadow: isSelected
                       ? "0 0 0 2px rgba(0,123,255,0.5)"
                       : "none",
@@ -653,6 +796,31 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   title={part.name}
                   onClick={() => setSelectedPartId(part.id)}
                 >
+                  {/* CHECKBOX INDIVIDUAL */}
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation(); // Não seleciona o card (azul)
+                      toggleSelection(part.id);
+                    }}
+                    style={{
+                      position: "absolute",
+                      top: 5,
+                      left: 25,
+                      zIndex: 20,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(part.id)}
+                      readOnly
+                      style={{
+                        cursor: "pointer",
+                        width: "14px",
+                        height: "14px",
+                      }}
+                    />
+                  </div>
                   <div
                     style={{
                       position: "absolute",
@@ -789,10 +957,17 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 </th>
                 <th style={{ ...tableHeaderStyle, width: "80px" }}>Pedido</th>
                 <th style={{ ...tableHeaderStyle, width: "80px" }}>OP</th>
+                {/* --- INSERIR ESTE TH --- */}
+                <th style={{ ...tableHeaderStyle, width: "140px" }}>
+                  Tipo Produção
+                </th>
+                {/* ----------------------- */}
                 <th style={{ ...tableHeaderStyle, width: "180px" }}>
                   Material
                 </th>
-                <th style={{ ...tableHeaderStyle, width: "250px" }}>Espessura.</th>
+                <th style={{ ...tableHeaderStyle, width: "250px" }}>
+                  Espessura.
+                </th>
                 <th style={tableHeaderStyle}>Dimensões</th>
                 <th style={tableHeaderStyle}>Área (m²)</th>
                 <th style={tableHeaderStyle} title="Complexidade da peça">
@@ -807,17 +982,26 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 >
                   Qtd.
                 </th>
-                <th style={tableHeaderStyle}>Ações</th>
               </tr>
             </thead>
             <tbody>
               {parts.map((part, i) => {
                 const isSelected = part.id === selectedPartId;
+                // --- INSERIR LOGICA DE COR ---
+                const isRetrabalho =
+                  part.tipo_producao && part.tipo_producao !== "NORMAL";
+                const textColor = isRetrabalho ? "#f81010ff" : "inherit"; // Texto vermelho se retrabalho
+
+                // Ajustar background para destacar retrabalho
                 const rowBackground = isSelected
                   ? theme.selectedRow
+                  : isRetrabalho
+                  ? "rgba(220, 53, 69, 0.08)" // Fundo levemente avermelhado
                   : i % 2 === 0
                   ? "transparent"
                   : theme.hoverRow;
+                // -----------------------------
+
                 const entCount = part.entities.length;
                 const entColor =
                   entCount === 1
@@ -868,6 +1052,43 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                         }
                       />
                     </td>
+
+                    {/* --- INSERÇÃO: CÉLULA TIPO PRODUÇÃO --- */}
+                    <td style={tableCellStyle}>
+                      <select
+                        style={{
+                          ...cellInputStyle,
+                          width: "100%",
+                          border: "none",
+                          background: "transparent",
+                          color: textColor, // Usa a cor vermelha se necessário
+                          fontWeight: isRetrabalho ? "bold" : "normal",
+                          fontSize: "12px",
+                        }}
+                        value={part.tipo_producao || "NORMAL"}
+                        onChange={(e) =>
+                          handleRowChange(
+                            part.id,
+                            "tipo_producao",
+                            e.target.value
+                          )
+                        }
+                      >
+                        {PRODUCTION_TYPES.map((pt) => (
+                          <option
+                            key={pt.value}
+                            value={pt.value}
+                            style={{
+                              background: theme.cardBg,
+                              color: theme.text,
+                            }}
+                          >
+                            {pt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    {/* -------------------------------------- */}
 
                     {/* --- TABELA: SELECT MATERIAL DINÂMICO --- */}
                     <td style={tableCellStyle}>
@@ -974,26 +1195,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                           color: "#007bff",
                         }}
                       />
-                    </td>
-                    <td style={tableCellStyle}>
-                      <div style={{ display: "flex", gap: "10px" }}>
-                        {entCount > 1 && (
-                          <button
-                            style={blockBtnStyle}
-                            onClick={(e) => handleConvertToBlock(part.id, e)}
-                            title="Converter para Bloco Único"
-                          >
-                            📦
-                          </button>
-                        )}
-                        <button
-                          style={deleteBtnStyle}
-                          onClick={(e) => handleDeletePart(part.id, e)}
-                          title="Excluir peça"
-                        >
-                          🗑️
-                        </button>
-                      </div>
                     </td>
                   </tr>
                 );
@@ -1155,6 +1356,124 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           </div>
         </div>
       )}
+
+      {/* --- MODAL DE ALERTA: CORTAR AGORA --- */}
+      {showCutWarning && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0,0,0,0.6)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: theme.modalBg || "#fff",
+              color: theme.text || "#000",
+              padding: "25px",
+              borderRadius: "8px",
+              maxWidth: "450px",
+              width: "90%",
+              boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
+              border: `1px solid ${theme.border}`,
+            }}
+          >
+            <h3 style={{ marginTop: 0, color: "#d9534f" }}>
+              ⚠️ Modo Rápido (Sem Histórico)
+            </h3>
+
+            <p style={{ lineHeight: "1.5", fontSize: "14px", opacity: 0.9 }}>
+              Você escolheu a opção <strong>"Cortar Agora"</strong>.
+            </p>
+            <p style={{ lineHeight: "1.5", fontSize: "14px", opacity: 0.9 }}>
+              Neste modo, as peças <strong>NÃO serão salvas</strong> no Banco de
+              Dados. Consequentemente, esta produção não aparecerá nos
+              relatórios de custos, retrabalho ou rastreabilidade de pedidos.
+            </p>
+            <p style={{ lineHeight: "1.5", fontSize: "14px", opacity: 0.9 }}>
+              Deseja prosseguir mesmo assim?
+            </p>
+
+            <div
+              style={{
+                margin: "20px 0",
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              <input
+                type="checkbox"
+                id="dontShowAgain"
+                checked={dontShowAgain}
+                onChange={(e) => setDontShowAgain(e.target.checked)}
+                style={{
+                  width: "18px",
+                  height: "18px",
+                  marginRight: "10px",
+                  cursor: "pointer",
+                }}
+              />
+              <label
+                htmlFor="dontShowAgain"
+                style={{
+                  cursor: "pointer",
+                  userSelect: "none",
+                  fontSize: "13px",
+                }}
+              >
+                Não mostrar esta mensagem novamente
+              </label>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "10px",
+              }}
+            >
+              <button
+                onClick={() => setShowCutWarning(false)}
+                style={{
+                  padding: "10px 20px",
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: "4px",
+                  backgroundColor: theme.inputBg,
+                  color: theme.text,
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmCutNow}
+                style={{
+                  padding: "10px 20px",
+                  border: "none",
+                  borderRadius: "4px",
+                  backgroundColor: "#d9534f",
+                  color: "#fff",
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                }}
+              >
+                Continuar sem Salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- Fim do Modal --- */}
+
       {isMaterialModalOpen && (
         <MaterialConfigModal
           user={user}

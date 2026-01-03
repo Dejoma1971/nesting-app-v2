@@ -12,6 +12,15 @@ import type { PlacedPart } from "../utils/nestingCore";
 import type { AppTheme } from "../styles/theme";
 import type { CropLine } from "../hooks/useSheetManager";
 
+// --- COLE ISTO LOGO APÓS OS IMPORTS ---
+const calculateRotatedDimensions = (w: number, h: number, rotationDeg: number) => {
+  const rad = rotationDeg * (Math.PI / 180);
+  // Calcula o bounding box real trigonométrico
+  const occupiedW = w * Math.abs(Math.cos(rad)) + h * Math.abs(Math.sin(rad));
+  const occupiedH = w * Math.abs(Math.sin(rad)) + h * Math.abs(Math.cos(rad));
+  return { occupiedW, occupiedH };
+};
+
 // CONFIGURAÇÃO DO SNAP
 const SNAP_THRESHOLD = 15;
 
@@ -22,7 +31,7 @@ interface InteractiveCanvasProps {
   binHeight: number;
   margin: number;
   showDebug: boolean;
-  strategy: "rect" | "true-shape";
+  strategy: "guillotine" | "true-shape";
   selectedPartIds: string[];
   theme: AppTheme;
 
@@ -31,11 +40,11 @@ interface InteractiveCanvasProps {
   // Props de Linhas de Retalho
   cropLines?: CropLine[];
   onCropLineMove?: (lineId: string, newPosition: number) => void;
-  onBackgroundContextMenu?: (e: React.MouseEvent) => void;
+  onBackgroundContextMenu?: (e: React.MouseEvent, coords: { x: number; y: number }) => void;
 
   // Funções de Manipulação
   onPartsMove: (moves: { partId: string; dx: number; dy: number }[]) => void;
-  onPartRotate: (partId: string, newRotation: number) => void;
+  
   onPartReturn: (uuids: string[]) => void;
   onLabelDrag?: (
     partId: string,
@@ -383,14 +392,13 @@ interface PartElementProps {
   isSelected: boolean;
   isColliding?: boolean;
   onMouseDown: (e: React.MouseEvent, uuid: string) => void;
-  onLabelDown: (e: React.MouseEvent, type: "white" | "pink") => void;
-  onRotateStart: (e: React.MouseEvent, uuid: string) => void;
+  onLabelDown: (e: React.MouseEvent, type: "white" | "pink") => void;  
   onDoubleClick: (e: React.MouseEvent, uuid: string) => void;
   onContextMenu: (e: React.MouseEvent, uuid: string) => void;
   onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void;
   partData: ImportedPart | undefined;
   showDebug: boolean;
-  strategy: "rect" | "true-shape";
+  strategy: "guillotine" | "true-shape";
   transformData: any;
   theme: AppTheme;
   globalScale: number;
@@ -404,8 +412,7 @@ const PartElement = React.memo(
         isSelected,
         isColliding,
         onMouseDown,
-        onLabelDown,
-        onRotateStart,
+        onLabelDown,        
         onDoubleClick,
         onContextMenu,
         onEntityContextMenu,
@@ -413,16 +420,12 @@ const PartElement = React.memo(
         showDebug,
         strategy,
         transformData,
-        theme,
-        globalScale,
+        theme,        
       },
       ref
     ) => {
       if (!partData) return null;
-      const localW = partData.width;
-      const localH = partData.height;
-      const occupiedW = placed.rotation % 180 !== 0 ? localH : localW;
-      const occupiedH = placed.rotation % 180 !== 0 ? localW : localH;
+      const { occupiedW, occupiedH } = calculateRotatedDimensions(partData.width, partData.height, placed.rotation);
 
       const finalTransform = transformData
         ? `translate(${placed.x + transformData.occupiedW / 2}, ${
@@ -436,11 +439,7 @@ const PartElement = React.memo(
       if (isSelected) strokeColor = "#01ff3cff";
       if (isColliding) strokeColor = "#ff0000";
 
-      const fillColor = isColliding ? "rgba(255, 0, 0, 0.3)" : "transparent";
-
-      const handleSize = 25 / globalScale;
-      const handleStickLength = 60 / globalScale;
-      const handleStrokeWidth = 3 / globalScale;
+      const fillColor = isColliding ? "rgba(255, 0, 0, 0.3)" : "transparent";      
 
       return (
         <g ref={ref}>
@@ -450,7 +449,7 @@ const PartElement = React.memo(
             onContextMenu={(e) => onContextMenu(e, placed.uuid)}
             style={{
               cursor:
-                strategy === "rect"
+                strategy === "guillotine"
                   ? "default"
                   : isSelected
                   ? "move"
@@ -490,51 +489,7 @@ const PartElement = React.memo(
                 )
               )}
             </g>
-          </g>
-          {isSelected && strategy === "true-shape" && (
-            <g
-              transform={`translate(${placed.x + occupiedW / 2}, ${
-                placed.y + occupiedH / 2
-              }) rotate(${placed.rotation})`}
-            >
-              <line
-                x1={0}
-                y1={localH / 2}
-                x2={0}
-                y2={localH / 2 + handleStickLength}
-                stroke="#01ff3cff"
-                strokeWidth={handleStrokeWidth}
-                vectorEffect="non-scaling-stroke"
-              />
-              <circle
-                cx={0}
-                cy={localH / 2 + handleStickLength}
-                r={handleSize}
-                fill="#01ff3cff"
-                stroke="#fff"
-                strokeWidth={handleStrokeWidth}
-                style={{ cursor: "grab" }}
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                  onRotateStart(e, placed.uuid);
-                }}
-              />
-              <text
-                x={0}
-                y={localH / 2 + handleStickLength}
-                textAnchor="middle"
-                dominantBaseline="central"
-                fill="white"
-                fontSize={handleSize * 1.2}
-                style={{ pointerEvents: "none", userSelect: "none" }}
-                transform={`rotate(${-placed.rotation}, 0, ${
-                  localH / 2 + handleStickLength
-                })`}
-              >
-                ⟳
-              </text>
-            </g>
-          )}
+          </g>          
         </g>
       );
     }
@@ -553,8 +508,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   showDebug,
   strategy,
   selectedPartIds,
-  onPartsMove,
-  onPartRotate,
+  onPartsMove,  
   onLabelDrag,
   onPartSelect,
   onContextMenu,
@@ -600,13 +554,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   const partRefs = useRef<{ [key: string]: SVGGElement | null }>({});
   const draggingIdsRef = useRef<string[]>([]);
   const currentDragDeltaRef = useRef({ dx: 0, dy: 0 });
-  const rotationRef = useRef({
-    startAngle: 0,
-    initialPartRotation: 0,
-    activePartId: "",
-    centerX: 0,
-    centerY: 0,
-  });
+  
   const dragRef = useRef({
     startX: 0,
     startY: 0,
@@ -695,6 +643,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     placedParts.forEach((placed) => {
       const part = parts.find((p) => p.id === placed.partId);
       if (!part) return;
+      
       const cachedBox = boundingBoxCache[placed.partId];
       let box;
       if (cachedBox) {
@@ -711,13 +660,23 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         });
         box = newBox;
       }
+
+      // --- AQUI ESTÁ A CORREÇÃO ---
+      // Calculamos a caixa envolvente exata usando a função trigonométrica
+      // (Certifique-se de que a função 'calculateRotatedDimensions' foi adicionada no topo do arquivo)
+      const { occupiedW, occupiedH } = calculateRotatedDimensions(
+        part.width, 
+        part.height, 
+        placed.rotation
+      );
+
       transforms[placed.uuid] = {
         centerX: box.centerX,
         centerY: box.centerY,
-        occupiedW: placed.rotation % 180 !== 0 ? part.height : part.width,
-        occupiedH: placed.rotation % 180 !== 0 ? part.width : part.height,
-        rawWidth: placed.rotation % 180 !== 0 ? part.height : part.width,
-        rawHeight: placed.rotation % 180 !== 0 ? part.width : part.height,
+        occupiedW: occupiedW, // Valor correto calculado
+        occupiedH: occupiedH, // Valor correto calculado
+        rawWidth: occupiedW,
+        rawHeight: occupiedH,
       };
     });
     return transforms;
@@ -745,7 +704,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     (e: React.MouseEvent, uuid: string) => {
       e.stopPropagation();
       if (!selectedPartIds.includes(uuid)) return;
-      if (strategy !== "rect" && e.button === 0) {
+      if (strategy !== "guillotine" && e.button === 0) {
         e.preventDefault();
         setDragMode("parts");
         draggingIdsRef.current = selectedPartIds;
@@ -763,37 +722,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     },
     [strategy, selectedPartIds, getSVGPoint]
   );
-
-  const handleRotateStart = useCallback(
-    (e: React.MouseEvent, uuid: string) => {
-      const placed = placedParts.find((p) => p.uuid === uuid);
-      const info = partTransforms[uuid];
-      if (!placed || !info) return;
-
-      const svgPos = getSVGPoint(e.clientX, e.clientY);
-
-      const centerX = placed.x + info.occupiedW / 2;
-      const centerY = placed.y + info.occupiedH / 2;
-      const visualCenterX = centerX;
-      const visualCenterY = binHeight - centerY;
-
-      const startAngleRad = Math.atan2(
-        svgPos.y - visualCenterY,
-        svgPos.x - visualCenterX
-      );
-      const startAngleDeg = startAngleRad * (180 / Math.PI);
-
-      rotationRef.current = {
-        startAngle: startAngleDeg,
-        initialPartRotation: placed.rotation,
-        activePartId: uuid,
-        centerX: visualCenterX,
-        centerY: visualCenterY,
-      };
-      setDragMode("rotate");
-    },
-    [placedParts, partTransforms, getSVGPoint, binHeight]
-  );
+  
 
   const handleLabelDown = useCallback(
     (e: React.MouseEvent, partId: string, type: "white" | "pink") => {
@@ -996,11 +925,11 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         if (dragMode === "cropline" && draggingLine && onCropLineMove) {
           const rawDx = currentSvgPos.x - dragRef.current.startSvgX;
           const rawDy = currentSvgPos.y - dragRef.current.startSvgY;
-            
-            // AQUI ESTÁ A CORREÇÃO: Dividir pelo zoom (transform.k)
-            const dx = rawDx / transformRef.current.k;
-            const dy = rawDy / transformRef.current.k;
-          
+
+          // AQUI ESTÁ A CORREÇÃO: Dividir pelo zoom (transform.k)
+          const dx = rawDx / transformRef.current.k;
+          const dy = rawDy / transformRef.current.k;
+
           let newValue = draggingLine.startVal;
           if (draggingLine.type === "vertical") {
             newValue += dx;
@@ -1016,39 +945,24 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           onLabelDrag(draggingLabel.partId, draggingLabel.type, dx, -dy);
           dragRef.current.startSvgX = currentSvgPos.x;
           dragRef.current.startSvgY = currentSvgPos.y;
-        } else if (dragMode === "rotate") {
-          const {
-            activePartId,
-            startAngle,
-            initialPartRotation,
-            centerX,
-            centerY,
-          } = rotationRef.current;
-          const currentAngleRad = Math.atan2(
-            currentSvgPos.y - centerY,
-            currentSvgPos.x - centerX
-          );
-          const currentAngleDeg = currentAngleRad * (180 / Math.PI);
-          let deltaRotation = currentAngleDeg - startAngle;
-
-          if (e.shiftKey) {
-            const snapStep = 15;
-            const rawNewRot = initialPartRotation - deltaRotation;
-            const snappedRot = Math.round(rawNewRot / snapStep) * snapStep;
-            deltaRotation = initialPartRotation - snappedRot;
-          }
-          const newRotation = (initialPartRotation - deltaRotation + 360) % 360;
-          onPartRotate(activePartId, newRotation);
         } else if (dragMode === "parts") {
-          let deltaX = currentSvgPos.x - dragRef.current.startSvgX;
-          let deltaY = currentSvgPos.y - dragRef.current.startSvgY;
+          // 1. Calcula o deslocamento bruto do mouse (em coordenadas SVG)
+          const rawDx = currentSvgPos.x - dragRef.current.startSvgX;
+          const rawDy = currentSvgPos.y - dragRef.current.startSvgY;
+          
+          // 2. CORREÇÃO DEFINITIVA DO ZOOM:
+          // Dividimos o deslocamento pelo fator de escala (k).
+          // Se o zoom é 2x, precisamos mover apenas 0.5 unidades na peça para acompanhar 1 unidade do mouse.
           const currentZoom = transformRef.current.k;
-          if (currentZoom > 1.5) {
-            const dampFactor = 1 / Math.pow(currentZoom, 0.6);
-            deltaX *= dampFactor;
-            deltaY *= dampFactor;
-          }
-          const machineDeltaY = -deltaY;
+          
+          const deltaX = rawDx / currentZoom;
+          const deltaY = rawDy / currentZoom;
+
+          // (Removemos aquela lógica antiga de 'dampFactor' que tentava adivinhar o ajuste)
+
+          // 3. Aplica inversão do Y (pois o sistema CNC usa Y para cima)
+          const machineDeltaY = -deltaY; 
+
           const { snapedDx, snapedDy, guides } = calculateSnap(
             deltaX,
             machineDeltaY
@@ -1056,11 +970,28 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
 
           setSnapLines(guides);
           currentDragDeltaRef.current = { dx: snapedDx, dy: snapedDy };
-          const visualSnapDy = snapedDy;
-
+          
+          // Nota: Para visualização suave durante o arraste (transform CSS), 
+          // precisamos multiplicar de volta pelo zoom visual apenas para o translate3d na tela, 
+          // OU aplicar o valor ajustado. 
+          // Como o 'el.style.transform' é visual e a peça está dentro do grupo escalado, 
+          // aplicamos o deslocamento local (snapedDx).
+          // Porém, o translate3d do CSS opera em pixels de tela ou locais? 
+          // No SVG, transform em <g> opera no espaço local.
+          
+          const visualSnapDy = snapedDy; // Y já invertido para coordenada de máquina, cuidado aqui.
+          // O translate visual precisa ser no sistema de coordenadas da tela ou do SVG?
+          // O ref `partRefs` aponta para o <g> da peça.
+          // O <g> da peça está dentro do `panGroupRef` (que tem o scale).
+          // Então o transform deve ser em unidades locais.
+          // Mas espere: snapedDy é "machine coords" (Y para cima).
+          // O SVG desenha Y para baixo, mas nós temos um `scale(1, -1)` no pai.
+          // Então, aumentar Y localmente faz a peça subir. Está correto.
+          
           draggingIdsRef.current.forEach((id) => {
             const el = partRefs.current[id];
             if (el)
+              // Atualizamos visualmente a posição
               el.style.transform = `translate3d(${snapedDx}px, ${visualSnapDy}px, 0)`;
           });
         }
@@ -1105,8 +1036,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     dragMode,
     getSVGPoint,
     calculateSnap,
-    onLabelDrag,
-    onPartRotate,
+    onLabelDrag,    
     onPartReturn,
     onPartsMove,
     draggingLabel,
@@ -1135,11 +1065,15 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   }, []);
 
   const handleReturnAll = useCallback(() => {
-      if (placedParts.length === 0) return;
-      if (window.confirm("Deseja recolher todas as peças da mesa de volta para o banco?")) {
-          const allUuids = placedParts.map(p => p.uuid);
-          onPartReturn(allUuids);
-      }
+    if (placedParts.length === 0) return;
+    if (
+      window.confirm(
+        "Deseja recolher todas as peças da mesa de volta para o banco?"
+      )
+    ) {
+      const allUuids = placedParts.map((p) => p.uuid);
+      onPartReturn(allUuids);
+    }
   }, [placedParts, onPartReturn]);
 
   const binViewBox = useMemo(
@@ -1260,7 +1194,19 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         >
           ⛶
         </button>
-        <button onClick={handleReturnAll} style={{ ...btnStyle, marginTop: "10px", color: "#dc3545", borderColor: "#dc3545" }} title="Recolher Todas para o Banco" disabled={placedParts.length === 0}>📥</button>
+        <button
+          onClick={handleReturnAll}
+          style={{
+            ...btnStyle,
+            marginTop: "10px",
+            color: "#dc3545",
+            borderColor: "#dc3545",
+          }}
+          title="Recolher Todas para o Banco"
+          disabled={placedParts.length === 0}
+        >
+          📥
+        </button>
       </div>
 
       <div
@@ -1295,9 +1241,25 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                 style={{ pointerEvents: "all" }}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  if (onBackgroundContextMenu) onBackgroundContextMenu(e);
-                }}
-              />
+                  if (onBackgroundContextMenu) {
+          // 1. Pega a coordenada bruta do SVG (Screen -> SVG)
+          const svgPos = getSVGPoint(e.clientX, e.clientY);
+          
+          // 2. Remove o Pan e o Zoom (transform visual)
+          const visualX = (svgPos.x - transformRef.current.x) / transformRef.current.k;
+          const visualY = (svgPos.y - transformRef.current.y) / transformRef.current.k;
+
+          // 3. Corrige o sistema de coordenadas da máquina (Y invertido)
+          // O grupo CNC tem scale(1, -1) e translate(0, binHeight)
+          // Portanto: Y_Real = Altura_Chapa - Y_Visual
+          const binX = visualX;
+          const binY = binHeight - visualY;
+          
+          // Envia o evento E as coordenadas reais calculadas
+          onBackgroundContextMenu(e, { x: binX, y: binY });
+      }
+    }}
+  />
 
               {/* CORREÇÃO: Mostra a margem sempre que ela for maior que 0, independente do Debug */}
               {margin > 0 && (
@@ -1330,8 +1292,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                     onMouseDown={handleMouseDownPart}
                     onLabelDown={(e, type) =>
                       handleLabelDown(e, placed.uuid, type)
-                    }
-                    onRotateStart={handleRotateStart}
+                    }                    
                     onDoubleClick={handleDoubleClickPart}
                     onContextMenu={onContextMenu}
                     onEntityContextMenu={onEntityContextMenu}
@@ -1346,47 +1307,59 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
               })}
 
               {/* --- RENDERIZAÇÃO DAS LINHAS DE RETALHO (Espessura Fixa) --- */}
-                {cropLines.map((line) => {
-                   // ALTERAÇÃO: Valores fixos (pixels de tela), sem dividir por transform.k
-                   const strokeW = 2;  // Sempre 2px de espessura visual
-                   const hitW = 20;    // Sempre 20px de área de clique visual
-                   
-                   const cursor = line.type === 'vertical' ? 'col-resize' : 'row-resize';
-                   
-                   const x1 = line.type === 'vertical' ? line.position : 0;
-                   const x2 = line.type === 'vertical' ? line.position : binWidth;
-                   const y1 = line.type === 'horizontal' ? line.position : 0;
-                   const y2 = line.type === 'horizontal' ? line.position : binHeight;
+              {cropLines.map((line) => {
+                // ALTERAÇÃO: Valores fixos (pixels de tela), sem dividir por transform.k
+                const strokeW = 2; // Sempre 2px de espessura visual
+                const hitW = 20; // Sempre 20px de área de clique visual
 
-                   return (
-                     <g key={line.id} 
-                        onMouseDown={(e) => handleLineDown(e, line.id, line.type, line.position)}
-                        onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (onCropLineContextMenu) onCropLineContextMenu(e, line.id);
-                        }}
-                        style={{ cursor: cursor }}
-                     >
-                        {/* 1. Área de clique (Invisível) */}
-                        <line 
-                            x1={x1} y1={y1} x2={x2} y2={y2} 
-                            stroke="transparent" 
-                            strokeWidth={hitW} 
-                            vectorEffect="non-scaling-stroke" // Garante que a área de clique não mude com zoom
-                        />
-                        
-                        {/* 2. Linha Visível (Verde Sólido) */}
-                        <line 
-                            x1={x1} y1={y1} x2={x2} y2={y2} 
-                            stroke="#00ff3cff"
-                            strokeWidth={strokeW} 
-                            vectorEffect="non-scaling-stroke" // Garante que a linha não afine/engrosse com zoom
-                            style={{ pointerEvents: 'none' }} 
-                        />
-                     </g>
-                   );
-                })}
+                const cursor =
+                  line.type === "vertical" ? "col-resize" : "row-resize";
+
+                const x1 = line.type === "vertical" ? line.position : 0;
+                const x2 = line.type === "vertical" ? line.position : binWidth;
+                const y1 = line.type === "horizontal" ? line.position : 0;
+                const y2 =
+                  line.type === "horizontal" ? line.position : binHeight;
+
+                return (
+                  <g
+                    key={line.id}
+                    onMouseDown={(e) =>
+                      handleLineDown(e, line.id, line.type, line.position)
+                    }
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (onCropLineContextMenu)
+                        onCropLineContextMenu(e, line.id);
+                    }}
+                    style={{ cursor: cursor }}
+                  >
+                    {/* 1. Área de clique (Invisível) */}
+                    <line
+                      x1={x1}
+                      y1={y1}
+                      x2={x2}
+                      y2={y2}
+                      stroke="transparent"
+                      strokeWidth={hitW}
+                      vectorEffect="non-scaling-stroke" // Garante que a área de clique não mude com zoom
+                    />
+
+                    {/* 2. Linha Visível (Verde Sólido) */}
+                    <line
+                      x1={x1}
+                      y1={y1}
+                      x2={x2}
+                      y2={y2}
+                      stroke="#00ff3cff"
+                      strokeWidth={strokeW}
+                      vectorEffect="non-scaling-stroke" // Garante que a linha não afine/engrosse com zoom
+                      style={{ pointerEvents: "none" }}
+                    />
+                  </g>
+                );
+              })}
 
               {snapLines.map((line) => (
                 <line

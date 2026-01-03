@@ -5,6 +5,7 @@ export interface ImportedPart {
   name: string;
   entities: any[];
   blocks: any;
+
   
   // Geometria
   width: number;
@@ -15,6 +16,9 @@ export interface ImportedPart {
   // Novos Campos Administrativos (Banco de Dados)
   pedido: string;
   op: string;
+  // --- ADICIONE ESTA LINHA ---
+  tipo_producao?: string; 
+  // ---------------------------
   material: string;
   espessura: string;
   autor: string;
@@ -35,6 +39,7 @@ export interface BatchDefaults {
   material: string;
   espessura: string;
   autor: string;
+  tipo_producao?: string;
 }
 
 export interface EngineeringScreenProps {

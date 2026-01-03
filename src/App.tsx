@@ -93,6 +93,9 @@ function AppContent() {
         <DxfReader
           preLoadedParts={partsForNesting}
           autoSearchQuery={initialSearchQuery}
+          // ADICIONE ESTA LINHA:
+          onNavigate={(screen) => setCurrentScreen(screen)} 
+          // Mantenha o onBack para compatibilidade
           onBack={() => setCurrentScreen("engineering")}
         />
       )}
