@@ -80,6 +80,137 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
+// ==========================================================
+// 3. ROTAS DE GESTÃO DE EQUIPE (PLANO CORPORATIVO)
+// ==========================================================
+
+// --- LISTAR MEMBROS DA EQUIPE ---
+app.get("/api/team", authenticateToken, async (req, res) => {
+  const empresaId = req.user.empresa_id;
+
+  try {
+    // Busca apenas usuários da mesma empresa
+    const [rows] = await db.query(
+      "SELECT id, nome, email, cargo, status, ultimo_login FROM usuarios WHERE empresa_id = ?",
+      [empresaId]
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Erro ao listar equipe:", error);
+    res.status(500).json({ error: "Erro ao buscar equipe." });
+  }
+});
+
+// --- ADICIONAR NOVO MEMBRO (COM BLOQUEIO DE LIMITE) ---
+app.post("/api/team/add", authenticateToken, async (req, res) => {
+  const { nome, email, password } = req.body;
+  const empresaId = req.user.empresa_id;
+  const usuarioCargo = req.user.cargo; // Quem está solicitando
+
+  // 1. Segurança: Apenas ADMIN pode adicionar
+  if (usuarioCargo !== 'admin') {
+    return res.status(403).json({ error: "Apenas administradores podem adicionar membros." });
+  }
+
+  if (!nome || !email || !password) {
+    return res.status(400).json({ error: "Preencha todos os campos." });
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 2. BUSCA O LIMITE DA EMPRESA (max_users)
+    const [empRows] = await connection.query(
+      "SELECT max_users, plano FROM empresas WHERE id = ?", 
+      [empresaId]
+    );
+    
+    if (empRows.length === 0) throw new Error("Empresa não encontrada");
+    const empresa = empRows[0];
+    const limiteUsuarios = empresa.max_users || 1; // Default 1 se null
+
+    // 3. CONTA USUÁRIOS ATUAIS
+    const [countRows] = await connection.query(
+      "SELECT COUNT(*) as total FROM usuarios WHERE empresa_id = ?",
+      [empresaId]
+    );
+    const totalAtual = countRows[0].total;
+
+    // 4. VERIFICAÇÃO CRÍTICA DO PLANO
+    if (totalAtual >= limiteUsuarios) {
+      await connection.rollback();
+      return res.status(403).json({ 
+        error: "LIMITE ATINGIDO", 
+        message: `Seu plano atual (${empresa.plano}) permite apenas ${limiteUsuarios} usuários. Faça upgrade para o Plano Corporativo para adicionar mais membros.` 
+      });
+    }
+
+    // 5. Verifica se email já existe (Globalmente ou na empresa)
+    const [existing] = await connection.query("SELECT id FROM usuarios WHERE email = ?", [email]);
+    if (existing.length > 0) {
+      await connection.rollback();
+      return res.status(400).json({ error: "Este e-mail já está em uso no sistema." });
+    }
+
+    // 6. CRIA O NOVO USUÁRIO (Sempre como 'operador' por segurança)
+    const novoId = crypto.randomUUID();
+    const salt = await bcrypt.genSalt(10);
+    const senhaHash = await bcrypt.hash(password, salt);
+
+    await connection.query(
+      `INSERT INTO usuarios (id, nome, email, senha_hash, empresa_id, cargo, status, plano)
+       VALUES (?, ?, ?, ?, ?, 'operador', 'ativo', 'dependente')`, // Plano 'dependente' indica que segue a empresa
+      [novoId, nome, email, senhaHash, empresaId]
+    );
+
+    await connection.commit();
+    res.status(201).json({ message: "Membro adicionado com sucesso!" });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error("Erro ao adicionar membro:", error);
+    res.status(500).json({ error: "Erro interno ao adicionar membro." });
+  } finally {
+    connection.release();
+  }
+});
+
+// --- REMOVER MEMBRO DA EQUIPE ---
+app.delete("/api/team/:id", authenticateToken, async (req, res) => {
+  const targetId = req.params.id;
+  const empresaId = req.user.empresa_id;
+  const requesterId = req.user.id;
+  const requesterCargo = req.user.cargo;
+
+  // 1. Segurança Básica
+  if (requesterCargo !== 'admin') {
+    return res.status(403).json({ error: "Sem permissão." });
+  }
+
+  // 2. Não permitir deletar a si mesmo
+  if (targetId === requesterId) {
+    return res.status(400).json({ error: "Você não pode excluir sua própria conta por aqui." });
+  }
+
+  try {
+    // 3. Executa a exclusão (Garantindo que o alvo pertence à MESMA empresa)
+    const [result] = await db.query(
+      "DELETE FROM usuarios WHERE id = ? AND empresa_id = ?",
+      [targetId, empresaId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Usuário não encontrado ou não pertence à sua equipe." });
+    }
+
+    res.json({ message: "Usuário removido com sucesso." });
+  } catch (error) {
+    console.error("Erro ao remover membro:", error);
+    res.status(500).json({ error: "Erro ao processar exclusão." });
+  }
+});
+
 // --- SALVAR PEÇAS (Regra: 30 Dias Garantidos + Teto de 30 Peças) ---
 app.post("/api/pecas", authenticateToken, async (req, res) => {
   const parts = req.body;
