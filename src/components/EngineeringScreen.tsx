@@ -7,6 +7,8 @@ import { SidebarMenu } from "../components/SidebarMenu";
 import { MaterialConfigModal } from "../components/MaterialConfigModal";
 import type { EngineeringScreenProps } from "./types"; // <--- Import com type
 import { useEngineeringLogic } from "../hooks/useEngineeringLogic"; // Ajuste o caminho se necessário (ex: ../hooks/)
+import { TeamManagementScreen } from "../components/TeamManagementScreen";
+
 
 // Mapeamento amigável para o usuário vs Valor no Banco
 const PRODUCTION_TYPES = [
@@ -19,6 +21,10 @@ const PRODUCTION_TYPES = [
 
 export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   const { isDarkMode, theme } = useTheme();
+  // Estado para controlar o modal da equipe
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+
+
 
   // 1. Desestruturando tudo do Hook (inclusive as novas listas)
   const {
@@ -487,6 +493,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               }
             }}
             onOpenProfile={() => alert("Perfil do Usuário (Em breve)")}
+            // ADICIONE ESTA LINHA AQUI:
+            onOpenTeam={() => setIsTeamModalOpen(true)}
           />
         </div>
       </div>
@@ -1484,6 +1492,11 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             refreshData(); // <--- AGORA SIM: ATUALIZA SEM RECARREGAR
           }}
         />
+      )}
+
+      {/* SE O ESTADO FOR TRUE, MOSTRA O MODAL DE EQUIPE */}
+      {isTeamModalOpen && (
+        <TeamManagementScreen onClose={() => setIsTeamModalOpen(false)} />
       )}
     </div>
   );

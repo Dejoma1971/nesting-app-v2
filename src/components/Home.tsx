@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { SidebarMenu } from "../components/SidebarMenu";
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
+import { useTheme } from "../context/ThemeContext";
 
 type ScreenType = "home" | "engineering" | "nesting";
 
@@ -9,7 +10,7 @@ interface HomeProps {
 }
 
 export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
-  const [isDarkMode] = useState(true);
+  const { isDarkMode } = useTheme();
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
 
   // --- TEMAS ---
