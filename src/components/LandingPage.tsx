@@ -1,28 +1,29 @@
 import React, { useState, useRef } from "react";
 import { useTheme } from "../context/ThemeContext";
+import { useAuth } from "../context/AuthContext"; // <--- 1. IMPORTAÇÃO NOVA
 import { useNavigate } from "react-router-dom";
 import { translations } from "./landingTranslations";
 import type { Language } from "./landingTranslations";
 
-import { CNCBackground } from "./CNCBackground"; // <--- Adicione esta linha
+import { CNCBackground } from "./CNCBackground"; 
 
 import { handleSubscription } from "../services/paymentService";
 
 export const LandingPage: React.FC = () => {
   const { theme, isDarkMode } = useTheme();
+  const { isAuthenticated } = useAuth(); // <--- 2. VERIFICAÇÃO DE LOGIN
   const navigate = useNavigate();
 
   // Controle de Idioma
   const [lang, setLang] = useState<Language>("pt");
   const t = translations[lang];
 
-  // Referência para o container principal (para o scroll funcionar)
+  // Referência para o container principal
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // --- NOVO: Estado para quantidade de usuários no plano corporativo ---
-  const [corpQuantity, setCorpQuantity] = useState(3); // Começa sugerindo 3
+  // Estado para quantidade de usuários no plano corporativo
+  const [corpQuantity, setCorpQuantity] = useState(3);
 
-  // --- FUNÇÃO DE SCROLL CORRIGIDA ---
   const scrollToSection = (id: string) => {
     const element = document.getElementById(id);
     if (element) {
@@ -34,14 +35,29 @@ export const LandingPage: React.FC = () => {
     setLang(e.target.value as Language);
   };
 
-  // --- FUNÇÕES DE COMPRA ---
+  // ========================================================
+  // 3. LÓGICA DO TÚNEL DE VENDAS (ALTERADA)
+  // ========================================================
+  
   const buyPremium = () => {
-    handleSubscription("premium", 1);
+    if (isAuthenticated) {
+      // Se já está logado, vai direto para o pagamento
+      handleSubscription("premium", 1);
+    } else {
+      // Se NÃO está logado, vai para o registro levando o plano na mala
+      navigate("/register?plan=premium");
+    }
   };
 
   const buyCorporate = () => {
-    handleSubscription("corporate", corpQuantity);
+    if (isAuthenticated) {
+      handleSubscription("corporate", corpQuantity);
+    } else {
+      // Leva o plano E a quantidade escolhida
+      navigate(`/register?plan=corporate&quantity=${corpQuantity}`);
+    }
   };
+  // ========================================================
 
   // --- ESTILOS GERAIS ---
   const sectionStyle: React.CSSProperties = {
@@ -94,27 +110,22 @@ export const LandingPage: React.FC = () => {
   };
 
   return (
-    // --- CORREÇÃO DO SCROLL AQUI ---
     <div
       ref={containerRef}
       style={{
-        height: "100vh", // Ocupa a altura exata da tela
-        width: "100vw", // Ocupa a largura exata
-        overflowY: "auto", // FORÇA A BARRA DE ROLAGEM VERTICAL
-        overflowX: "hidden", // Evita rolagem lateral
+        height: "100vh", 
+        width: "100vw", 
+        overflowY: "auto", 
+        overflowX: "hidden", 
         background: theme.bg,
         color: theme.text,
         fontFamily: "'Segoe UI', Roboto, sans-serif",
         position: "relative",
       }}
     >
-      {/* --- ADICIONE O FUNDO AQUI --- */}
       <CNCBackground />
-      {/* ----------------------------- */}
 
-      {/* ========================================================
-          NAVBAR FIXA
-      ======================================================== */}
+      {/* NAVBAR FIXA */}
       <nav
         style={{
           display: "flex",
@@ -132,7 +143,6 @@ export const LandingPage: React.FC = () => {
           boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
         }}
       >
-        {/* LOGO */}
         <div
           onClick={() => {
             if (containerRef.current)
@@ -158,7 +168,6 @@ export const LandingPage: React.FC = () => {
           AutoNest Hub
         </div>
 
-        {/* MENU */}
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
           <div style={{ display: "flex", gap: "5px", marginRight: "20px" }}>
             <button
@@ -240,9 +249,7 @@ export const LandingPage: React.FC = () => {
         </div>
       </nav>
 
-      {/* ========================================================
-          1. HERO SECTION
-      ======================================================== */}
+      {/* HERO SECTION */}
       <header id="home" style={{ ...sectionStyle, padding: "120px 20px 80px" }}>
         <h1
           style={{
@@ -284,9 +291,7 @@ export const LandingPage: React.FC = () => {
         </p>
       </header>
 
-      {/* ========================================================
-          2. O CONCEITO (ORIGEM)
-      ======================================================== */}
+      {/* ORIGEM */}
       <section
         id="origin"
         style={{
@@ -358,9 +363,7 @@ export const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* ========================================================
-          3. SHOWCASE / VÍDEOS
-      ======================================================== */}
+      {/* SHOWCASE */}
       <section
         id="demo"
         style={{ padding: "80px 20px", width: "100%", background: theme.bg }}
@@ -442,9 +445,7 @@ export const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* ========================================================
-          4. FUNCIONALIDADES
-      ======================================================== */}
+      {/* FUNCIONALIDADES */}
       <section
         id="features"
         style={{
@@ -515,9 +516,7 @@ export const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* ========================================================
-          5. PREÇOS / PLANOS (ATUALIZADO)
-      ======================================================== */}
+      {/* PREÇOS */}
       <section id="pricing" style={sectionStyle}>
         <h2
           style={{
@@ -548,7 +547,7 @@ export const LandingPage: React.FC = () => {
             alignItems: "flex-start",
           }}
         >
-          {/* TRIAL (Mantido) */}
+          {/* TRIAL */}
           <div
             style={{
               ...cardStyle,
@@ -616,7 +615,7 @@ export const LandingPage: React.FC = () => {
             </button>
           </div>
 
-          {/* PREMIUM (Botão atualizado) */}
+          {/* PREMIUM */}
           <div
             style={{
               ...cardStyle,
@@ -692,7 +691,7 @@ export const LandingPage: React.FC = () => {
                 </li>
               ))}
             </ul>
-            {/* BOTÃO ATUALIZADO */}
+            {/* BOTÃO PREMIUM ATUALIZADO */}
             <button
               onClick={buyPremium}
               style={{ ...buttonPrimary, width: "100%" }}
@@ -701,8 +700,7 @@ export const LandingPage: React.FC = () => {
             </button>
           </div>
 
-          {/* CORPORATE (Com seletor de quantidade) */}
-          {/* CORPORATE (Com seletor de quantidade ajustado) */}
+          {/* CORPORATE */}
           <div
             style={{
               ...cardStyle,
@@ -722,7 +720,6 @@ export const LandingPage: React.FC = () => {
               {t.pricing.corporate.name}
             </h3>
 
-            {/* PREÇO PRINCIPAL AGORA É DINÂMICO */}
             <div
               style={{
                 fontSize: "2.5rem",
@@ -731,7 +728,7 @@ export const LandingPage: React.FC = () => {
                 color: theme.text,
               }}
             >
-              {/* Calcula: 24.90 + (Extras * 12) */}${" "}
+              ${" "}
               {(24.9 + (corpQuantity - 1) * 12).toFixed(2)}
               <span
                 style={{ fontSize: "1rem", opacity: 0.5, fontWeight: "normal" }}
@@ -740,7 +737,7 @@ export const LandingPage: React.FC = () => {
               </span>
             </div>
 
-            {/* SELETOR DE QUANTIDADE (2 a 5) */}
+            {/* SELETOR QUANTIDADE */}
             <div
               style={{
                 marginBottom: "20px",
@@ -769,7 +766,6 @@ export const LandingPage: React.FC = () => {
                 }}
               >
                 <button
-                  // Bloqueia descida se for 2
                   onClick={() =>
                     setCorpQuantity((prev) => Math.max(2, prev - 1))
                   }
@@ -798,7 +794,6 @@ export const LandingPage: React.FC = () => {
                 </span>
 
                 <button
-                  // Bloqueia subida se for 5
                   onClick={() =>
                     setCorpQuantity((prev) => Math.min(5, prev + 1))
                   }
@@ -855,7 +850,7 @@ export const LandingPage: React.FC = () => {
               ))}
             </ul>
 
-            {/* BOTÃO DE COMPRA (Passa a quantidade correta para o serviço) */}
+            {/* BOTÃO CORPORATE ATUALIZADO */}
             <button
               onClick={buyCorporate}
               style={{
@@ -872,9 +867,7 @@ export const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* ========================================================
-          6. CONTATO E RODAPÉ
-      ======================================================== */}
+      {/* CONTATO */}
       <section
         id="contact"
         style={{

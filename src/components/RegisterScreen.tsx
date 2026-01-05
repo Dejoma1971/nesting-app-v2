@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
-
+import { useNavigate, useSearchParams } from 'react-router-dom'; // <--- 1. NOVOS IMPORTS
 
 interface RegisterScreenProps {
     onNavigateToLogin: () => void;
 }
 
 export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogin }) => {
+    // Hooks de navegação e URL
+    const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+
     const [formData, setFormData] = useState({
         nome: '',
         email: '',
@@ -32,8 +36,22 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
             const data = await response.json();
 
             if (response.ok) {
-                alert("Conta criada com sucesso! Aproveite seus 30 dias grátis.");
-                onNavigateToLogin(); // Volta para o login
+                alert("Conta criada com sucesso!");
+                
+                // --- 2. LÓGICA DE REDIRECIONAMENTO INTELIGENTE ---
+                const plan = searchParams.get("plan");
+                const quantity = searchParams.get("quantity");
+
+                if (plan) {
+                    // Se tinha plano pendente, repassa para o Login
+                    let loginUrl = `/login?plan=${plan}`;
+                    if (quantity) loginUrl += `&quantity=${quantity}`;
+                    navigate(loginUrl);
+                } else {
+                    // Fluxo normal (sem compra)
+                    onNavigateToLogin(); 
+                }
+                // ------------------------------------------------
             } else {
                 alert(data.error || "Erro ao cadastrar.");
             }
@@ -57,7 +75,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
     return (
         <div style={styles.container}>
             <h2 style={{color: '#007bff'}}>Crie sua Conta Grátis</h2>
-            <p style={{marginTop: 0, opacity: 0.7}}>Comece seu teste de 30 dias agora.</p>
+            <p style={{marginTop: 0, opacity: 0.7}}>Para continuar sua assinatura.</p>
             
             <form onSubmit={handleRegister} style={styles.form}>
                 <input name="nome" placeholder="Seu Nome" value={formData.nome} onChange={handleChange} style={styles.input} required />
@@ -66,7 +84,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
                 <input name="password" type="password" placeholder="Senha" value={formData.password} onChange={handleChange} style={styles.input} required />
                 
                 <button type="submit" disabled={loading} style={{...styles.button, background: loading ? '#555' : '#28a745'}}>
-                    {loading ? 'Criando Conta...' : 'Começar Agora 🚀'}
+                    {loading ? 'Criando Conta...' : 'Continuar 🚀'}
                 </button>
             </form>
 

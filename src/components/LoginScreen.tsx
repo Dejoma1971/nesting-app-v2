@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
+import { useSearchParams } from 'react-router-dom'; // <--- 1. IMPORTAR SEARCH PARAMS
 import { useAuth } from '../context/AuthContext';
+import { handleSubscription } from '../services/paymentService'; // <--- 2. IMPORTAR SERVIÇO DE PAGAMENTO
 
 interface LoginScreenProps {
     onLoginSuccess: () => void;
-    onNavigateToRegister: () => void; // <--- 1. ADICIONADO AQUI
+    onNavigateToRegister: () => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onNavigateToRegister }) => {
     const { login } = useAuth();
+    const [searchParams] = useSearchParams(); // Hook para ler a URL
+
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -26,16 +30,34 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onNavi
             const data = await response.json();
 
             if (response.ok) {
-                // --- CORREÇÃO AQUI ---
-                // O servidor manda o token separado do objeto user.
-                // Precisamos juntar os dois antes de salvar no contexto.
+                // Monta o objeto usuário completo
                 const userDataCompleto = {
                     ...data.user, 
-                    token: data.token // <--- A PEÇA QUE FALTAVA
+                    token: data.token
                 };
 
+                // Salva no contexto/localStorage
                 login(userDataCompleto);
-                onLoginSuccess();
+
+                // --- 3. LÓGICA DE INTERCEPTAÇÃO DE PAGAMENTO ---
+                const pendingPlan = searchParams.get("plan");
+                
+                if (pendingPlan) {
+                    // Se tem plano pendente, NÃO vai para o dashboard.
+                    // Vai para o Stripe agora!
+                    const qtd = searchParams.get("quantity") ? Number(searchParams.get("quantity")) : 1;
+                    
+                    console.log(`Redirecionando para pagamento do plano: ${pendingPlan} (Qtd: ${qtd})`);
+                    
+                    // Chama a mesma função que usamos na Landing Page
+                    // IMPORTANTE: Como o handleSubscription usa window.location.href, ele vai sair daqui.
+                    await handleSubscription(pendingPlan as "premium" | "corporate", qtd); 
+                } else {
+                    // Fluxo normal: Entra no sistema
+                    onLoginSuccess();
+                }
+                // ----------------------------------------------
+
             } else {
                 alert(data.error || "Erro ao entrar.");
             }
@@ -59,7 +81,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onNavi
     return (
         <div style={styles.container}>
             <h2 style={{color: '#007bff'}}>autoNest Hub</h2>
-            <p style={{opacity: 0.6, marginTop: -10}}>Faça login para continuar</p>
+            <p style={{opacity: 0.6, marginTop: -10}}>
+                {searchParams.get("plan") 
+                    ? "Faça login para concluir sua assinatura" 
+                    : "Faça login para continuar"}
+            </p>
             
             <form onSubmit={handleSubmit} style={styles.form}>
                 <input 
@@ -84,7 +110,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onNavi
                 </button>
             </form>
 
-            {/* 2. BOTÃO PARA IR PARA O CADASTRO */}
             <button onClick={onNavigateToRegister} style={styles.linkBtn}>
                 Não tem uma conta? Crie agora (Teste Grátis)
             </button>
