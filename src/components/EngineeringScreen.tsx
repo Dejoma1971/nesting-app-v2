@@ -5,7 +5,7 @@ import { SubscriptionPanel } from "./SubscriptionPanel";
 import { useTheme } from "../context/ThemeContext";
 import { SidebarMenu } from "../components/SidebarMenu";
 import { MaterialConfigModal } from "../components/MaterialConfigModal";
-import type { EngineeringScreenProps } from "./types"; // <--- Import com type
+import type { EngineeringScreenProps, ImportedPart } from "./types";
 import { useEngineeringLogic } from "../hooks/useEngineeringLogic"; // Ajuste o caminho se necessário (ex: ../hooks/)
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
 
@@ -56,7 +56,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     refreshData,
   } = useEngineeringLogic(props);
 
-  const { parts, onBack } = props;
+  const { parts, onBack, onOpenTeam } = props as any;
 
   // --- NOVO: Lógica do Aviso "Cortar Agora" ---
   const [showCutWarning, setShowCutWarning] = useState(false);
@@ -103,7 +103,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
       setSelectedIds([]); // Desmarca tudo
     } else {
       // Agora o map retorna string[], que bate com o tipo do estado
-      setSelectedIds(parts.map((p) => p.id));
+     setSelectedIds(parts.map((p: ImportedPart) => p.id));
     }
   };
 
@@ -314,7 +314,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   };
 
   const viewingPart = viewingPartId
-    ? parts.find((p) => p.id === viewingPartId)
+    ? parts.find((p: ImportedPart) => p.id === viewingPartId)
     : null;
 
   return (
@@ -494,7 +494,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             }}
             onOpenProfile={() => alert("Perfil do Usuário (Em breve)")}
             // ADICIONE ESTA LINHA AQUI:
-            onOpenTeam={() => setIsTeamModalOpen(true)}
+            onOpenTeam={onOpenTeam}
           />
         </div>
       </div>
@@ -771,7 +771,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               alignContent: "flex-start",
             }}
           >
-            {parts.map((part, idx) => {
+            {parts.map((part: ImportedPart, idx: number) => {
               const box = calculateBoundingBox(part.entities, part.blocks);
               const w = box.maxX - box.minX || 100;
               const h = box.maxY - box.minY || 100;
@@ -993,7 +993,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               </tr>
             </thead>
             <tbody>
-              {parts.map((part, i) => {
+              {parts.map((part: ImportedPart, i: number) => {
                 const isSelected = part.id === selectedPartId;
                 // --- INSERIR LOGICA DE COR ---
                 const isRetrabalho =

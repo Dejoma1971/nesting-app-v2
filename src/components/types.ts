@@ -47,6 +47,7 @@ export interface EngineeringScreenProps {
   onSendToNesting: (parts: ImportedPart[], searchQuery?: string) => void;
   parts: ImportedPart[];
   setParts: React.Dispatch<React.SetStateAction<ImportedPart[]>>;
+  onOpenTeam?: () => void;
 }
 
 export interface CustomMaterial {

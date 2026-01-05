@@ -8,6 +8,7 @@ import { EngineeringScreen } from "./components/EngineeringScreen";
 import { LoginScreen } from "./components/LoginScreen";
 import { RegisterScreen } from "./components/RegisterScreen";
 import { LandingPage } from "./components/LandingPage"; // <--- Novo
+import { TeamManagementScreen } from "./components/TeamManagementScreen"; // <--- 1. IMPORTE O MODAL
 
 // Tipos
 import type { ImportedPart } from "./components/types";
@@ -27,6 +28,9 @@ function ProtectedApp() {
   const navigate = useNavigate();
   
   const [currentScreen, setCurrentScreen] = useState<ScreenType>("home");
+
+  // --- 2. NOVO ESTADO PARA O MODAL ---
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
   
   // Estados globais do App
   const [engineeringParts, setEngineeringParts] = useState<ImportedPart[]>([]);
@@ -58,7 +62,9 @@ function ProtectedApp() {
   return (
     <>
       {currentScreen === "home" && (
-        <Home onNavigate={(screen) => setCurrentScreen(screen)} />
+        <Home onNavigate={(screen) => setCurrentScreen(screen)}
+        onOpenTeam={() => setIsTeamModalOpen(true)} // <--- CONECTADO
+         />
       )}
 
       {currentScreen === "engineering" && (
@@ -67,6 +73,7 @@ function ProtectedApp() {
           setParts={setEngineeringParts}
           onBack={goHome}
           onSendToNesting={handleSendToNesting}
+          onOpenTeam={() => setIsTeamModalOpen(true)}
         />
       )}
 
@@ -76,7 +83,12 @@ function ProtectedApp() {
           autoSearchQuery={initialSearchQuery}
           onNavigate={(screen) => setCurrentScreen(screen)}
           onBack={() => setCurrentScreen("engineering")}
+          onOpenTeam={() => setIsTeamModalOpen(true)}
         />
+      )}
+      {/* 4. O MODAL FLUTUANTE (Renderiza em cima de tudo se estiver true) */}
+      {isTeamModalOpen && (
+        <TeamManagementScreen onClose={() => setIsTeamModalOpen(false)} />
       )}
     </>
   );

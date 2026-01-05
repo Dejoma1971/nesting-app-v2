@@ -47,6 +47,7 @@ interface NestingBoardProps {
   initialSearchQuery?: string;
   onBack?: () => void;
   onNavigate?: (screen: "home" | "engineering" | "nesting") => void;
+  onOpenTeam?: () => void; // <--- ADICIONE ESTA LINHA
 }
 
 
@@ -320,6 +321,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   initialSearchQuery,
   onBack,
   onNavigate,
+  onOpenTeam,
 }) => {
   // --- 2. PEGAR O USUÁRIO DO CONTEXTO DE SEGURANÇA ---
   const { user } = useAuth();
@@ -2203,7 +2205,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             onOpenProfile={() => alert("Perfil em breve")}
             
             // ADICIONE ESTA LINHA:
-            onOpenTeam={() => setIsTeamModalOpen(true)}
+            onOpenTeam={onOpenTeam}
           />
           {/* <button
             onClick={toggleTheme}

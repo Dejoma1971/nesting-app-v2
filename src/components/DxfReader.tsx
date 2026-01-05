@@ -7,6 +7,7 @@ interface DxfReaderProps {
   autoSearchQuery?: string; // <--- NOVO PROP
   onBack: () => void;
   onNavigate?: (screen: "home" | "engineering" | "nesting") => void;
+  onOpenTeam?: () => void;
 }
 
 // CORREÇÃO 1: Adicionar 'onNavigate' na desestruturação das props
@@ -15,6 +16,7 @@ export const DxfReader: React.FC<DxfReaderProps> = ({
   autoSearchQuery,
   onBack,
   onNavigate, // <--- ADICIONE AQUI
+  onOpenTeam,
 }) => {
   return (
     <NestingBoard
@@ -22,6 +24,7 @@ export const DxfReader: React.FC<DxfReaderProps> = ({
       initialSearchQuery={autoSearchQuery}
       onBack={onBack}
       onNavigate={onNavigate} // <--- CORREÇÃO 2: Repassar para o componente filho
+      onOpenTeam={onOpenTeam}
     />
   );
 };

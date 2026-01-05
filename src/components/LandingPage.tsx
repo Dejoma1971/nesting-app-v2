@@ -6,9 +6,9 @@ import type { Language } from "./landingTranslations";
 
 import { CNCBackground } from "./CNCBackground"; // <--- Adicione esta linha
 
-// --- LINKS EXTERNOS (STRIPE) ---
-const STRIPE_LINK_PREMIUM = "https://buy.stripe.com/SEU_LINK_PREMIUM_AQUI"; 
-const STRIPE_LINK_CORPORATE = "https://buy.stripe.com/SEU_LINK_CORPORATE_AQUI"; 
+import { handleSubscription } from "../services/paymentService";
+
+
 
 export const LandingPage: React.FC = () => {
   const { theme, isDarkMode } = useTheme();
@@ -21,6 +21,9 @@ export const LandingPage: React.FC = () => {
   // Referência para o container principal (para o scroll funcionar)
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // --- NOVO: Estado para quantidade de usuários no plano corporativo ---
+  const [corpQuantity, setCorpQuantity] = useState(3); // Começa sugerindo 3
+
   // --- FUNÇÃO DE SCROLL CORRIGIDA ---
   const scrollToSection = (id: string) => {
     const element = document.getElementById(id);
@@ -31,6 +34,15 @@ export const LandingPage: React.FC = () => {
 
   const handleLanguageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setLang(e.target.value as Language);
+  };
+
+  // --- FUNÇÕES DE COMPRA ---
+  const buyPremium = () => {
+    handleSubscription('premium', 1);
+  };
+
+  const buyCorporate = () => {
+    handleSubscription('corporate', corpQuantity);
   };
 
   // --- ESTILOS GERAIS ---
@@ -349,20 +361,20 @@ export const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* ========================================================
-          5. PREÇOS / PLANOS
+     {/* ========================================================
+          5. PREÇOS / PLANOS (ATUALIZADO)
       ======================================================== */}
       <section id="pricing" style={sectionStyle}>
-            <h2 style={{ fontSize: "2.5rem", marginBottom: "15px" }}>{t.pricing.title}</h2>
-            <p style={{ fontSize: "1.1rem", opacity: 0.7, marginBottom: "60px" }}>{t.pricing.subtitle}</p>
+            <h2 style={{ fontSize: "2.5rem", marginBottom: "15px", color: theme.text }}>{t.pricing.title}</h2>
+            <p style={{ fontSize: "1.1rem", opacity: 0.7, marginBottom: "60px", color: theme.text }}>{t.pricing.subtitle}</p>
             
             <div style={{ display: "flex", flexWrap: "wrap", gap: "30px", justifyContent: "center", alignItems: "flex-start" }}>
                 
-                {/* TRIAL */}
+                {/* TRIAL (Mantido) */}
                 <div style={{ ...cardStyle, borderTop: "5px solid #6c757d", maxWidth: "350px", textAlign: "center", alignItems: "center" }}>
-                    <h3 style={{ fontSize: "1.5rem", opacity: 0.8, marginTop: "10px" }}>{t.pricing.trial.name}</h3>
+                    <h3 style={{ fontSize: "1.5rem", opacity: 0.8, marginTop: "10px", color: theme.text }}>{t.pricing.trial.name}</h3>
                     <div style={{ fontSize: "3rem", fontWeight: "bold", margin: "20px 0", color: theme.text }}>{t.pricing.trial.price}</div>
-                    <ul style={{ listStyle: "none", padding: 0, lineHeight: 2, marginBottom: "30px", flex: 1, textAlign: "left", width: "100%" }}>
+                    <ul style={{ listStyle: "none", padding: 0, lineHeight: 2, marginBottom: "30px", flex: 1, textAlign: "left", width: "100%", color: theme.text }}>
                         {t.pricing.trial.features.map((feat, i) => <li key={i} style={{ borderBottom: `1px dashed ${theme.border}`, padding: "5px 0" }}>{feat}</li>)}
                     </ul>
                     <button onClick={() => navigate("/register")} style={{ ...buttonPrimary, background: "transparent", border: `2px solid ${theme.text}`, color: theme.text, width: "100%" }}>
@@ -370,7 +382,7 @@ export const LandingPage: React.FC = () => {
                     </button>
                 </div>
 
-                {/* PREMIUM */}
+                {/* PREMIUM (Botão atualizado) */}
                 <div style={{ ...cardStyle, borderTop: "5px solid #007bff", transform: "scale(1.05)", zIndex: 2, maxWidth: "350px", position: "relative", textAlign: "center", alignItems: "center", boxShadow: "0 10px 40px rgba(0,123,255,0.2)" }}>
                     <div style={{ position: "absolute", top: -15, right: "50%", transform: "translateX(50%)", background: "#007bff", color: "white", padding: "5px 15px", borderRadius: "20px", fontSize: "0.8rem", fontWeight: "bold" }}>
                         {t.pricing.premium.badge}
@@ -379,25 +391,47 @@ export const LandingPage: React.FC = () => {
                     <div style={{ fontSize: "3rem", fontWeight: "bold", margin: "20px 0", color: theme.text }}>
                         {t.pricing.premium.price}<span style={{fontSize: "1rem", opacity: 0.5}}>{t.pricing.month}</span>
                     </div>
-                    <ul style={{ listStyle: "none", padding: 0, lineHeight: 2, marginBottom: "30px", flex: 1, textAlign: "left", width: "100%" }}>
+                    <ul style={{ listStyle: "none", padding: 0, lineHeight: 2, marginBottom: "30px", flex: 1, textAlign: "left", width: "100%", color: theme.text }}>
                         {t.pricing.premium.features.map((feat, i) => <li key={i} style={{ borderBottom: `1px dashed ${theme.border}`, padding: "5px 0" }}>{feat}</li>)}
                     </ul>
-                    <button onClick={() => window.location.href = STRIPE_LINK_PREMIUM} style={{ ...buttonPrimary, width: "100%" }}>
+                    {/* BOTÃO ATUALIZADO */}
+                    <button onClick={buyPremium} style={{ ...buttonPrimary, width: "100%" }}>
                         {t.pricing.premium.cta}
                     </button>
                 </div>
 
-                 {/* CORPORATE */}
+                 {/* CORPORATE (Com seletor de quantidade) */}
                  <div style={{ ...cardStyle, borderTop: "5px solid #28a745", maxWidth: "350px", textAlign: "center", alignItems: "center" }}>
                     <h3 style={{ fontSize: "1.5rem", color: "#28a745", marginTop: "10px" }}>{t.pricing.corporate.name}</h3>
-                    <div style={{ fontSize: "2rem", fontWeight: "bold", margin: "20px 0", color: theme.text }}>
+                    
+                    <div style={{ fontSize: "2rem", fontWeight: "bold", margin: "10px 0", color: theme.text }}>
                         {t.pricing.corporate.price}
-                        <div style={{fontSize: "1rem", opacity: 0.7, fontWeight: "normal"}}>{t.pricing.corporate.extra}</div>
                     </div>
-                    <ul style={{ listStyle: "none", padding: 0, lineHeight: 2, marginBottom: "30px", flex: 1, textAlign: "left", width: "100%" }}>
+                    
+                    {/* SELETOR DE QUANTIDADE */}
+                    <div style={{ marginBottom: "20px", width: "100%", background: isDarkMode ? "rgba(0,0,0,0.2)" : "#f1f1f1", padding: "10px", borderRadius: "8px" }}>
+                        <label style={{ display: "block", fontSize: "0.9rem", marginBottom: "5px", color: theme.text }}>Quantos usuários?</label>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" }}>
+                            <button 
+                                onClick={() => setCorpQuantity(prev => Math.max(1, prev - 1))}
+                                style={{ width: "30px", height: "30px", borderRadius: "50%", border: "none", cursor: "pointer", fontWeight: "bold" }}
+                            >-</button>
+                            <span style={{ fontSize: "1.2rem", fontWeight: "bold", color: theme.text }}>{corpQuantity}</span>
+                            <button 
+                                onClick={() => setCorpQuantity(prev => prev + 1)}
+                                style={{ width: "30px", height: "30px", borderRadius: "50%", border: "none", cursor: "pointer", fontWeight: "bold", background: "#28a745", color: "white" }}
+                            >+</button>
+                        </div>
+                        <div style={{ fontSize: "0.8rem", marginTop: "5px", color: theme.text, opacity: 0.7 }}>
+                           Total estimado: <b>$ {24.90 + (corpQuantity * 12)}</b>/mês
+                        </div>
+                    </div>
+
+                    <ul style={{ listStyle: "none", padding: 0, lineHeight: 2, marginBottom: "30px", flex: 1, textAlign: "left", width: "100%", color: theme.text }}>
                         {t.pricing.corporate.features.map((feat, i) => <li key={i} style={{ borderBottom: `1px dashed ${theme.border}`, padding: "5px 0" }}>{feat}</li>)}
                     </ul>
-                    <button onClick={() => window.location.href = STRIPE_LINK_CORPORATE} style={{ ...buttonPrimary, background: "transparent", border: "2px solid #28a745", color: "#28a745", width: "100%" }}>
+                    {/* BOTÃO ATUALIZADO */}
+                    <button onClick={buyCorporate} style={{ ...buttonPrimary, background: "transparent", border: "2px solid #28a745", color: "#28a745", width: "100%" }}>
                         {t.pricing.corporate.cta}
                     </button>
                 </div>

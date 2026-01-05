@@ -4,12 +4,14 @@ const cors = require("cors");
 const db = require("./db.cjs");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const paymentRoutes = require("./routes/payment.routes.cjs"); // Note o .js no final
 
 const app = express();
 
 // 1. CONFIGURAÇÕES
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
+app.use('/api/payment', paymentRoutes);
 const JWT_SECRET =
   process.env.JWT_SECRET || "segredo-super-secreto-do-nesting-app";
 

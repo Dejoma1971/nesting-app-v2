@@ -7,6 +7,7 @@ type ScreenType = "home" | "engineering" | "nesting";
 
 interface HomeProps {
   onNavigate: (screen: ScreenType) => void;
+  onOpenTeam: () => void; // <--- ADICIONE ESTA LINHA
 }
 
 export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
@@ -75,7 +76,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
         <div style={{ position: "absolute", top: 20, right: 20, zIndex: 1000 }}>
           <SidebarMenu
             onNavigate={onNavigate}
-            onOpenProfile={() => alert("Perfil do Usuário (Em breve)")}
+            onOpenProfile={() => alert("Perfil do Usuário (Em breve)")}            
             // ADICIONE ESTA LINHA:
             onOpenTeam={() => setIsTeamModalOpen(true)}
           />
