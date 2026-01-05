@@ -8,12 +8,114 @@ const paymentRoutes = require("./routes/payment.routes.cjs"); // Note o .js no f
 
 const app = express();
 
-// 1. CONFIGURAÇÕES
 app.use(cors());
-app.use(express.json({ limit: "50mb" }));
-app.use('/api/payment', paymentRoutes);
+
+
+// Configuração híbrida: JSON normal para tudo, mas guarda o Raw Body para o Webhook
+app.use(express.json({
+  limit: '50mb',
+  verify: (req, res, buf) => {
+    // Se a URL começar com /api/webhook, salvamos o buffer bruto
+    if (req.originalUrl.startsWith('/api/webhook')) {
+      req.rawBody = buf.toString();
+    }
+  }
+}));
+
+// ==========================================
+// ADICIONE ESTA LINHA IMPORTANTE ABAIXO:
+// ==========================================
+app.use("/api/payment", paymentRoutes);
+// ==========================================
+
 const JWT_SECRET =
   process.env.JWT_SECRET || "segredo-super-secreto-do-nesting-app";
+
+
+  // ==========================================================
+// ROTA WEBHOOK DO STRIPE (AUTOMAÇÃO DE PAGAMENTO)
+// ==========================================================
+app.post('/api/webhook', async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET; 
+  const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
+  let event;
+
+  try {
+    // 1. Validação de Segurança do Stripe
+    if (!req.rawBody) throw new Error('Raw body não encontrado. Verifique o middleware express.json.');
+    event = stripe.webhooks.constructEvent(req.rawBody, sig, endpointSecret);
+  } catch (err) {
+    console.error(`❌ Webhook Error: ${err.message}`);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // 2. Processamento do Evento
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    
+    const userEmail = session.customer_details.email;
+    const amountTotal = session.amount_total; // Valor em centavos (ex: 3690 para $36.90)
+
+    console.log(`💰 Pagamento recebido de: ${userEmail} | Valor: ${amountTotal}`);
+
+    try {
+        const connection = await db.getConnection();
+        
+        // --- LÓGICA INTELIGENTE DE PLANOS ---
+        let novoPlano = 'Premium';
+        let limiteUsuarios = 1;
+
+        // Se pagou mais que o base ($24.90), é Corporativo
+        if (amountTotal > 2490) {
+            novoPlano = 'Corporativo';
+            
+            // Matemática Reversa para descobrir quantos usuários ele comprou:
+            // (Total Pago - Preço Base) / Preço Extra + 1 (o Admin)
+            // Ex: (3690 - 2490) / 1200 = 1 extra. Total = 2.
+            const valorExtra = amountTotal - 2490;
+            const usersExtras = Math.floor(valorExtra / 1200);
+            limiteUsuarios = 1 + usersExtras;
+        }
+
+        console.log(`📊 Definindo plano: ${novoPlano} com ${limiteUsuarios} usuários.`);
+
+        // 1. Descobre a empresa do usuário
+        const [users] = await connection.query("SELECT empresa_id FROM usuarios WHERE email = ?", [userEmail]);
+        
+        if (users.length > 0) {
+            const empresaId = users[0].empresa_id;
+            
+            // 2. Atualiza a EMPRESA (Libera o limite de usuários)
+            await connection.query(`
+                UPDATE empresas 
+                SET plano = ?, subscription_status = 'active', max_users = ? 
+                WHERE id = ?`, 
+                [novoPlano, limiteUsuarios, empresaId]
+            );
+            
+            // 3. Atualiza o ADMIN (Dono do email)
+            await connection.query(`
+                UPDATE usuarios SET plano = ? WHERE email = ?`,
+                [novoPlano, userEmail]
+            );
+            
+            console.log(`✅ Sucesso! Empresa ${empresaId} atualizada.`);
+        } else {
+            console.error("⚠️ Usuário pagante não encontrado no banco:", userEmail);
+        }
+        
+        connection.release();
+
+    } catch (dbError) {
+        console.error("❌ Erro ao atualizar banco:", dbError);
+    }
+  }
+
+  // Retorna 200 OK para o Stripe parar de tentar enviar
+  res.json({received: true});
+});
 
 // ==========================================================
 // 2. ROTAS

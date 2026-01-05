@@ -1,5 +1,11 @@
 import { useState, useEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  useNavigate,
+} from "react-router-dom";
 
 // Componentes
 import { Home } from "./components/Home";
@@ -17,6 +23,8 @@ import type { ImportedPart } from "./components/types";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
 
+import { SuccessScreen } from "./components/SuccessScreen";
+
 type ScreenType = "home" | "engineering" | "nesting";
 
 // =================================================================
@@ -26,12 +34,12 @@ type ScreenType = "home" | "engineering" | "nesting";
 function ProtectedApp() {
   const { isAuthenticated, loading } = useAuth();
   const navigate = useNavigate();
-  
+
   const [currentScreen, setCurrentScreen] = useState<ScreenType>("home");
 
   // --- 2. NOVO ESTADO PARA O MODAL ---
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
-  
+
   // Estados globais do App
   const [engineeringParts, setEngineeringParts] = useState<ImportedPart[]>([]);
   const [partsForNesting, setPartsForNesting] = useState<ImportedPart[]>([]);
@@ -62,9 +70,10 @@ function ProtectedApp() {
   return (
     <>
       {currentScreen === "home" && (
-        <Home onNavigate={(screen) => setCurrentScreen(screen)}
-        onOpenTeam={() => setIsTeamModalOpen(true)} // <--- CONECTADO
-         />
+        <Home
+          onNavigate={(screen) => setCurrentScreen(screen)}
+          onOpenTeam={() => setIsTeamModalOpen(true)} // <--- CONECTADO
+        />
       )}
 
       {currentScreen === "engineering" && (
@@ -109,10 +118,25 @@ function App() {
             {/* ROTAS DE AUTENTICAÇÃO */}
             <Route path="/login" element={<AuthRoute mode="login" />} />
             <Route path="/register" element={<AuthRoute mode="register" />} />
+            {/* --- 2. NOVA ROTA DE SUCESSO DO PAGAMENTO --- */}
+            {/* Esta rota precisa existir para o Stripe encontrar o usuário na volta */}
+            <Route
+              path="/payment-success"
+              element={
+                <SuccessScreen onBack={() => (window.location.href = "/app")} />
+              }
+            />
+            {/* ADICIONE ESTA ROTA PARA O FRONTEND RECONHECER O RETORNO DO STRIPE */}
+            <Route
+              path="/payment-success"
+              element={
+                <SuccessScreen onBack={() => (window.location.href = "/app")} />
+              }
+            />
 
             {/* ROTA PRIVADA: O Sistema (Redireciona qualquer subrota /app/* para o ProtectedApp) */}
             <Route path="/app/*" element={<ProtectedApp />} />
-            
+
             {/* Fallback: Qualquer rota desconhecida vai para a Landing Page */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
