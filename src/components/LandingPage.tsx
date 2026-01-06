@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { translations } from "./landingTranslations";
 import type { Language } from "./landingTranslations";
 
-import { CNCBackground } from "./CNCBackground"; 
+import { CNCBackground } from "./CNCBackground";
 
 import { handleSubscription } from "../services/paymentService";
 
@@ -38,7 +38,7 @@ export const LandingPage: React.FC = () => {
   // ========================================================
   // 3. LÓGICA DO TÚNEL DE VENDAS (ALTERADA)
   // ========================================================
-  
+
   const buyPremium = () => {
     if (isAuthenticated) {
       // Se já está logado, vai direto para o pagamento
@@ -109,14 +109,42 @@ export const LandingPage: React.FC = () => {
     flexDirection: "column",
   };
 
+  // FUNÇÃO DE ROLAGEM SUAVE PERSONALIZADA
+  const smoothScrollToTop = (duration: number = 1500) => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const start = container.scrollTop;
+    const startTime = performance.now();
+
+    const animateScroll = (currentTime: number) => {
+      const timeElapsed = currentTime - startTime;
+      const progress = Math.min(timeElapsed / duration, 1);
+
+      // Função de Easing (easeInOutQuad) - Começa devagar, acelera e termina devagar
+      const ease =
+        progress < 0.5
+          ? 2 * progress * progress
+          : -1 + (4 - 2 * progress) * progress;
+
+      container.scrollTop = start * (1 - ease);
+
+      if (timeElapsed < duration) {
+        requestAnimationFrame(animateScroll);
+      }
+    };
+
+    requestAnimationFrame(animateScroll);
+  };
+
   return (
     <div
       ref={containerRef}
       style={{
-        height: "100vh", 
-        width: "100vw", 
-        overflowY: "auto", 
-        overflowX: "hidden", 
+        height: "100vh",
+        width: "100vw",
+        overflowY: "auto",
+        overflowX: "hidden",
         background: theme.bg,
         color: theme.text,
         fontFamily: "'Segoe UI', Roboto, sans-serif",
@@ -157,15 +185,132 @@ export const LandingPage: React.FC = () => {
             cursor: "pointer",
           }}
         >
+          {/* LOGO IDÊNTICO AO FAVICON (ÍCONE MAXIMIZADO) */}
           <div
+            onClick={() => smoothScrollToTop(2500)} // <--- Defina o tempo aqui (2000ms = 2 segundos)
             style={{
-              width: "30px",
-              height: "30px",
+              width: "40px",
+              height: "40px",
               background: "#007bff",
-              borderRadius: "6px",
+              borderRadius: "10px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "0 4px 12px rgba(0,123,255,0.4)",
+              cursor: "pointer",
+              transition: "transform 0.2s, box-shadow 0.2s",
+              marginRight: "12px",
+              // Adicionei um padding pequeno para o ícone não tocar nas bordas
+              padding: "2px",
             }}
-          ></div>
-          AutoNest Hub
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = "scale(1.05)";
+              e.currentTarget.style.boxShadow =
+                "0 6px 15px rgba(0,123,255,0.5)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "scale(1)";
+              e.currentTarget.style.boxShadow =
+                "0 4px 12px rgba(0,123,255,0.4)";
+            }}
+          >
+            {/* Usei width/height 100% para ocupar todo o quadrado azul */}
+            <svg
+              width="100%"
+              height="100%"
+              viewBox="0 0 64 64"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              {/* AJUSTE CRÍTICO AQUI: Aumentei a escala para 2.4 e ajustei a posição para (2,2) */}
+              <g transform="translate(2, 2) scale(2.4)">
+                {/* Linhas de Conexão */}
+                <path
+                  d="M4 4 L20 7"
+                  stroke="white"
+                  strokeWidth="1"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M4 4 L11 11"
+                  stroke="white"
+                  strokeWidth="1"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M4 4 L6 16"
+                  stroke="white"
+                  strokeWidth="1"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M20 7 L11 11"
+                  stroke="white"
+                  strokeWidth="1"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M20 7 L19 17"
+                  stroke="white"
+                  strokeWidth="1"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M11 11 L6 16"
+                  stroke="white"
+                  strokeWidth="1"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M11 11 L19 17"
+                  stroke="white"
+                  strokeWidth="1"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M11 11 L12 21"
+                  stroke="white"
+                  strokeWidth="1"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M6 16 L12 21"
+                  stroke="white"
+                  strokeWidth="1"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M19 17 L12 21"
+                  stroke="white"
+                  strokeWidth="1"
+                  strokeLinecap="round"
+                />
+
+                {/* Nós (Círculos) */}
+                <circle cx="4" cy="4" r="2" fill="white" />
+                <circle cx="20" cy="7" r="2" stroke="white" strokeWidth="1" />
+                <circle cx="11" cy="11" r="2" stroke="white" strokeWidth="1" />
+                <circle cx="6" cy="16" r="2" fill="white" />
+                <circle cx="19" cy="17" r="2" fill="white" />
+                <circle cx="12" cy="21" r="2" stroke="white" strokeWidth="1" />
+              </g>
+            </svg>
+          </div>
+
+          {/* TEXTO DO LOGO */}
+          <div
+            onClick={() => smoothScrollToTop(2500)}
+            style={{
+              fontFamily: "'Inter', 'Segoe UI', sans-serif",
+              letterSpacing: "-0.5px",
+              fontWeight: 800,
+              fontSize: "1.4rem",
+              cursor: "pointer",
+              color: theme.text,
+            }}
+          >
+            AutoNest Hub
+          </div>
         </div>
 
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
@@ -200,20 +345,47 @@ export const LandingPage: React.FC = () => {
             value={lang}
             onChange={handleLanguageChange}
             style={{
-              background: "transparent",
+              // Fundo dinâmico: Escuro no Dark Mode, Claro no Light Mode
+              background: isDarkMode ? "#333" : "#f0f2f5",
               color: theme.text,
               border: `1px solid ${theme.border}`,
-              borderRadius: "4px",
-              padding: "4px 8px",
+              borderRadius: "6px",
+              padding: "6px 12px", // Um pouco mais de espaço para ficar elegante
               cursor: "pointer",
-              fontWeight: "bold",
-              fontSize: "12px",
-              marginRight: "10px",
+              fontWeight: "600",
+              fontSize: "0.9rem",
+              marginRight: "15px",
+              outline: "none", // Remove a borda de seleção azul padrão do browser
             }}
           >
-            <option value="pt">🇧🇷 PT</option>
-            <option value="en">🇺🇸 EN</option>
-            <option value="es">🇪🇸 ES</option>
+            {/* Estilizando as opções internas para não ficarem brancas no tema escuro */}
+            <option
+              value="pt"
+              style={{
+                background: isDarkMode ? "#333" : "#fff",
+                color: theme.text,
+              }}
+            >
+              🇧🇷 PT
+            </option>
+            <option
+              value="en"
+              style={{
+                background: isDarkMode ? "#333" : "#fff",
+                color: theme.text,
+              }}
+            >
+              🇺🇸 EN
+            </option>
+            <option
+              value="es"
+              style={{
+                background: isDarkMode ? "#333" : "#fff",
+                color: theme.text,
+              }}
+            >
+              🇪🇸 ES
+            </option>
           </select>
 
           <button
@@ -728,8 +900,7 @@ export const LandingPage: React.FC = () => {
                 color: theme.text,
               }}
             >
-              ${" "}
-              {(24.9 + (corpQuantity - 1) * 12).toFixed(2)}
+              $ {(24.9 + (corpQuantity - 1) * 12).toFixed(2)}
               <span
                 style={{ fontSize: "1rem", opacity: 0.5, fontWeight: "normal" }}
               >

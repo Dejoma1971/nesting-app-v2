@@ -17,6 +17,7 @@ interface AuthContextType {
   user: User | null;
   login: (userData: User) => void;
   logout: () => void;
+  refreshProfile: () => Promise<void>; // <--- NOVA FUNÇÃO NO CONTRATO
   isAuthenticated: boolean;
   loading: boolean;
 }
@@ -55,34 +56,62 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     window.location.href = '/'; 
   };
 
-  // --- NOVO: OUVINTE DE SESSÃO EXPIRADA ---
+  // --- NOVA FUNÇÃO: ATUALIZAR PERFIL SILENCIOSAMENTE ---
+  const refreshProfile = async () => {
+    if (!user?.token) return; // Se não tem token, não faz nada
+
+    try {
+      console.log("🔄 Atualizando perfil e permissões...");
+      const response = await fetch('http://localhost:3001/api/auth/me', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.token}` // Usa o token atual para se identificar
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        
+        // O backend retorna { token: 'novo...', user: { ...dados } }
+        // Precisamos montar o objeto completo para o frontend
+        const updatedUser: User = {
+          ...data.user,
+          token: data.token // Atualiza com o Token NOVO (que tem o plano novo)
+        };
+
+        // Salva no estado e no localStorage
+        login(updatedUser); 
+        console.log("✅ Perfil atualizado com sucesso! Novo plano:", updatedUser.plano);
+      } else {
+        console.warn("Falha ao atualizar perfil. Status:", response.status);
+      }
+    } catch (error) {
+      console.error("Erro ao tentar atualizar perfil:", error);
+    }
+  };
+  // -----------------------------------------------------
+
+  // Ouvinte de Sessão Expirada
   useEffect(() => {
     const handleSessionExpired = () => {
-      // 1. Avisa o usuário
       alert("Sua sessão expirou. Por favor, faça login novamente.");
-      
-      // 2. Executa o logout
       logout();
     };
-
-    // Adiciona o ouvinte para o evento customizado
     window.addEventListener('auth:logout', handleSessionExpired);
-
-    // Remove o ouvinte quando o componente desmontar (limpeza)
     return () => {
       window.removeEventListener('auth:logout', handleSessionExpired);
     };
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user, loading }}>
+    <AuthContext.Provider value={{ user, login, logout, refreshProfile, isAuthenticated: !!user, loading }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
-// --- CORREÇÃO DO AVISO ---
-// A linha abaixo diz ao ESLint para ignorar a regra de Fast Refresh apenas para o Hook
+// Hook Personalizado
 // eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const context = useContext(AuthContext);

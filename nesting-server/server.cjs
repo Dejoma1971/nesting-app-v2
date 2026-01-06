@@ -185,6 +185,55 @@ app.post("/api/login", async (req, res) => {
 });
 
 // ==========================================================
+// ROTA PARA ATUALIZAR O PERFIL (RENOVAR TOKEN)
+// ==========================================================
+app.get("/api/auth/me", authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+
+  try {
+    // 1. Busca os dados MAIS RECENTES do usuário no banco
+    const [rows] = await db.query(
+      "SELECT id, nome, email, empresa_id, plano, cargo, status FROM usuarios WHERE id = ?",
+      [userId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Usuário não encontrado." });
+    }
+
+    const user = rows[0];
+
+    // 2. Gera um NOVO TOKEN com as permissões atualizadas
+    const newToken = jwt.sign(
+      {
+        id: user.id,
+        empresa_id: user.empresa_id,
+        plano: user.plano, // <--- Aqui estará o valor NOVO (ex: Corporativo)
+        cargo: user.cargo,
+      },
+      process.env.JWT_SECRET || "SEGREDO_FIXO_PARA_TESTE_123",
+      { expiresIn: "24h" }
+    );
+
+    // 3. Retorna o token novo e os dados
+    res.json({
+      token: newToken,
+      user: {
+        id: user.id,
+        name: user.nome,
+        email: user.email,
+        empresa_id: user.empresa_id,
+        plano: user.plano,
+        cargo: user.cargo,
+      },
+    });
+  } catch (error) {
+    console.error("Erro ao renovar perfil:", error);
+    res.status(500).json({ error: "Erro ao atualizar perfil." });
+  }
+});
+
+// ==========================================================
 // 3. ROTAS DE GESTÃO DE EQUIPE (PLANO CORPORATIVO)
 // ==========================================================
 

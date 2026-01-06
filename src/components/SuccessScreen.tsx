@@ -1,10 +1,18 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useAuth } from '../context/AuthContext'; // Importe o hook
 
 interface SuccessScreenProps {
   onBack: () => void;
 }
 
-export const SuccessScreen: React.FC<SuccessScreenProps> = ({ onBack }) => {  
+export const SuccessScreen: React.FC<SuccessScreenProps> = ({ onBack }) => {
+  const { refreshProfile } = useAuth(); // Pega a nova função
+
+  // Assim que a tela carrega, atualiza o token
+  useEffect(() => {
+    refreshProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div style={{
