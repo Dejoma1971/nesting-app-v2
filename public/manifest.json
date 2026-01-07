@@ -1,0 +1,20 @@
+{
+  "short_name": "AutoNest",
+  "name": "AutoNest Hub",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#007bff",
+  "background_color": "#1e1e1e"
+}

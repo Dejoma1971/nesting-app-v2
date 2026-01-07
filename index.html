@@ -4,10 +4,43 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/logo-favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#007bff" />
+    <link rel="apple-touch-icon" href="/pwa-192x192.png" />
+
     <title>AutoNest Hub</title>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+
+    <script>
+      // 1. Armadilha Global: Prepara uma variável para guardar o evento
+      window.deferredPrompt = null;
+
+      // 2. Escuta o evento IMEDIATAMENTE (antes do React)
+      window.addEventListener("beforeinstallprompt", (e) => {
+        // Previne que o Chrome mostre a barra nativa feia automaticamente
+        e.preventDefault();
+        // Guarda o evento na nossa variável global para usar no botão depois
+        window.deferredPrompt = e;
+        console.log(
+          "🔥🔥🔥 SUCESSO: O navegador autorizou a instalação! (Capturado no index.html)"
+        );
+      });
+
+      // 3. Registro do Service Worker (O que você já tinha)
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker
+            .register("/sw.js")
+            .then((reg) =>
+              console.log("Service Worker registrado com sucesso:", reg.scope)
+            )
+            .catch((err) => console.error("Falha ao registrar SW:", err));
+        });
+      }
+    </script>
   </body>
 </html>
