@@ -1,28 +1,30 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
-// 1. IMPORTAR O TIPO DO TEMA
+import { useInstallPrompt } from "../hooks/useInstallPrompt";
 import type { AppTheme } from "../styles/theme";
 
 interface SidebarMenuProps {
   onNavigate?: (screen: "home" | "engineering" | "nesting") => void;
   onOpenProfile?: () => void;
-  onOpenTeam?: () => void; // <--- NOVO: Função para abrir o modal de equipe
+  onOpenTeam?: () => void;
 }
 
-// 2. CORRIGIR A TIPAGEM NO SUB-COMPONENTE
 const MenuButton: React.FC<{
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
-  theme: AppTheme; // <--- Mudou de 'any' para 'AppTheme'
+  theme: AppTheme;
   subText?: string;
-}> = ({ onClick, icon, label, theme, subText }) => {
+  highlight?: boolean;
+  disabled?: boolean;
+}> = ({ onClick, icon, label, theme, subText, highlight, disabled }) => {
   const [isHovered, setIsHovered] = useState(false);
 
   return (
     <button
-      onClick={onClick}
+      onClick={!disabled ? onClick : undefined}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       style={{
@@ -30,16 +32,24 @@ const MenuButton: React.FC<{
         display: "flex",
         alignItems: "center",
         gap: "15px",
-        cursor: "pointer",
-        color: theme.text,
+        cursor: disabled ? "default" : "pointer", // Cursor normal se desativado
+        color: disabled ? theme.label : highlight ? "#007bff" : theme.text,
+        opacity: disabled ? 0.6 : 1, // Um pouco transparente se desativado
         borderBottom: `1px solid ${theme.border}`,
         fontSize: "14px",
-        transition: "background 0.2s",
-        background: isHovered ? theme.hoverRow : "transparent",
+        transition: "all 0.2s",
+        background:
+          isHovered && !disabled
+            ? theme.hoverRow
+            : highlight && !disabled
+            ? "rgba(0, 123, 255, 0.05)"
+            : "transparent",
         width: "100%",
         border: "none",
         textAlign: "left",
+        fontWeight: highlight ? "bold" : "normal",
       }}
+      title={disabled ? "Já instalado ou navegador não suportado" : ""}
     >
       <span style={{ display: "flex", alignItems: "center" }}>{icon}</span>
       <div style={{ display: "flex", flexDirection: "column" }}>
@@ -61,11 +71,15 @@ export const SidebarMenu: React.FC<SidebarMenuProps> = ({
   const { user, logout } = useAuth();
   const { theme, toggleTheme, isDarkMode } = useTheme();
 
+  const navigate = useNavigate();
+  const { isInstallable, handleInstallClick } = useInstallPrompt();
+
   const handleNavigation = (action: () => void) => {
     setIsOpen(false);
     setTimeout(action, 200);
   };
 
+  // ÍCONES
   const Icons = {
     Menu: (
       <svg
@@ -98,8 +112,6 @@ export const SidebarMenu: React.FC<SidebarMenuProps> = ({
         <line x1="6" y1="6" x2="18" y2="18"></line>
       </svg>
     ),
-
-    // MANTENHA O USER EXISTENTE (Minha Conta):
     User: (
       <svg
         width="20"
@@ -115,8 +127,6 @@ export const SidebarMenu: React.FC<SidebarMenuProps> = ({
         <circle cx="12" cy="7" r="4"></circle>
       </svg>
     ),
-
-    // ADICIONE O NOVO (Gerenciar Equipe):
     Users: (
       <svg
         width="20"
@@ -134,7 +144,6 @@ export const SidebarMenu: React.FC<SidebarMenuProps> = ({
         <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
       </svg>
     ),
-
     Moon: (
       <svg
         width="20"
@@ -234,7 +243,47 @@ export const SidebarMenu: React.FC<SidebarMenuProps> = ({
         <polyline points="9 22 9 12 15 12 15 22"></polyline>
       </svg>
     ),
+    Download: (
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <polyline points="7 10 12 15 17 10"></polyline>
+        <line x1="12" y1="15" x2="12" y2="3"></line>
+      </svg>
+    ),
+    CreditCard: (
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect>
+        <line x1="1" y1="10" x2="23" y2="10"></line>
+      </svg>
+    ),
   };
+
+  // Normalização
+  const userPlan = user?.plano?.toLowerCase() || "";
+  const userRole = user?.cargo?.toLowerCase() || "";
+
+  const isFree = userPlan === "free";
+  const isPaid = ["premium", "corporativo", "premium dev"].includes(userPlan);
+  const isCorporate = userPlan === "corporativo";
+  const isAdmin = userRole === "admin";
 
   return (
     <>
@@ -317,7 +366,7 @@ export const SidebarMenu: React.FC<SidebarMenuProps> = ({
               style={{
                 fontSize: "10px",
                 marginTop: "4px",
-                color: user?.plano === "Premium Dev" ? "#28a745" : theme.label,
+                color: isPaid ? "#28a745" : theme.label,
                 fontWeight: "bold",
                 textTransform: "uppercase",
               }}
@@ -339,6 +388,44 @@ export const SidebarMenu: React.FC<SidebarMenuProps> = ({
         </div>
 
         <div style={{ flex: 1, overflowY: "auto" }}>
+          {/* ASSINAR (Só para FREE) */}
+          {isFree && (
+            <MenuButton
+              label="Assinar Premium"
+              subText="Faça o upgrade da sua conta"
+              icon={Icons.CreditCard}
+              onClick={() =>
+                handleNavigation(() => navigate("/?scrollTo=pricing"))
+              }
+              theme={theme}
+              highlight={true}
+            />
+          )}
+
+          {/* INSTALAR APP (Sempre visível para pagos, desabilitado se já instalado/erro) */}
+          {isPaid && (
+            <MenuButton
+              label="Instalar Aplicativo"
+              subText={
+                isInstallable
+                  ? "Acesso rápido na área de trabalho"
+                  : "Indisponível no momento"
+              }
+              icon={Icons.Download}
+              onClick={() => {
+                setIsOpen(false);
+                handleInstallClick();
+              }}
+              theme={theme}
+              highlight={isInstallable}
+              disabled={!isInstallable}
+            />
+          )}
+
+          <div
+            style={{ height: "1px", background: theme.border, margin: "5px 0" }}
+          ></div>
+
           <MenuButton
             label="Minha Conta"
             icon={Icons.User}
@@ -348,19 +435,17 @@ export const SidebarMenu: React.FC<SidebarMenuProps> = ({
             theme={theme}
           />
 
-          {/* --- BLOCO NOVO --- */}
-          {/* CORREÇÃO: Verifica se é Admin E se o plano é Corporativo */}
-            {onOpenTeam && user?.cargo === 'admin' && user?.plano === 'Corporativo' && (
-                <MenuButton 
-                    label="Gerenciar Equipe" 
-                    icon={Icons.Users}
-                    onClick={() => handleNavigation(() => onOpenTeam())}
-                    theme={theme}
-                />
+          {/* GERENCIAR EQUIPE (Admin e Corporativo) */}
+          {onOpenTeam && isCorporate && isAdmin && (
+            <MenuButton
+              label="Gerenciar Equipe"
+              icon={Icons.Users}
+              onClick={() => handleNavigation(() => onOpenTeam())}
+              theme={theme}
+            />
           )}
-          {/* ------------------ */}
 
-          {user?.cargo === "admin" && onNavigate && (
+          {isAdmin && onNavigate && (
             <MenuButton
               label="Dashboard (Admin)"
               icon={Icons.Home}
@@ -375,15 +460,6 @@ export const SidebarMenu: React.FC<SidebarMenuProps> = ({
             onClick={toggleTheme}
             theme={theme}
           />
-
-          <MenuButton
-            label="Idioma"
-            subText="Português (BR)"
-            icon={Icons.Globe}
-            onClick={() => alert("Em breve: Suporte a múltiplos idiomas!")}
-            theme={theme}
-          />
-
           <MenuButton
             label="Ajuda & Tutoriais"
             icon={Icons.Help}
@@ -397,9 +473,7 @@ export const SidebarMenu: React.FC<SidebarMenuProps> = ({
         >
           <button
             onClick={() => {
-              if (window.confirm("Deseja realmente sair?")) {
-                logout();
-              }
+              if (window.confirm("Deseja realmente sair?")) logout();
             }}
             style={{
               width: "100%",
@@ -427,7 +501,7 @@ export const SidebarMenu: React.FC<SidebarMenuProps> = ({
               color: theme.text,
             }}
           >
-            Versão 1.2.0 (Build 2025)
+            Versão 1.2.1
           </div>
         </div>
       </div>
