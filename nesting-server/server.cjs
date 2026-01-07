@@ -4,14 +4,118 @@ const cors = require("cors");
 const db = require("./db.cjs");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const paymentRoutes = require("./routes/payment.routes.cjs"); // Note o .js no final
 
 const app = express();
 
-// 1. CONFIGURAÇÕES
 app.use(cors());
-app.use(express.json({ limit: "50mb" }));
+
+
+// Configuração híbrida: JSON normal para tudo, mas guarda o Raw Body para o Webhook
+app.use(express.json({
+  limit: '50mb',
+  verify: (req, res, buf) => {
+    // Se a URL começar com /api/webhook, salvamos o buffer bruto
+    if (req.originalUrl.startsWith('/api/webhook')) {
+      req.rawBody = buf.toString();
+    }
+  }
+}));
+
+// ==========================================
+// ADICIONE ESTA LINHA IMPORTANTE ABAIXO:
+// ==========================================
+app.use("/api/payment", paymentRoutes);
+// ==========================================
+
 const JWT_SECRET =
   process.env.JWT_SECRET || "segredo-super-secreto-do-nesting-app";
+
+
+  // ==========================================================
+// ROTA WEBHOOK DO STRIPE (AUTOMAÇÃO DE PAGAMENTO)
+// ==========================================================
+app.post('/api/webhook', async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET; 
+  const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
+  let event;
+
+  try {
+    // 1. Validação de Segurança do Stripe
+    if (!req.rawBody) throw new Error('Raw body não encontrado. Verifique o middleware express.json.');
+    event = stripe.webhooks.constructEvent(req.rawBody, sig, endpointSecret);
+  } catch (err) {
+    console.error(`❌ Webhook Error: ${err.message}`);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // 2. Processamento do Evento
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    
+    const userEmail = session.customer_details.email;
+    const amountTotal = session.amount_total; // Valor em centavos (ex: 3690 para $36.90)
+
+    console.log(`💰 Pagamento recebido de: ${userEmail} | Valor: ${amountTotal}`);
+
+    try {
+        const connection = await db.getConnection();
+        
+        // --- LÓGICA INTELIGENTE DE PLANOS ---
+        let novoPlano = 'Premium';
+        let limiteUsuarios = 1;
+
+        // Se pagou mais que o base ($24.90), é Corporativo
+        if (amountTotal > 2490) {
+            novoPlano = 'Corporativo';
+            
+            // Matemática Reversa para descobrir quantos usuários ele comprou:
+            // (Total Pago - Preço Base) / Preço Extra + 1 (o Admin)
+            // Ex: (3690 - 2490) / 1200 = 1 extra. Total = 2.
+            const valorExtra = amountTotal - 2490;
+            const usersExtras = Math.floor(valorExtra / 1200);
+            limiteUsuarios = 1 + usersExtras;
+        }
+
+        console.log(`📊 Definindo plano: ${novoPlano} com ${limiteUsuarios} usuários.`);
+
+        // 1. Descobre a empresa do usuário
+        const [users] = await connection.query("SELECT empresa_id FROM usuarios WHERE email = ?", [userEmail]);
+        
+        if (users.length > 0) {
+            const empresaId = users[0].empresa_id;
+            
+            // 2. Atualiza a EMPRESA (Libera o limite de usuários)
+            await connection.query(`
+                UPDATE empresas 
+                SET plano = ?, subscription_status = 'active', max_users = ? 
+                WHERE id = ?`, 
+                [novoPlano, limiteUsuarios, empresaId]
+            );
+            
+            // 3. Atualiza o ADMIN (Dono do email)
+            await connection.query(`
+                UPDATE usuarios SET plano = ? WHERE email = ?`,
+                [novoPlano, userEmail]
+            );
+            
+            console.log(`✅ Sucesso! Empresa ${empresaId} atualizada.`);
+        } else {
+            console.error("⚠️ Usuário pagante não encontrado no banco:", userEmail);
+        }
+        
+        connection.release();
+
+    } catch (dbError) {
+        console.error("❌ Erro ao atualizar banco:", dbError);
+    }
+  }
+
+  // Retorna 200 OK para o Stripe parar de tentar enviar
+  res.json({received: true});
+});
 
 // ==========================================================
 // 2. ROTAS
@@ -77,6 +181,186 @@ app.post("/api/login", async (req, res) => {
   } catch (error) {
     console.error("Erro no login:", error);
     res.status(500).json({ error: "Erro interno do servidor" });
+  }
+});
+
+// ==========================================================
+// ROTA PARA ATUALIZAR O PERFIL (RENOVAR TOKEN)
+// ==========================================================
+app.get("/api/auth/me", authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+
+  try {
+    // 1. Busca os dados MAIS RECENTES do usuário no banco
+    const [rows] = await db.query(
+      "SELECT id, nome, email, empresa_id, plano, cargo, status FROM usuarios WHERE id = ?",
+      [userId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Usuário não encontrado." });
+    }
+
+    const user = rows[0];
+
+    // 2. Gera um NOVO TOKEN com as permissões atualizadas
+    const newToken = jwt.sign(
+      {
+        id: user.id,
+        empresa_id: user.empresa_id,
+        plano: user.plano, // <--- Aqui estará o valor NOVO (ex: Corporativo)
+        cargo: user.cargo,
+      },
+      process.env.JWT_SECRET || "SEGREDO_FIXO_PARA_TESTE_123",
+      { expiresIn: "24h" }
+    );
+
+    // 3. Retorna o token novo e os dados
+    res.json({
+      token: newToken,
+      user: {
+        id: user.id,
+        name: user.nome,
+        email: user.email,
+        empresa_id: user.empresa_id,
+        plano: user.plano,
+        cargo: user.cargo,
+      },
+    });
+  } catch (error) {
+    console.error("Erro ao renovar perfil:", error);
+    res.status(500).json({ error: "Erro ao atualizar perfil." });
+  }
+});
+
+// ==========================================================
+// 3. ROTAS DE GESTÃO DE EQUIPE (PLANO CORPORATIVO)
+// ==========================================================
+
+// --- LISTAR MEMBROS DA EQUIPE ---
+app.get("/api/team", authenticateToken, async (req, res) => {
+  const empresaId = req.user.empresa_id;
+
+  try {
+    // Busca apenas usuários da mesma empresa
+    const [rows] = await db.query(
+      "SELECT id, nome, email, cargo, status, ultimo_login FROM usuarios WHERE empresa_id = ?",
+      [empresaId]
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Erro ao listar equipe:", error);
+    res.status(500).json({ error: "Erro ao buscar equipe." });
+  }
+});
+
+// --- ADICIONAR NOVO MEMBRO (COM BLOQUEIO DE LIMITE) ---
+app.post("/api/team/add", authenticateToken, async (req, res) => {
+  const { nome, email, password } = req.body;
+  const empresaId = req.user.empresa_id;
+  const usuarioCargo = req.user.cargo; // Quem está solicitando
+
+  // 1. Segurança: Apenas ADMIN pode adicionar
+  if (usuarioCargo !== 'admin') {
+    return res.status(403).json({ error: "Apenas administradores podem adicionar membros." });
+  }
+
+  if (!nome || !email || !password) {
+    return res.status(400).json({ error: "Preencha todos os campos." });
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 2. BUSCA O LIMITE DA EMPRESA (max_users)
+    const [empRows] = await connection.query(
+      "SELECT max_users, plano FROM empresas WHERE id = ?", 
+      [empresaId]
+    );
+    
+    if (empRows.length === 0) throw new Error("Empresa não encontrada");
+    const empresa = empRows[0];
+    const limiteUsuarios = empresa.max_users || 1; // Default 1 se null
+
+    // 3. CONTA USUÁRIOS ATUAIS
+    const [countRows] = await connection.query(
+      "SELECT COUNT(*) as total FROM usuarios WHERE empresa_id = ?",
+      [empresaId]
+    );
+    const totalAtual = countRows[0].total;
+
+    // 4. VERIFICAÇÃO CRÍTICA DO PLANO
+    if (totalAtual >= limiteUsuarios) {
+      await connection.rollback();
+      return res.status(403).json({ 
+        error: "LIMITE ATINGIDO", 
+        message: `Seu plano atual (${empresa.plano}) permite apenas ${limiteUsuarios} usuários. Faça upgrade para o Plano Corporativo para adicionar mais membros.` 
+      });
+    }
+
+    // 5. Verifica se email já existe (Globalmente ou na empresa)
+    const [existing] = await connection.query("SELECT id FROM usuarios WHERE email = ?", [email]);
+    if (existing.length > 0) {
+      await connection.rollback();
+      return res.status(400).json({ error: "Este e-mail já está em uso no sistema." });
+    }
+
+    // 6. CRIA O NOVO USUÁRIO (Sempre como 'operador' por segurança)
+    const novoId = crypto.randomUUID();
+    const salt = await bcrypt.genSalt(10);
+    const senhaHash = await bcrypt.hash(password, salt);
+
+    await connection.query(
+      `INSERT INTO usuarios (id, nome, email, senha_hash, empresa_id, cargo, status, plano)
+       VALUES (?, ?, ?, ?, ?, 'operador', 'ativo', 'dependente')`, // Plano 'dependente' indica que segue a empresa
+      [novoId, nome, email, senhaHash, empresaId]
+    );
+
+    await connection.commit();
+    res.status(201).json({ message: "Membro adicionado com sucesso!" });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error("Erro ao adicionar membro:", error);
+    res.status(500).json({ error: "Erro interno ao adicionar membro." });
+  } finally {
+    connection.release();
+  }
+});
+
+// --- REMOVER MEMBRO DA EQUIPE ---
+app.delete("/api/team/:id", authenticateToken, async (req, res) => {
+  const targetId = req.params.id;
+  const empresaId = req.user.empresa_id;
+  const requesterId = req.user.id;
+  const requesterCargo = req.user.cargo;
+
+  // 1. Segurança Básica
+  if (requesterCargo !== 'admin') {
+    return res.status(403).json({ error: "Sem permissão." });
+  }
+
+  // 2. Não permitir deletar a si mesmo
+  if (targetId === requesterId) {
+    return res.status(400).json({ error: "Você não pode excluir sua própria conta por aqui." });
+  }
+
+  try {
+    // 3. Executa a exclusão (Garantindo que o alvo pertence à MESMA empresa)
+    const [result] = await db.query(
+      "DELETE FROM usuarios WHERE id = ? AND empresa_id = ?",
+      [targetId, empresaId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Usuário não encontrado ou não pertence à sua equipe." });
+    }
+
+    res.json({ message: "Usuário removido com sucesso." });
+  } catch (error) {
+    console.error("Erro ao remover membro:", error);
+    res.status(500).json({ error: "Erro ao processar exclusão." });
   }
 });
 

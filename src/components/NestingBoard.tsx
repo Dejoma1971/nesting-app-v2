@@ -34,6 +34,7 @@ import { SidebarMenu } from "../components/SidebarMenu";
 import { useNestingAutoSave } from "../hooks/useNestingAutoSave";
 // ... outras importações
 import { useProductionRegister } from "../hooks/useProductionRegister"; // <--- GARANTA ESTA LINHA
+import { TeamManagementScreen } from "../components/TeamManagementScreen";
 
 
 interface Size {
@@ -46,6 +47,7 @@ interface NestingBoardProps {
   initialSearchQuery?: string;
   onBack?: () => void;
   onNavigate?: (screen: "home" | "engineering" | "nesting") => void;
+  onOpenTeam?: () => void; // <--- ADICIONE ESTA LINHA
 }
 
 
@@ -319,6 +321,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   initialSearchQuery,
   onBack,
   onNavigate,
+  onOpenTeam,
 }) => {
   // --- 2. PEGAR O USUÁRIO DO CONTEXTO DE SEGURANÇA ---
   const { user } = useAuth();
@@ -326,6 +329,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // --- NOVO: Estado para bloquear recursos do Trial ---
   const [isTrial, setIsTrial] = useState(false);
   const [isRestoring, setIsRestoring] = useState(true); // Começa carregando
+  // Estado para controlar o modal da equipe
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
 
   useEffect(() => {
     if (user && user.token) {
@@ -2194,10 +2199,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           ></div>
           <SidebarMenu
             onNavigate={(screen) => {
-              // Se precisar navegar para a home (dashboard admin)
+              // Mantenha a lógica de navegação que já existe aqui
               if (screen === "home" && onBack) onBack();
             }}
-            onOpenProfile={() => alert("Janela de Dados da Conta abrirá aqui!")}
+            onOpenProfile={() => alert("Perfil em breve")}
+            
+            // ADICIONE ESTA LINHA:
+            onOpenTeam={onOpenTeam}
           />
           {/* <button
             onClick={toggleTheme}
@@ -3351,6 +3359,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             theme={theme}
           />
         )}
+
+        {/* SE O ESTADO FOR TRUE, MOSTRA A TELA DE EQUIPE */}
+      {isTeamModalOpen && (
+        <TeamManagementScreen onClose={() => setIsTeamModalOpen(false)} />
+      )}
+
     </div>
   );
 };

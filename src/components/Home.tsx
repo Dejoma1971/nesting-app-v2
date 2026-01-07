@@ -1,14 +1,18 @@
 import React, { useState } from "react";
 import { SidebarMenu } from "../components/SidebarMenu";
+import { TeamManagementScreen } from "../components/TeamManagementScreen";
+import { useTheme } from "../context/ThemeContext";
 
 type ScreenType = "home" | "engineering" | "nesting";
 
 interface HomeProps {
   onNavigate: (screen: ScreenType) => void;
+  onOpenTeam: () => void; // <--- ADICIONE ESTA LINHA
 }
 
 export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
-  const [isDarkMode] = useState(true);
+  const { isDarkMode } = useTheme();
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
 
   // --- TEMAS ---
   const theme = {
@@ -72,7 +76,9 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
         <div style={{ position: "absolute", top: 20, right: 20, zIndex: 1000 }}>
           <SidebarMenu
             onNavigate={onNavigate}
-            onOpenProfile={() => alert("Perfil do Usuário (Em breve)")}
+            onOpenProfile={() => alert("Perfil do Usuário (Em breve)")}            
+            // ADICIONE ESTA LINHA:
+            onOpenTeam={() => setIsTeamModalOpen(true)}
           />
         </div>
       </div>
@@ -227,6 +233,11 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       >
         v1.2.0 - Sistema Integrado
       </div>
+      {/* SE O ESTADO FOR TRUE, MOSTRA A TELA */}
+      {isTeamModalOpen && (
+        <TeamManagementScreen onClose={() => setIsTeamModalOpen(false)} />
+      )}
+
     </div>
   );
 };
