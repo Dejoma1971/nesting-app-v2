@@ -700,28 +700,49 @@ export const detectOpenEndpoints = (entities: any[]): Point[] => {
     return openPoints;
 };
 
-export const closeOpenPath = (entities: any[], openPoints: Point[]): any[] => {
-    // Lógica simples: Se houver exatamente 2 pontas soltas, fecha com uma reta.
-    // Se houver mais, é complexo demais para automatizar com segurança total, 
-    // mas vamos tentar fechar o par mais próximo ou sequencial.
-    
-    const newEntities = [...entities];
+// ... (mantenha imports e funções anteriores)
 
-    if (openPoints.length === 2) {
-        newEntities.push({
-            type: 'LINE',
-            vertices: [openPoints[0], openPoints[1]],
-            layer: 'AUTOCLOSE' // Marcador útil para debug
-        });
-    } 
-    else if (openPoints.length > 2) {
-        // Tenta fechar sequencialmente (opcional: poderia ordenar por proximidade)
-        // Aqui fechamos o primeiro com o último para tentar fechar o loop externo
-        newEntities.push({
-             type: 'LINE',
-             vertices: [openPoints[0], openPoints[openPoints.length - 1]],
-             layer: 'AUTOCLOSE'
-        });
+export const closeOpenPath = (entities: any[], openPoints: Point[]): any[] => {
+    const newEntities = [...entities];
+    const pointsToProcess = [...openPoints];
+
+    // Tolerância para "Gap de CAD" (ex: 5mm). 
+    // Se a distância for maior que isso, assumimos que NÃO deve ser fechado automaticamente para não riscar a peça.
+    const MAX_GAP_DISTANCE = 1.0; 
+
+    while (pointsToProcess.length >= 2) {
+        const current = pointsToProcess.pop()!;
+        let nearestIdx = -1;
+        let minDist = Infinity;
+
+        // Encontra o ponto mais próximo deste
+        for (let i = 0; i < pointsToProcess.length; i++) {
+            const other = pointsToProcess[i];
+            const d = Math.sqrt(Math.pow(other.x - current.x, 2) + Math.pow(other.y - current.y, 2));
+            if (d < minDist) {
+                minDist = d;
+                nearestIdx = i;
+            }
+        }
+
+        if (nearestIdx !== -1) {
+            // Só fecha se for um gap pequeno (correção de canto)
+            if (minDist <= MAX_GAP_DISTANCE) {
+                const target = pointsToProcess[nearestIdx];
+                newEntities.push({
+                    type: 'LINE',
+                    vertices: [current, target],
+                    layer: 'AUTOCLOSE'
+                });
+                // Remove o ponto usado da lista
+                pointsToProcess.splice(nearestIdx, 1);
+            } else {
+                // Se a distância for muito grande (como na sua imagem), 
+                // PROVAVELMENTE a ordem dos pontos detectados está cruzada ou a peça está muito quebrada.
+                // Nesse caso, preferimos NÃO fechar do que estragar a peça com um risco no meio.
+                console.warn("Gap muito grande detectado, ignorando fechamento automático para evitar corte transversal:", minDist);
+            }
+        }
     }
 
     return newEntities;

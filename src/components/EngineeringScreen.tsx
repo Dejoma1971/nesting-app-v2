@@ -1,6 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState } from "react";
-import { calculateBoundingBox, detectOpenEndpoints, closeOpenPath } from "../utils/geometryCore";
+import {
+  calculateBoundingBox,
+  detectOpenEndpoints,
+  closeOpenPath,
+} from "../utils/geometryCore";
 import { SubscriptionPanel } from "./SubscriptionPanel";
 import { useTheme } from "../context/ThemeContext";
 import { SidebarMenu } from "../components/SidebarMenu";
@@ -24,7 +28,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
 
   // --- NOVO ESTADO PARA PONTOS ABERTOS ---
-  const [openPoints, setOpenPoints] = useState<any[]>([]);  
+  const [openPoints, setOpenPoints] = useState<any[]>([]);
 
   // 1. Desestruturando tudo do Hook (inclusive as novas listas)
   const {
@@ -62,7 +66,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   // CORREÇÃO: Removemos 'props.' e usamos as variáveis locais 'parts' e 'viewingPartId'
   React.useEffect(() => {
     const currentPart = parts.find((p: any) => p.id === viewingPartId);
-    
+
     if (currentPart) {
       const points = detectOpenEndpoints(currentPart.entities);
       setOpenPoints(points);
@@ -72,23 +76,42 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   }, [viewingPartId, parts]);
 
   // --- NOVO: FUNÇÃO PARA CORRIGIR ---
+// ... dentro do EngineeringScreen.tsx
+
   const handleFixOpenGeometry = () => {
-    // CORREÇÃO: Usamos 'viewingPartId' diretamente aqui também
+    // Busca a peça usando viewingPartId diretamente
     const currentPart = parts.find((p: ImportedPart) => p.id === viewingPartId);
     
     if (!currentPart || openPoints.length < 2) return;
 
-    // 1. Gera novas entidades com a linha de fechamento
+    // 1. Tenta gerar o fechamento inteligente
     const fixedEntities = closeOpenPath(currentPart.entities, openPoints);
 
-    // 2. Atualiza a referência da peça
-    currentPart.entities = fixedEntities;
+    // 2. Verifica se o fechamento ocorreu ou foi abortado por segurança
+    if (fixedEntities.length === currentPart.entities.length) {
+        // CASO 1: Abertura muito grande (> 1mm). O sistema abortou a edição geométrica.
+        alert(
+            "Atenção: A abertura é maior que o limite de segurança (1mm).\n\n" +
+            "O fechamento automático foi cancelado para evitar riscar a peça incorretamente.\n" +
+            "O alerta visual será removido, mas lembre-se que a geometria continua aberta."
+        );
+        // NOTA: Não fazemos 'return' aqui. O código segue abaixo para remover o alerta visual (Ignorar).
+    } else {
+        // CASO 2: Fechamento bem sucedido. Atualizamos a geometria.
+        currentPart.entities = fixedEntities;
+        // Feedback opcional (pode comentar se achar muito intrusivo)
+        // alert("Geometria fechada com sucesso!"); 
+    }
 
-    // 3. Força atualização visual
+    // 3. Em AMBOS os casos (Corrigido ou Ignorado Automaticamente), removemos a flag de erro.
+    // Isso faz a miniatura e a tabela pararem de piscar imediatamente.
+    currentPart.hasOpenGeometry = false; 
+
+    // 4. Limpa o estado local do modal (some a barra amarela)
     setOpenPoints([]); 
-    refreshData(); 
     
-    alert("Geometria fechada com sucesso! Uma linha de corte foi adicionada.");
+    // 5. Força a atualização da tela para refletir a mudança de cor/borda
+    refreshData(); 
   };
 
   // --- NOVO: Lógica do Aviso "Cortar Agora" ---
@@ -144,7 +167,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   const executeBulkDelete = () => {
     handleBulkDelete(selectedIds);
     setSelectedIds([]); // Limpa a seleção
-  };  
+  };
 
   // --- RENDER ENTITY FUNCTION ---
   const renderEntity = (
@@ -344,7 +367,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     color: "inherit",
     fontSize: "inherit",
     borderBottom: `1px solid ${theme.border}`,
-  };  
+  };
 
   const viewingPart = viewingPartId
     ? parts.find((p: ImportedPart) => p.id === viewingPartId)
@@ -815,14 +838,21 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               return (
                 <div
                   key={part.id}
+                  // ADICIONE ESTA LINHA (Aplica a classe de animação se tiver erro):
+                  className={
+                    part.hasOpenGeometry ? "open-geometry-warning" : ""
+                  }
                   style={{
                     ...cardStyle,
-                    // Se selecionado no checkbox, borda e fundo vermelhos. Se selecionado no clique, azul.
+                    // ALTERE A LÓGICA DA BORDA PARA INCLUIR O AMARELO:
                     borderColor: selectedIds.includes(part.id)
-                      ? "#d32f2f"
+                      ? "#d32f2f" // Vermelho (Selecionado para excluir)
                       : isSelected
-                      ? "#007bff"
-                      : theme.border,
+                      ? "#007bff" // Azul (Selecionado clicado)
+                      : part.hasOpenGeometry
+                      ? "#ffc107" // Amarelo (Aviso de Geometria) <--- NOVO
+                      : theme.border, // Padrão
+
                     background: selectedIds.includes(part.id)
                       ? "rgba(220, 53, 69, 0.08)"
                       : theme.cardBg,
@@ -1052,6 +1082,10 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 return (
                   <tr
                     key={part.id}
+                    // ADICIONE ESTA LINHA (Aplica a classe na linha da tabela):
+                    className={
+                      part.hasOpenGeometry ? "open-geometry-warning" : ""
+                    }
                     style={{ background: rowBackground, cursor: "pointer" }}
                     onClick={() => setSelectedPartId(part.id)}
                   >
@@ -1302,66 +1336,90 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             {/* MUDANÇA 4: Inserir o Alerta de Corrente Quebrada AQUI              */}
             {/* ------------------------------------------------------------------ */}
             {openPoints.length > 0 && (
-                <div style={{
-                    background: "#fff3cd",
-                    color: "#856404",
-                    padding: "10px 15px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    borderBottom: "1px solid #ffeeba",
-                    animation: "fadeIn 0.3s"
-                }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                        {/* Ícone de Corrente Quebrada */}
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#d9534f" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
-                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
-                            <line x1="11" y1="13" x2="13" y2="11" stroke="#fff" strokeWidth="3" />
-                        </svg>
-                        
-                        <div style={{ display: "flex", flexDirection: "column" }}>
-                            <span style={{ fontWeight: "bold", fontSize: "13px" }}>Atenção: Perímetro Aberto</span>
-                            <span style={{ fontSize: "11px" }}>Detectadas {openPoints.length} pontas soltas.</span>
-                        </div>
-                    </div>
+              <div
+                style={{
+                  background: "#fff3cd",
+                  color: "#856404",
+                  padding: "10px 15px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  borderBottom: "1px solid #ffeeba",
+                  animation: "fadeIn 0.3s",
+                }}
+              >
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "10px" }}
+                >
+                  {/* Ícone de Corrente Quebrada */}
+                  <svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#d9534f"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                    <line
+                      x1="11"
+                      y1="13"
+                      x2="13"
+                      y2="11"
+                      stroke="#fff"
+                      strokeWidth="3"
+                    />
+                  </svg>
 
-                    <div style={{ display: "flex", gap: "10px" }}>
-                        <button 
-                            onClick={() => setOpenPoints([])}
-                            style={{
-                                background: "transparent",
-                                border: "1px solid #856404",
-                                color: "#856404",
-                                padding: "5px 10px",
-                                borderRadius: "4px",
-                                fontSize: "11px",
-                                cursor: "pointer",
-                                fontWeight: "bold"
-                            }}
-                        >
-                            Ignorar
-                        </button>
-                        <button 
-                            onClick={handleFixOpenGeometry}
-                            style={{
-                                background: "#d9534f",
-                                border: "none",
-                                color: "white",
-                                padding: "5px 10px",
-                                borderRadius: "4px",
-                                fontSize: "11px",
-                                cursor: "pointer",
-                                fontWeight: "bold",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "5px"
-                            }}
-                        >
-                            Fechar Peça
-                        </button>
-                    </div>
+                  <div style={{ display: "flex", flexDirection: "column" }}>
+                    <span style={{ fontWeight: "bold", fontSize: "13px" }}>
+                      Atenção: Perímetro Aberto
+                    </span>
+                    <span style={{ fontSize: "11px" }}>
+                      Detectadas {openPoints.length} pontas soltas.
+                    </span>
+                  </div>
                 </div>
+
+                <div style={{ display: "flex", gap: "10px" }}>
+                  <button
+                    onClick={() => setOpenPoints([])}
+                    style={{
+                      background: "transparent",
+                      border: "1px solid #856404",
+                      color: "#856404",
+                      padding: "5px 10px",
+                      borderRadius: "4px",
+                      fontSize: "11px",
+                      cursor: "pointer",
+                      fontWeight: "bold",
+                    }}
+                  >
+                    Ignorar
+                  </button>
+                  <button
+                    onClick={handleFixOpenGeometry}
+                    style={{
+                      background: "#d9534f",
+                      border: "none",
+                      color: "white",
+                      padding: "5px 10px",
+                      borderRadius: "4px",
+                      fontSize: "11px",
+                      cursor: "pointer",
+                      fontWeight: "bold",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "5px",
+                    }}
+                  >
+                    Fechar Peça
+                  </button>
+                </div>
+              </div>
             )}
             {/* ------------------------------------------------------------------ */}
 
@@ -1409,21 +1467,26 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                     {/* MUDANÇA 5: Marcadores de erro (Bolinhas vermelhas)                 */}
                     {/* ------------------------------------------------------------------ */}
                     {openPoints.map((p, idx) => (
-                       <circle 
-                           key={`open-${idx}`} 
-                           cx={p.x} 
-                           cy={p.y} 
-                           r={Math.max((viewingPart.width || 100) / 40, 3)} 
-                           fill="#d9534f" 
-                           stroke="white" 
-                           strokeWidth={1}
-                           vectorEffect="non-scaling-stroke"
-                       >
-                           <title>Ponta Solta</title>
-                           <animate attributeName="r" values="3;6;3" dur="1.5s" repeatCount="indefinite" />
-                       </circle>
-                   ))}
-                   {/* ------------------------------------------------------------------ */}
+                      <circle
+                        key={`open-${idx}`}
+                        cx={p.x}
+                        cy={p.y}
+                        r={Math.max((viewingPart.width || 100) / 40, 3)}
+                        fill="#d9534f"
+                        stroke="white"
+                        strokeWidth={1}
+                        vectorEffect="non-scaling-stroke"
+                      >
+                        <title>Ponta Solta</title>
+                        <animate
+                          attributeName="r"
+                          values="3;6;3"
+                          dur="1.5s"
+                          repeatCount="indefinite"
+                        />
+                      </circle>
+                    ))}
+                    {/* ------------------------------------------------------------------ */}
                   </svg>
                 );
               })()}

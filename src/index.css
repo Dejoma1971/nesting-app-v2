@@ -76,3 +76,27 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+
+/* Animação para peças com geometria aberta */
+@keyframes warningPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.4);
+    background-color: rgba(255, 193, 7, 0.05);
+    border-color: rgba(255, 193, 7, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 10px 4px rgba(255, 193, 7, 0);
+    background-color: rgba(255, 193, 7, 0.2);
+    border-color: rgba(255, 193, 7, 0.8);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 193, 7, 0);
+    background-color: rgba(255, 193, 7, 0.05);
+    border-color: rgba(255, 193, 7, 0.5);
+  }
+}
+
+.open-geometry-warning {
+  animation: warningPulse 2s infinite;
+  border: 1px solid #ffc107 !important; /* Força borda amarela */
+}
