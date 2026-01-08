@@ -1,5 +1,6 @@
 require("dotenv").config();
 const express = require("express");
+const path = require("path"); // <--- ADICIONE ESTA LINHA
 const cors = require("cors");
 const db = require("./db.cjs");
 const bcrypt = require("bcryptjs");
@@ -12,15 +13,17 @@ const app = express();
 app.use(cors());
 
 // Configuração híbrida: JSON normal para tudo, mas guarda o Raw Body para o Webhook do Stripe
-app.use(express.json({
-  limit: '50mb',
-  verify: (req, res, buf) => {
-    // Se a URL começar com /api/webhook, salvamos o buffer bruto
-    if (req.originalUrl.startsWith('/api/webhook')) {
-      req.rawBody = buf.toString();
-    }
-  }
-}));
+app.use(
+  express.json({
+    limit: "50mb",
+    verify: (req, res, buf) => {
+      // Se a URL começar com /api/webhook, salvamos o buffer bruto
+      if (req.originalUrl.startsWith("/api/webhook")) {
+        req.rawBody = buf.toString();
+      }
+    },
+  })
+);
 
 // ==========================================
 // ROTAS DE PAGAMENTO
@@ -31,7 +34,8 @@ app.use("/api/payment", paymentRoutes);
 // CONFIGURAÇÃO CENTRALIZADA DA CHAVE SECRETA
 // (Isso resolve o erro de invalid signature)
 // ==========================================
-const JWT_SECRET = process.env.JWT_SECRET || "segredo-super-secreto-do-nesting-app";
+const JWT_SECRET =
+  process.env.JWT_SECRET || "segredo-super-secreto-do-nesting-app";
 
 // ==========================================================
 // MIDDLEWARE DE AUTENTICAÇÃO (Definido aqui para usar o JWT_SECRET correto)
@@ -59,77 +63,86 @@ function authenticateToken(req, res, next) {
 // ==========================================================
 // ROTA WEBHOOK DO STRIPE (AUTOMAÇÃO DE PAGAMENTO)
 // ==========================================================
-app.post('/api/webhook', async (req, res) => {
-  const sig = req.headers['stripe-signature'];
-  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET; 
-  const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+app.post("/api/webhook", async (req, res) => {
+  const sig = req.headers["stripe-signature"];
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
   let event;
 
   try {
-    if (!req.rawBody) throw new Error('Raw body não encontrado.');
+    if (!req.rawBody) throw new Error("Raw body não encontrado.");
     event = stripe.webhooks.constructEvent(req.rawBody, sig, endpointSecret);
   } catch (err) {
     console.error(`❌ Webhook Error: ${err.message}`);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  if (event.type === 'checkout.session.completed') {
+  if (event.type === "checkout.session.completed") {
     const session = event.data.object;
     const userEmail = session.customer_details.email;
     const amountTotal = session.amount_total; // Centavos
 
-    console.log(`💰 Pagamento recebido de: ${userEmail} | Valor: ${amountTotal}`);
+    console.log(
+      `💰 Pagamento recebido de: ${userEmail} | Valor: ${amountTotal}`
+    );
 
     try {
-        const connection = await db.getConnection();
-        
-        // Lógica de Planos
-        let novoPlano = 'Premium';
-        let limiteUsuarios = 1;
+      const connection = await db.getConnection();
 
-        // Se pagou mais que o base ($24.90), é Corporativo
-        if (amountTotal > 2490) {
-            novoPlano = 'Corporativo';
-            // Cálculo: (Total - Base) / Preço Extra + 1 Admin
-            const valorExtra = amountTotal - 2490;
-            const usersExtras = Math.floor(valorExtra / 1200);
-            limiteUsuarios = 1 + usersExtras;
-        }
+      // Lógica de Planos
+      let novoPlano = "Premium";
+      let limiteUsuarios = 1;
 
-        console.log(`📊 Definindo plano: ${novoPlano} com ${limiteUsuarios} usuários.`);
+      // Se pagou mais que o base ($24.90), é Corporativo
+      if (amountTotal > 2490) {
+        novoPlano = "Corporativo";
+        // Cálculo: (Total - Base) / Preço Extra + 1 Admin
+        const valorExtra = amountTotal - 2490;
+        const usersExtras = Math.floor(valorExtra / 1200);
+        limiteUsuarios = 1 + usersExtras;
+      }
 
-        // 1. Descobre a empresa do usuário
-        const [users] = await connection.query("SELECT empresa_id FROM usuarios WHERE email = ?", [userEmail]);
-        
-        if (users.length > 0) {
-            const empresaId = users[0].empresa_id;
+      console.log(
+        `📊 Definindo plano: ${novoPlano} com ${limiteUsuarios} usuários.`
+      );
 
-            // 2. Atualiza a EMPRESA
-            await connection.query(`
+      // 1. Descobre a empresa do usuário
+      const [users] = await connection.query(
+        "SELECT empresa_id FROM usuarios WHERE email = ?",
+        [userEmail]
+      );
+
+      if (users.length > 0) {
+        const empresaId = users[0].empresa_id;
+
+        // 2. Atualiza a EMPRESA
+        await connection.query(
+          `
                 UPDATE empresas 
                 SET plano = ?, subscription_status = 'active', max_users = ? 
-                WHERE id = ?`, 
-              [novoPlano, limiteUsuarios, empresaId]
-            );
+                WHERE id = ?`,
+          [novoPlano, limiteUsuarios, empresaId]
+        );
 
-            // 3. Atualiza o ADMIN
-            await connection.query(`
+        // 3. Atualiza o ADMIN
+        await connection.query(
+          `
                 UPDATE usuarios SET plano = ? WHERE email = ?`,
-                [novoPlano, userEmail]
-            );
-            console.log(`✅ Sucesso! Empresa ${empresaId} atualizada.`);
-        } else {
-            console.error("⚠️ Usuário pagante não encontrado no banco:", userEmail);
-        }
-        
-        connection.release();
+          [novoPlano, userEmail]
+        );
+        console.log(`✅ Sucesso! Empresa ${empresaId} atualizada.`);
+      } else {
+        console.error("⚠️ Usuário pagante não encontrado no banco:", userEmail);
+      }
+
+      connection.release();
     } catch (dbError) {
-        console.error("❌ Erro ao atualizar banco:", dbError);
+      console.error("❌ Erro ao atualizar banco:", dbError);
     }
   }
 
-  res.json({received: true});
+  res.json({ received: true });
 });
 
 // ==========================================================
@@ -146,12 +159,14 @@ app.post("/api/login", async (req, res) => {
       [email]
     );
 
-    if (rows.length === 0) return res.status(401).json({ error: "Usuário não encontrado" });
+    if (rows.length === 0)
+      return res.status(401).json({ error: "Usuário não encontrado" });
 
     const user = rows[0];
 
     const validPassword = await bcrypt.compare(password, user.senha_hash);
-    if (!validPassword) return res.status(401).json({ error: "Senha incorreta" });
+    if (!validPassword)
+      return res.status(401).json({ error: "Senha incorreta" });
 
     // CORREÇÃO: Usando a constante JWT_SECRET
     const token = jwt.sign(
@@ -161,7 +176,7 @@ app.post("/api/login", async (req, res) => {
         plano: user.plano,
         cargo: user.cargo,
       },
-      JWT_SECRET, 
+      JWT_SECRET,
       { expiresIn: "24h" }
     );
 
@@ -193,7 +208,8 @@ app.get("/api/auth/me", authenticateToken, async (req, res) => {
       [userId]
     );
 
-    if (rows.length === 0) return res.status(404).json({ error: "Usuário não encontrado." });
+    if (rows.length === 0)
+      return res.status(404).json({ error: "Usuário não encontrado." });
 
     const user = rows[0];
 
@@ -202,7 +218,7 @@ app.get("/api/auth/me", authenticateToken, async (req, res) => {
       {
         id: user.id,
         empresa_id: user.empresa_id,
-        plano: user.plano, 
+        plano: user.plano,
         cargo: user.cargo,
       },
       JWT_SECRET,
@@ -238,7 +254,10 @@ app.post("/api/register", async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    const [existingUser] = await connection.query("SELECT id FROM usuarios WHERE email = ?", [email]);
+    const [existingUser] = await connection.query(
+      "SELECT id FROM usuarios WHERE email = ?",
+      [email]
+    );
     if (existingUser.length > 0) {
       await connection.rollback();
       return res.status(400).json({ error: "Este e-mail já está cadastrado." });
@@ -296,8 +315,10 @@ app.post("/api/team/add", authenticateToken, async (req, res) => {
   const empresaId = req.user.empresa_id;
   const usuarioCargo = req.user.cargo;
 
-  if (usuarioCargo !== 'admin') {
-    return res.status(403).json({ error: "Apenas administradores podem adicionar membros." });
+  if (usuarioCargo !== "admin") {
+    return res
+      .status(403)
+      .json({ error: "Apenas administradores podem adicionar membros." });
   }
   if (!nome || !email || !password) {
     return res.status(400).json({ error: "Preencha todos os campos." });
@@ -307,23 +328,32 @@ app.post("/api/team/add", authenticateToken, async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    const [empRows] = await connection.query("SELECT max_users, plano FROM empresas WHERE id = ?", [empresaId]);
+    const [empRows] = await connection.query(
+      "SELECT max_users, plano FROM empresas WHERE id = ?",
+      [empresaId]
+    );
     if (empRows.length === 0) throw new Error("Empresa não encontrada");
     const empresa = empRows[0];
     const limiteUsuarios = empresa.max_users || 1;
 
-    const [countRows] = await connection.query("SELECT COUNT(*) as total FROM usuarios WHERE empresa_id = ?", [empresaId]);
+    const [countRows] = await connection.query(
+      "SELECT COUNT(*) as total FROM usuarios WHERE empresa_id = ?",
+      [empresaId]
+    );
     const totalAtual = countRows[0].total;
 
     if (totalAtual >= limiteUsuarios) {
       await connection.rollback();
-      return res.status(403).json({ 
-        error: "LIMITE ATINGIDO", 
-        message: `Seu plano atual (${empresa.plano}) permite apenas ${limiteUsuarios} usuários.` 
+      return res.status(403).json({
+        error: "LIMITE ATINGIDO",
+        message: `Seu plano atual (${empresa.plano}) permite apenas ${limiteUsuarios} usuários.`,
       });
     }
 
-    const [existing] = await connection.query("SELECT id FROM usuarios WHERE email = ?", [email]);
+    const [existing] = await connection.query(
+      "SELECT id FROM usuarios WHERE email = ?",
+      [email]
+    );
     if (existing.length > 0) {
       await connection.rollback();
       return res.status(400).json({ error: "Este e-mail já está em uso." });
@@ -335,7 +365,7 @@ app.post("/api/team/add", authenticateToken, async (req, res) => {
 
     await connection.query(
       `INSERT INTO usuarios (id, nome, email, senha_hash, empresa_id, cargo, status, plano)
-       VALUES (?, ?, ?, ?, ?, 'operador', 'ativo', 'dependente')`, 
+       VALUES (?, ?, ?, ?, ?, 'operador', 'ativo', 'dependente')`,
       [novoId, nome, email, senhaHash, empresaId]
     );
 
@@ -355,8 +385,10 @@ app.delete("/api/team/:id", authenticateToken, async (req, res) => {
   const empresaId = req.user.empresa_id;
   const requesterCargo = req.user.cargo;
 
-  if (requesterCargo !== 'admin') return res.status(403).json({ error: "Sem permissão." });
-  if (targetId === req.user.id) return res.status(400).json({ error: "Não exclua a si mesmo aqui." });
+  if (requesterCargo !== "admin")
+    return res.status(403).json({ error: "Sem permissão." });
+  if (targetId === req.user.id)
+    return res.status(400).json({ error: "Não exclua a si mesmo aqui." });
 
   try {
     const [result] = await db.query(
@@ -365,7 +397,9 @@ app.delete("/api/team/:id", authenticateToken, async (req, res) => {
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ error: "Usuário não encontrado na sua equipe." });
+      return res
+        .status(404)
+        .json({ error: "Usuário não encontrado na sua equipe." });
     }
     res.json({ message: "Usuário removido." });
   } catch (error) {
@@ -383,7 +417,8 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
   const usuarioId = req.user.id;
   const empresaId = req.user.empresa_id;
 
-  if (!Array.isArray(parts) || parts.length === 0) return res.status(400).json({ error: "Lista vazia." });
+  if (!Array.isArray(parts) || parts.length === 0)
+    return res.status(400).json({ error: "Lista vazia." });
 
   try {
     const [empRows] = await db.query(
@@ -398,12 +433,16 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
       const start = new Date(empresa.trial_start_date);
       const diffTime = Math.abs(now - start);
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      if (diffDays > 30) return res.status(403).json({ error: "SEU TRIAL EXPIROU!" });
+      if (diffDays > 30)
+        return res.status(403).json({ error: "SEU TRIAL EXPIROU!" });
     }
 
     // Validação Limite Peças
     if (empresa.max_parts !== null) {
-      const [countRows] = await db.query("SELECT COUNT(*) as total FROM pecas_engenharia WHERE empresa_id = ?", [empresaId]);
+      const [countRows] = await db.query(
+        "SELECT COUNT(*) as total FROM pecas_engenharia WHERE empresa_id = ?",
+        [empresaId]
+      );
       const currentTotal = countRows[0].total;
       if (currentTotal + parts.length > empresa.max_parts) {
         return res.status(403).json({ error: "CAPACIDADE ATINGIDA!" });
@@ -415,15 +454,32 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
       (id, usuario_id, empresa_id, nome_arquivo, pedido, op, material, espessura, autor, quantidade, cliente, 
       largura, altura, area_bruta, geometria, blocos_def, status, tipo_producao)
       VALUES ? `;
-      
+
     const values = parts.map((p) => [
-      p.id, usuarioId, empresaId, p.name, p.pedido || null, p.op || null, p.material, p.espessura,
-      p.autor || null, p.quantity || 1, p.cliente || null, p.width, p.height, p.grossArea,
-      JSON.stringify(p.entities), JSON.stringify(p.blocks || {}), "AGUARDANDO", p.tipo_producao || "NORMAL"
+      p.id,
+      usuarioId,
+      empresaId,
+      p.name,
+      p.pedido || null,
+      p.op || null,
+      p.material,
+      p.espessura,
+      p.autor || null,
+      p.quantity || 1,
+      p.cliente || null,
+      p.width,
+      p.height,
+      p.grossArea,
+      JSON.stringify(p.entities),
+      JSON.stringify(p.blocks || {}),
+      "AGUARDANDO",
+      p.tipo_producao || "NORMAL",
     ]);
 
-    const [result] = await db.query(sql, [values]);   
-    res.status(201).json({ message: "Peças salvas!", count: result.affectedRows });
+    const [result] = await db.query(sql, [values]);
+    res
+      .status(201)
+      .json({ message: "Peças salvas!", count: result.affectedRows });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Erro interno." });
@@ -431,24 +487,31 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
 });
 
 // --- VERIFICAR DUPLICIDADE ---
-app.post("/api/pecas/verificar-existencia", authenticateToken, async (req, res) => {
-  const { itens } = req.body;
-  const empresaId = req.user.empresa_id;
+app.post(
+  "/api/pecas/verificar-existencia",
+  authenticateToken,
+  async (req, res) => {
+    const { itens } = req.body;
+    const empresaId = req.user.empresa_id;
 
-  if (!itens || !Array.isArray(itens) || itens.length === 0) return res.json({ duplicadas: [] });
+    if (!itens || !Array.isArray(itens) || itens.length === 0)
+      return res.json({ duplicadas: [] });
 
-  try {
-    const conditions = itens.map(() => "(pedido = ? AND nome_arquivo = ?)").join(" OR ");
-    const values = [empresaId];
-    itens.forEach(item => values.push(item.pedido, item.nome));
+    try {
+      const conditions = itens
+        .map(() => "(pedido = ? AND nome_arquivo = ?)")
+        .join(" OR ");
+      const values = [empresaId];
+      itens.forEach((item) => values.push(item.pedido, item.nome));
 
-    const sql = `SELECT pedido, nome_arquivo FROM pecas_engenharia WHERE empresa_id = ? AND (${conditions})`;
-    const [rows] = await db.query(sql, values);
-    res.json({ duplicadas: rows });
-  } catch (error) {
-    res.status(500).json({ error: "Erro ao verificar duplicidade." });
+      const sql = `SELECT pedido, nome_arquivo FROM pecas_engenharia WHERE empresa_id = ? AND (${conditions})`;
+      const [rows] = await db.query(sql, values);
+      res.json({ duplicadas: rows });
+    } catch (error) {
+      res.status(500).json({ error: "Erro ao verificar duplicidade." });
+    }
   }
-});
+);
 
 // --- BUSCAR PEÇAS ---
 app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
@@ -457,13 +520,17 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
 
   if (!pedido) return res.status(400).json({ error: "Falta pedido." });
 
-  const pedidosArray = pedido.split(",").map((p) => p.trim()).filter(Boolean);
+  const pedidosArray = pedido
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
 
   try {
     const sql = `SELECT * FROM pecas_engenharia WHERE pedido IN (?) AND empresa_id = ? AND status = 'AGUARDANDO'`;
     const [rows] = await db.query(sql, [pedidosArray, empresaId]);
 
-    if (rows.length === 0) return res.status(404).json({ message: "Não encontrado" });
+    if (rows.length === 0)
+      return res.status(404).json({ message: "Não encontrado" });
 
     const formattedParts = rows.map((row) => ({
       id: row.id,
@@ -478,8 +545,14 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
       width: Number(row.largura),
       height: Number(row.altura),
       grossArea: Number(row.area_bruta),
-      entities: typeof row.geometria === "string" ? JSON.parse(row.geometria) : row.geometria,
-      blocks: typeof row.blocos_def === "string" ? JSON.parse(row.blocos_def) : row.blocos_def || {},
+      entities:
+        typeof row.geometria === "string"
+          ? JSON.parse(row.geometria)
+          : row.geometria,
+      blocks:
+        typeof row.blocos_def === "string"
+          ? JSON.parse(row.blocos_def)
+          : row.blocos_def || {},
       dataCadastro: row.data_cadastro,
       tipo_producao: row.tipo_producao,
     }));
@@ -514,10 +587,16 @@ app.get("/api/subscription/status", authenticateToken, async (req, res) => {
     );
     const empresa = empresaRows[0];
 
-    const [countRows] = await db.query("SELECT COUNT(*) as total FROM pecas_engenharia WHERE empresa_id = ?", [empresaId]);
+    const [countRows] = await db.query(
+      "SELECT COUNT(*) as total FROM pecas_engenharia WHERE empresa_id = ?",
+      [empresaId]
+    );
     const partsUsed = countRows[0].total;
 
-    const [userCountRows] = await db.query("SELECT COUNT(*) as total FROM usuarios WHERE empresa_id = ?", [empresaId]);
+    const [userCountRows] = await db.query(
+      "SELECT COUNT(*) as total FROM usuarios WHERE empresa_id = ?",
+      [empresaId]
+    );
     const usersUsed = userCountRows[0].total;
 
     let daysLeft = 0;
@@ -526,12 +605,18 @@ app.get("/api/subscription/status", authenticateToken, async (req, res) => {
       const start = new Date(empresa.trial_start_date);
       const expirationDate = new Date(start);
       expirationDate.setDate(expirationDate.getDate() + 30);
-      daysLeft = Math.max(0, Math.ceil((expirationDate - now) / (1000 * 60 * 60 * 24)));
+      daysLeft = Math.max(
+        0,
+        Math.ceil((expirationDate - now) / (1000 * 60 * 60 * 24))
+      );
     }
 
     res.json({
       status: empresa.subscription_status,
-      plan: empresa.subscription_status === "trial" ? "Teste Gratuito" : empresa.plano || "Plano Premium",
+      plan:
+        empresa.subscription_status === "trial"
+          ? "Teste Gratuito"
+          : empresa.plano || "Plano Premium",
       parts: { used: partsUsed, limit: empresa.max_parts },
       users: { used: usersUsed, limit: empresa.max_users },
       daysLeft: daysLeft,
@@ -547,7 +632,8 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
   const usuarioId = req.user.id;
   const empresaId = req.user.empresa_id;
 
-  if (!itens || itens.length === 0) return res.status(400).json({ error: "Nenhum item informado." });
+  if (!itens || itens.length === 0)
+    return res.status(400).json({ error: "Nenhum item informado." });
 
   const connection = await db.getConnection();
   try {
@@ -569,30 +655,48 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
       `INSERT INTO producao_historico 
        (empresa_id, usuario_id, data_producao, chapa_index, aproveitamento, densidade, material, espessura, motor) 
        VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?)`,
-      [empresaId, usuarioId, chapaIndex, aproveitamento, densidade || aproveitamento, materialReal, espessuraReal, motor || "Smart Nest"]
+      [
+        empresaId,
+        usuarioId,
+        chapaIndex,
+        aproveitamento,
+        densidade || aproveitamento,
+        materialReal,
+        espessuraReal,
+        motor || "Smart Nest",
+      ]
     );
 
     const producaoId = result.insertId;
-    const values = itens.map((item) => [producaoId, item.id, item.quantidade || item.qtd, item.tipo_producao || 'NORMAL']);
-    
+    const values = itens.map((item) => [
+      producaoId,
+      item.id,
+      item.quantidade || item.qtd,
+      item.tipo_producao || "NORMAL",
+    ]);
+
     await connection.query(
       `INSERT INTO producao_itens (producao_id, peca_original_id, quantidade, tipo_producao) VALUES ?`,
       [values]
     );
 
-    const idsParaAtualizar = itens.map(i => i.id);
+    const idsParaAtualizar = itens.map((i) => i.id);
     if (idsParaAtualizar.length > 0) {
-        await connection.query(
-            "UPDATE pecas_engenharia SET status = 'EM PRODUÇÃO' WHERE id IN (?) AND empresa_id = ?",
-            [idsParaAtualizar, empresaId]
-        );
+      await connection.query(
+        "UPDATE pecas_engenharia SET status = 'EM PRODUÇÃO' WHERE id IN (?) AND empresa_id = ?",
+        [idsParaAtualizar, empresaId]
+      );
     }
 
     await connection.commit();
-    res.json({ message: "Produção registrada!", detalhes: { material: materialReal, espessura: espessuraReal, motor } });
+    res.json({
+      message: "Produção registrada!",
+      detalhes: { material: materialReal, espessura: espessuraReal, motor },
+    });
   } catch (error) {
     await connection.rollback();
-    if (error.code === "ER_DUP_ENTRY") return res.status(409).json({ error: "Duplicate entry" });
+    if (error.code === "ER_DUP_ENTRY")
+      return res.status(409).json({ error: "Duplicate entry" });
     res.status(500).json({ error: "Erro ao salvar." });
   } finally {
     connection.release();
@@ -639,7 +743,8 @@ app.put("/api/materials/:id", authenticateToken, async (req, res) => {
       "UPDATE materiais_personalizados SET nome = ?, densidade = ? WHERE id = ? AND usuario_id = ?",
       [name, density || 7.85, req.params.id, req.user.id]
     );
-    if (result.affectedRows === 0) return res.status(404).json({ error: "Não encontrado" });
+    if (result.affectedRows === 0)
+      return res.status(404).json({ error: "Não encontrado" });
     res.json({ message: "Atualizado" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -652,7 +757,8 @@ app.delete("/api/materials/:id", authenticateToken, async (req, res) => {
       "DELETE FROM materiais_personalizados WHERE id = ? AND usuario_id = ?",
       [req.params.id, req.user.id]
     );
-    if (result.affectedRows === 0) return res.status(404).json({ error: "Não encontrado" });
+    if (result.affectedRows === 0)
+      return res.status(404).json({ error: "Não encontrado" });
     res.json({ message: "Removido" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -695,7 +801,8 @@ app.put("/api/thicknesses/:id", authenticateToken, async (req, res) => {
       "UPDATE espessuras_personalizadas SET valor = ? WHERE id = ? AND usuario_id = ?",
       [value, req.params.id, req.user.id]
     );
-    if (result.affectedRows === 0) return res.status(404).json({ error: "Não encontrado" });
+    if (result.affectedRows === 0)
+      return res.status(404).json({ error: "Não encontrado" });
     res.json({ message: "Atualizado" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -708,12 +815,27 @@ app.delete("/api/thicknesses/:id", authenticateToken, async (req, res) => {
       "DELETE FROM espessuras_personalizadas WHERE id = ? AND usuario_id = ?",
       [req.params.id, req.user.id]
     );
-    if (result.affectedRows === 0) return res.status(404).json({ error: "Não encontrado" });
+    if (result.affectedRows === 0)
+      return res.status(404).json({ error: "Não encontrado" });
     res.json({ message: "Removido" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ==========================================
+// 5. SERVIR O FRONTEND (REACT/VITE)
+// ==========================================
+
+// Diz para o Express que a pasta 'dist' contém arquivos estáticos (CSS, JS, Imagens)
+app.use(express.static(path.join(__dirname, "dist")));
+
+// Correção: Trocamos '*' por /.*/ (sem aspas)
+app.get(/.*/, (req, res) => {
+  res.sendFile(path.join(__dirname, "dist", "index.html"));
+});
+
+// ==========================================
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
