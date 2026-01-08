@@ -9,7 +9,6 @@ import type { EngineeringScreenProps, ImportedPart } from "./types";
 import { useEngineeringLogic } from "../hooks/useEngineeringLogic"; // Ajuste o caminho se necessário (ex: ../hooks/)
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
 
-
 // Mapeamento amigável para o usuário vs Valor no Banco
 const PRODUCTION_TYPES = [
   { label: "Normal", value: "NORMAL" },
@@ -23,8 +22,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   const { isDarkMode, theme } = useTheme();
   // Estado para controlar o modal da equipe
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
-
-
 
   // 1. Desestruturando tudo do Hook (inclusive as novas listas)
   const {
@@ -103,7 +100,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
       setSelectedIds([]); // Desmarca tudo
     } else {
       // Agora o map retorna string[], que bate com o tipo do estado
-     setSelectedIds(parts.map((p: ImportedPart) => p.id));
+      setSelectedIds(parts.map((p: ImportedPart) => p.id));
     }
   };
 
@@ -379,7 +376,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               borderRadius: "4px",
               transition: "background 0.2s",
               opacity: isTrial ? 0.5 : 1,
-              marginLeft: "10px"
+              marginLeft: "10px",
             }}
             onMouseEnter={(e) =>
               (e.currentTarget.style.background = theme.hoverRow)
@@ -406,7 +403,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           </button>
           {/* -------------------------------- */}
 
-
           <h2 style={{ margin: 5, fontSize: "20px", color: "#007bff" }}>
             Engenharia & Projetos
           </h2>
@@ -429,7 +425,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         </div>
 
         <div style={{ display: "flex", gap: "15px", alignItems: "center" }}>
-          
           <button
             onClick={handleReset}
             style={{
