@@ -636,3 +636,93 @@ export const getOffsetPartGeometry = (
     area: totalArea,
   };
 };
+
+
+// ... (mantenha todo o código anterior)
+
+// --- 7. VERIFICAÇÃO E CORREÇÃO DE GEOMETRIA ABERTA ---
+
+// Gera uma chave única para coordenadas (para lidar com precisão de float)
+const pointKey = (p: {x: number, y: number}) => `${p.x.toFixed(3)},${p.y.toFixed(3)}`;
+
+export const detectOpenEndpoints = (entities: any[]): Point[] => {
+    const pointCounts = new Map<string, { count: number, pt: Point }>();
+    
+    // Função auxiliar para registrar ponto
+    const addPoint = (x: number, y: number) => {
+        const p = { x, y };
+        const k = pointKey(p);
+        const current = pointCounts.get(k);
+        if (current) {
+            current.count++;
+        } else {
+            pointCounts.set(k, { count: 1, pt: p });
+        }
+    };
+
+    entities.forEach(ent => {
+        // Ignora textos, dimensões, etc. Foca no contorno de corte.
+        if (ent.type === 'LINE') {
+            addPoint(ent.vertices[0].x, ent.vertices[0].y);
+            addPoint(ent.vertices[1].x, ent.vertices[1].y);
+        }
+        else if (ent.type === 'ARC') {
+            const p1 = { x: ent.center.x + ent.radius * Math.cos(ent.startAngle), y: ent.center.y + ent.radius * Math.sin(ent.startAngle) };
+            const p2 = { x: ent.center.x + ent.radius * Math.cos(ent.endAngle), y: ent.center.y + ent.radius * Math.sin(ent.endAngle) };
+            addPoint(p1.x, p1.y);
+            addPoint(p2.x, p2.y);
+        }
+        else if (ent.type === 'LWPOLYLINE' || ent.type === 'POLYLINE') {
+            // Se a polilinha já está marcada como fechada, não gera pontas soltas
+            if (ent.shape) return; 
+            
+            if (ent.vertices && ent.vertices.length > 0) {
+                const first = ent.vertices[0];
+                const last = ent.vertices[ent.vertices.length - 1];
+                
+                // Se o primeiro e o último ponto são iguais, é fechado geometricamente
+                if (arePointsClose(first, last, 0.001)) return;
+
+                addPoint(first.x, first.y);
+                addPoint(last.x, last.y);
+            }
+        }
+    });
+
+    // Filtra pontos que apareceram um número ímpar de vezes (geralmente 1 = ponta solta)
+    const openPoints: Point[] = [];
+    pointCounts.forEach((val) => {
+        if (val.count % 2 !== 0) {
+            openPoints.push(val.pt);
+        }
+    });
+
+    return openPoints;
+};
+
+export const closeOpenPath = (entities: any[], openPoints: Point[]): any[] => {
+    // Lógica simples: Se houver exatamente 2 pontas soltas, fecha com uma reta.
+    // Se houver mais, é complexo demais para automatizar com segurança total, 
+    // mas vamos tentar fechar o par mais próximo ou sequencial.
+    
+    const newEntities = [...entities];
+
+    if (openPoints.length === 2) {
+        newEntities.push({
+            type: 'LINE',
+            vertices: [openPoints[0], openPoints[1]],
+            layer: 'AUTOCLOSE' // Marcador útil para debug
+        });
+    } 
+    else if (openPoints.length > 2) {
+        // Tenta fechar sequencialmente (opcional: poderia ordenar por proximidade)
+        // Aqui fechamos o primeiro com o último para tentar fechar o loop externo
+        newEntities.push({
+             type: 'LINE',
+             vertices: [openPoints[0], openPoints[openPoints.length - 1]],
+             layer: 'AUTOCLOSE'
+        });
+    }
+
+    return newEntities;
+};
