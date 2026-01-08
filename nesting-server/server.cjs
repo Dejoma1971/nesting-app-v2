@@ -828,7 +828,7 @@ app.delete("/api/thicknesses/:id", authenticateToken, async (req, res) => {
 // ==========================================
 
 // Diz para o Express que a pasta 'dist' contém arquivos estáticos (CSS, JS, Imagens)
-app.use(express.static(path.join(__dirname, "dist")));
+app.use(express.static(path.join(__dirname, "../dist")));
 
 // Correção: Trocamos '*' por /.*/ (sem aspas)
 app.get(/.*/, (req, res) => {
