@@ -4,15 +4,29 @@ import type { ImportedPart } from "../components/types";
 import type { CropLine } from "../hooks/useSheetManager";
 
 // ==================================================================================
-// --- CONFIGURAÇÃO DE LAYERS ---
+// --- CONFIGURAÇÃO DE LAYERS (ESTRATÉGIA DE ORDEM SEQUENCIAL) ---
 // ==================================================================================
+// O CypCut importa sequencialmente: 1º Layer encontrado -> Layer 1 (Verde).
+// Portanto, DEVEMOS definir o CORTE primeiro.
 const LAYER_CONFIG = {
-  CHAPA: { id: "CHAPA", color: 7 }, // Branco
-  ETIQUETAS: { id: "ETIQUETAS", color: 7 },
-  CORTE: { id: "CORTE", color: 3 }, // Verde
-  RETALHO: { id: "RETALHO", color: 3 },
-  GRAVACAO: { id: "GRAVACAO", color: 6 }, // Magenta
+  // 1º: CORTE -> Vai para Layer 1 (Verde)
+  CORTE: { id: "1", color: 3 }, // Cor 3 (Green)
+
+  // 2º: GRAVAÇÃO -> Vai para Layer 2 (Rosa/Magenta)
+  GRAVACAO: { id: "2", color: 6 }, // Cor 6 (Magenta)
+
+  // 3º: CHAPA/ETIQUETAS -> Vai para Layer 3 (Amarelo) ou Fundo
+  // Nomeamos "0" (Padrão DXF), mas por ser o 3º na fila, o CypCut deve jogar para o Layer 3.
+  // Isso é seguro: não corta a chapa como se fosse peça.
+  CHAPA: { id: "0", color: 7 }, // Cor 7 (White)
+  ETIQUETAS: { id: "0", color: 7 },
+
+  // RETALHO -> Mantemos junto com CORTE (Layer 1)
+  RETALHO: { id: "1", color: 3 },
 };
+
+// Ordem explícita de escrita das tabelas para garantir a sequência no arquivo
+const LAYER_ORDER = ["CORTE", "GRAVACAO", "CHAPA"];
 
 // --- HELPERS ---
 const rotatePointBasic = (x: number, y: number, angleRad: number) => {
@@ -96,8 +110,7 @@ const flattenGeometry = (
   return flat;
 };
 
-// --- CÁLCULO DE CENTRO GEOMÉTRICO ---
-// (Reimplementado aqui para garantir que o código esteja completo)
+// --- CÁLCULO DE CENTRO ---
 const bulgeToArc = (
   p1: { x: number; y: number },
   p2: { x: number; y: number },
@@ -117,14 +130,12 @@ const calculateTrueCenter = (entities: any[]) => {
     minY = Infinity,
     maxX = -Infinity,
     maxY = -Infinity;
-
   const update = (x: number, y: number) => {
     if (x < minX) minX = x;
     if (x > maxX) maxX = x;
     if (y < minY) minY = y;
     if (y > maxY) maxY = y;
   };
-
   const checkArcBounds = (
     cx: number,
     cy: number,
@@ -152,7 +163,6 @@ const calculateTrueCenter = (entities: any[]) => {
         update(cx + r * Math.cos(ang), cy + r * Math.sin(ang));
     }
   };
-
   entities.forEach((ent) => {
     if (ent.type === "LINE") {
       ent.vertices.forEach((v: any) => update(v.x, v.y));
@@ -188,7 +198,6 @@ const calculateTrueCenter = (entities: any[]) => {
       }
     }
   });
-
   if (minX === Infinity)
     return { minX: 0, minY: 0, cx: 0, cy: 0, width: 0, height: 0 };
   return {
@@ -208,7 +217,6 @@ const writeEntitiesToDxf = (entities: any[], dx = 0, dy = 0): string => {
   let output = "";
   entities.forEach((ent) => {
     const layer = getEntityLayer(ent);
-    // Em R12, Handle (5) é opcional. Removemos para simplificar.
     const common = `8\n${layer}\n`;
 
     if (ent.type === "LINE") {
@@ -220,25 +228,17 @@ const writeEntitiesToDxf = (entities: any[], dx = 0, dy = 0): string => {
         ent.vertices[1].y + dy
       ).toFixed(4)}\n31\n0.0\n`;
     } else if (ent.type === "LWPOLYLINE" || ent.type === "POLYLINE") {
-      // CONVERSÃO CRÍTICA PARA R12: LWPOLYLINE -> POLYLINE antiga
       const isClosed = ent.shape || ent.closed ? 1 : 0;
-
       output += `0\nPOLYLINE\n${common}`;
-      output += `66\n1\n`; // Flag: "Vertices follow" (Obrigatório)
-      output += `10\n0.0\n20\n0.0\n30\n0.0\n`; // Ponto base dummy
-      output += `70\n${isClosed}\n`; // Flag fechado
-
-      // Escreve os vértices
+      output += `66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n${isClosed}\n`;
       ent.vertices.forEach((v: any) => {
         output += `0\nVERTEX\n${common}`;
         output += `10\n${(v.x + dx).toFixed(4)}\n20\n${(v.y + dy).toFixed(
           4
         )}\n30\n0.0\n`;
-        // Bulge em R12 é no vertex
         if (v.bulge) output += `42\n${v.bulge}\n`;
       });
-
-      output += `0\nSEQEND\n`; // Fim da Polyline
+      output += `0\nSEQEND\n`;
     } else if (ent.type === "CIRCLE") {
       output += `0\nCIRCLE\n${common}`;
       output += `10\n${(ent.center.x + dx).toFixed(4)}\n20\n${(
@@ -276,10 +276,10 @@ export const generateDxfContent = (
   const W = shouldRotate ? rawH : rawW;
   const H = shouldRotate ? rawW : rawH;
 
-  // 1. HEADER (AC1009 = AutoCAD R12)
+  // 1. HEADER (AC1009)
   dxf += "0\nSECTION\n2\nHEADER\n";
   dxf += "9\n$ACADVER\n1\nAC1009\n";
-  dxf += "9\n$INSUNITS\n70\n4\n"; // mm
+  dxf += "9\n$INSUNITS\n70\n4\n";
   dxf += `9\n$EXTMAX\n10\n${W.toFixed(4)}\n20\n${H.toFixed(4)}\n30\n0.0\n`;
   dxf += "9\n$EXTMIN\n10\n0.0\n20\n0.0\n30\n0.0\n";
   dxf += "0\nENDSEC\n";
@@ -295,19 +295,19 @@ export const generateDxfContent = (
 
   // LAYER Table
   dxf += "0\nTABLE\n2\nLAYER\n70\n5\n";
-  const definedLayers = new Map<string, number>();
-  Object.values(LAYER_CONFIG).forEach((cfg) =>
-    definedLayers.set(cfg.id, cfg.color)
-  );
 
-  definedLayers.forEach((color, id) => {
-    dxf += `0\nLAYER\n2\n${id}\n70\n0\n62\n${color}\n6\nCONTINUOUS\n`;
+  // ITERAÇÃO FORÇADA NA ORDEM: CORTE -> GRAVACAO -> CHAPA
+  LAYER_ORDER.forEach((key) => {
+    // Correção: Fazemos o cast de 'key' para dizer ao TS que ela é uma chave válida de LAYER_CONFIG
+    const cfg = LAYER_CONFIG[key as keyof typeof LAYER_CONFIG];
+    if (cfg) {
+      dxf += `0\nLAYER\n2\n${cfg.id}\n70\n0\n62\n${cfg.color}\n6\nCONTINUOUS\n`;
+    }
   });
   dxf += "0\nENDTAB\n";
 
-  // STYLE Table (Opcional)
+  // STYLE Table
   dxf += "0\nTABLE\n2\nSTYLE\n70\n0\n0\nENDTAB\n";
-
   dxf += "0\nENDSEC\n";
 
   // 3. BLOCKS SECTION
@@ -341,7 +341,6 @@ export const generateDxfContent = (
     if (!originalPart) return;
 
     const blockName = `PART_${partId.substring(0, 8).toUpperCase()}`;
-
     const flatEntities = flattenGeometry(
       originalPart.entities,
       originalPart.blocks
@@ -350,9 +349,7 @@ export const generateDxfContent = (
     const centerData = calculateTrueCenter(cutEntities);
     blockOffsets[partId] = { cx: centerData.cx, cy: centerData.cy };
 
-    // Header do Bloco
     dxf += `0\nBLOCK\n8\n0\n2\n${blockName}\n70\n0\n10\n0.0\n20\n0.0\n30\n0.0\n3\n${blockName}\n`;
-    // Conteúdo (Usa o writer compatível R12)
     dxf += writeEntitiesToDxf(cutEntities, -centerData.cx, -centerData.cy);
     dxf += "0\nENDBLK\n";
   });
@@ -396,13 +393,11 @@ export const generateDxfContent = (
       insertRotation = placed.rotation - 90;
     }
 
-    // Insert da Peça
     dxf += `0\nINSERT\n8\n${layerCorte}\n2\n${blockName}\n`;
     dxf += `10\n${insertX.toFixed(4)}\n20\n${insertY.toFixed(4)}\n30\n0.0\n`;
     dxf += `41\n1.0\n42\n1.0\n43\n1.0\n`;
     dxf += `50\n${insertRotation.toFixed(4)}\n`;
 
-    // Etiquetas (Linhas soltas)
     const rad = (insertRotation * Math.PI) / 180;
     flatLabels.forEach((lbl) => {
       const transformPoint = (px: number, py: number) => {
@@ -411,7 +406,6 @@ export const generateDxfContent = (
         const rot = rotatePointBasic(relX, relY, rad);
         return { x: rot.x + insertX, y: rot.y + insertY };
       };
-
       let tempEnt;
       if (lbl.type === "LINE") {
         const p1 = transformPoint(lbl.vertices[0].x, lbl.vertices[0].y);
@@ -451,7 +445,6 @@ export const generateDxfContent = (
       x2 = y2;
       y2 = t2;
     }
-    // Escreve direto, sem criar variável tempLine não usada
     dxf += `0\nLINE\n8\n${layerRetalho}\n10\n${x1.toFixed(4)}\n20\n${y1.toFixed(
       4
     )}\n30\n0.0\n11\n${x2.toFixed(4)}\n21\n${y2.toFixed(4)}\n31\n0.0\n`;
