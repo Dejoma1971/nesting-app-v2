@@ -36,7 +36,6 @@ import { useNestingAutoSave } from "../hooks/useNestingAutoSave";
 import { useProductionRegister } from "../hooks/useProductionRegister"; // <--- GARANTA ESTA LINHA
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
 
-
 interface Size {
   width: number;
   height: number;
@@ -49,7 +48,6 @@ interface NestingBoardProps {
   onNavigate?: (screen: "home" | "engineering" | "nesting") => void;
   onOpenTeam?: () => void; // <--- ADICIONE ESTA LINHA
 }
-
 
 // --- FUNÇÃO AUXILIAR: GERAR COR BASEADA NO TEXTO (PEDIDO) ---
 const stringToColor = (str: string) => {
@@ -407,7 +405,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // const [isDarkMode, setIsDarkMode] = useState(true);
   // const theme = getTheme(isDarkMode);
   const [activeTab, setActiveTab] = useState<"grid" | "list">("grid");
-  const [showDebug, setShowDebug] = useState(true);
+  const [showDebug, setShowDebug] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
     x: number;
@@ -694,7 +692,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         if (config.active && textToRender) {
           const posX = bounds.cx + config.offsetX;
           const posY = bounds.cy + config.offsetY;
-          
+
           // Gera as linhas vetoriais (Agora suporta A-Z e símbolos, sem limpar caracteres)
           const vectorLines = textToVectorLines(
             textToRender, // <--- Passamos o texto direto, sem filtrar caracteres
@@ -1039,23 +1037,23 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     let bancoSalvoComSucesso = false;
 
     if (user && user.token) {
-        // Chama o hook dedicado ao banco, passando o MOTOR
-        const registro = await registerProduction({
-            nestingResult,
-            currentBinIndex,
-            parts: displayedParts,
-            user,
-            densidadeNumerica,
-            cropLines,
-            motor: strategy // <--- Passa 'guillotine' ou 'true-shape'
-        });
+      // Chama o hook dedicado ao banco, passando o MOTOR
+      const registro = await registerProduction({
+        nestingResult,
+        currentBinIndex,
+        parts: displayedParts,
+        user,
+        densidadeNumerica,
+        cropLines,
+        motor: strategy, // <--- Passa 'guillotine' ou 'true-shape'
+      });
 
-        if (registro.success) {
-            bancoSalvoComSucesso = true; // Marca que deu certo
-            markBinAsSaved(currentBinIndex); // Atualiza visualmente (ícone verde)
-        } else {
-            console.warn("Aviso do banco:", registro.message);
-        }
+      if (registro.success) {
+        bancoSalvoComSucesso = true; // Marca que deu certo
+        markBinAsSaved(currentBinIndex); // Atualiza visualmente (ícone verde)
+      } else {
+        console.warn("Aviso do banco:", registro.message);
+      }
     }
 
     // 3. ETAPA ARQUIVO DXF (Usa o handleProductionDownload)
@@ -2043,7 +2041,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               borderRadius: "4px",
               transition: "background 0.2s",
               opacity: isTrial ? 0.5 : 1,
-              marginLeft: "10px"
+              marginLeft: "10px",
             }}
             onMouseEnter={(e) =>
               (e.currentTarget.style.background = theme.hoverRow)
@@ -2074,8 +2072,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             maxWidth: "400px",
             fontSize: "12px",
           }}
-        >          
-            <SubscriptionPanel isDarkMode={isDarkMode} />          
+        >
+          <SubscriptionPanel isDarkMode={isDarkMode} />
         </div>
         {/* ----------------------------------------------- */}
         <div
@@ -2203,7 +2201,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               if (screen === "home" && onBack) onBack();
             }}
             onOpenProfile={() => alert("Perfil em breve")}
-            
             // ADICIONE ESTA LINHA:
             onOpenTeam={onOpenTeam}
           />
@@ -3360,11 +3357,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           />
         )}
 
-        {/* SE O ESTADO FOR TRUE, MOSTRA A TELA DE EQUIPE */}
+      {/* SE O ESTADO FOR TRUE, MOSTRA A TELA DE EQUIPE */}
       {isTeamModalOpen && (
         <TeamManagementScreen onClose={() => setIsTeamModalOpen(false)} />
       )}
-
     </div>
   );
 };
