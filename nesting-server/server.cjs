@@ -40,34 +40,70 @@ const JWT_SECRET =
 // ==========================================================
 // MIDDLEWARE DE AUTENTICAÇÃO (Melhorado para Debug)
 // ==========================================================
+// function authenticateToken(req, res, next) {
+//   const authHeader = req.headers["authorization"];
+//   // O formato esperado é "Bearer <TOKEN>"
+//   const token = authHeader && authHeader.split(" ")[1];
+
+//   if (token == null) {
+//     console.log(
+//       "❌ DEBUG AUTH: Token não fornecido ou cabeçalho mal formatado."
+//     );
+//     console.log("   Header recebido:", authHeader);
+//     return res.sendStatus(401);
+//   }
+
+//   jwt.verify(token, JWT_SECRET, (err, user) => {
+//     if (err) {
+//       // ESTE LOG VAI TE MOSTRAR O MOTIVO DO LOOP:
+//       console.log("🚫 DEBUG AUTH: Token rejeitado.");
+//       console.log("   Motivo:", err.message); // Ex: "jwt expired", "invalid signature"
+
+//       // Dica: Se o erro for "jwt malformed", o frontend está mandando lixo.
+//       // Dica: Se for "invalid signature", o JWT_SECRET mudou entre o login e agora.
+//       return res.sendStatus(403);
+//     }
+
+//     req.user = user;
+//     next();
+//   });
+// }
+
+// ==========================================================
+// MIDDLEWARE DE AUTENTICAÇÃO (Versão Diagnóstico Anti-Looping)
+// ==========================================================
 function authenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
-  // O formato esperado é "Bearer <TOKEN>"
-  const token = authHeader && authHeader.split(" ")[1];
+  const token = authHeader && authHeader.split(" ")[1]; // [cite: 6]
 
   if (token == null) {
-    console.log(
-      "❌ DEBUG AUTH: Token não fornecido ou cabeçalho mal formatado."
-    );
-    console.log("   Header recebido:", authHeader);
-    return res.sendStatus(401);
+    console.log("❌ AUTH ERROR: Nenhum token recebido no header.");
+    return res.sendStatus(401); // [cite: 7]
   }
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
-      // ESTE LOG VAI TE MOSTRAR O MOTIVO DO LOOP:
-      console.log("🚫 DEBUG AUTH: Token rejeitado.");
-      console.log("   Motivo:", err.message); // Ex: "jwt expired", "invalid signature"
+      console.log("🚫 AUTH FALHOU NA ROTA:", req.originalUrl);
+      
+      // DIAGNÓSTICO PRECISO
+      if (err.name === 'TokenExpiredError') {
+        console.log("   Motivo: ⏳ TOKEN EXPIRADO (Expired At: " + err.expiredAt + ")");
+        // Se expirar 1 segundo após o login, o relógio do servidor está errado.
+      } else if (err.name === 'JsonWebTokenError') {
+        console.log("   Motivo: 🔓 ASSINATURA INVÁLIDA (O JWT_SECRET mudou ou o token veio corrompido)");
+        console.log("   Token recebido (início):", token.substring(0, 15) + "...");
+      } else {
+        console.log("   Motivo: " + err.message);
+      }
 
-      // Dica: Se o erro for "jwt malformed", o frontend está mandando lixo.
-      // Dica: Se for "invalid signature", o JWT_SECRET mudou entre o login e agora.
-      return res.sendStatus(403);
+      return res.sendStatus(403); // 
     }
 
     req.user = user;
     next();
   });
 }
+
 
 // ==========================================================
 // ROTA WEBHOOK DO STRIPE (AUTOMAÇÃO DE PAGAMENTO)

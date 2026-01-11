@@ -30,6 +30,15 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   // --- NOVO ESTADO PARA PONTOS ABERTOS ---
   const [openPoints, setOpenPoints] = useState<any[]>([]);
 
+  // --- [INSERÇÃO 1] ESTADO DE CONFIRMAÇÕES DA SESSÃO ---
+  const [sessionApprovals, setSessionApprovals] = useState({
+    applyAll: false,
+    convertBlock: false,
+    bulkDelete: false,
+    resetList: false,
+  });
+  // ----------------------------------------------------
+
   // 1. Desestruturando tudo do Hook (inclusive as novas listas)
   const {
     user,
@@ -114,6 +123,29 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     refreshData();
   };
 
+  // --- [INSERÇÃO 2] FUNÇÃO INTELIGENTE DE CONFIRMAÇÃO ---
+  const executeWithSessionConfirmation = (
+    key: keyof typeof sessionApprovals,
+    message: string,
+    actionFn: () => void
+  ) => {
+    if (sessionApprovals[key]) {
+      // Já aprovou nesta sessão? Executa direto!
+      actionFn();
+    } else {
+      // Primeira vez? Pede confirmação.
+      if (
+        window.confirm(
+          `${message}\n\n(Esta confirmação não será exigida novamente nesta sessão)`
+        )
+      ) {
+        setSessionApprovals((prev) => ({ ...prev, [key]: true }));
+        actionFn();
+      }
+    }
+  };
+  // ------------------------------------------------------
+
   // --- NOVO: Lógica do Aviso "Cortar Agora" ---
   const [showCutWarning, setShowCutWarning] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
@@ -163,10 +195,16 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     }
   };
 
-  // Executa a exclusão
+  // Executa a exclusão (ALTERADO)
   const executeBulkDelete = () => {
-    handleBulkDelete(selectedIds);
-    setSelectedIds([]); // Limpa a seleção
+    executeWithSessionConfirmation(
+      "bulkDelete",
+      `Tem certeza que deseja excluir ${selectedIds.length} itens selecionados?`,
+      () => {
+        handleBulkDelete(selectedIds);
+        setSelectedIds([]); // Limpa a seleção
+      }
+    );
   };
 
   // --- RENDER ENTITY FUNCTION ---
@@ -485,7 +523,13 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
 
         <div style={{ display: "flex", gap: "15px", alignItems: "center" }}>
           <button
-            onClick={handleReset}
+            onClick={() =>
+              executeWithSessionConfirmation(
+                "resetList",
+                "Tem certeza que deseja limpar toda a lista e começar do zero?",
+                handleReset
+              )
+            }
             style={{
               background: "transparent",
               color: theme.text,
@@ -569,7 +613,13 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             PEDIDO{" "}
             <button
               style={applyButtonStyle}
-              onClick={() => applyToAll("pedido")}
+              onClick={() =>
+                executeWithSessionConfirmation(
+                  "applyAll",
+                  "Deseja aplicar este valor de PEDIDO a todas as peças?",
+                  () => applyToAll("pedido")
+                )
+              }
             >
               Aplicar Todos
             </button>
@@ -584,7 +634,16 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
             OP{" "}
-            <button style={applyButtonStyle} onClick={() => applyToAll("op")}>
+            <button
+              style={applyButtonStyle}
+              onClick={() =>
+                executeWithSessionConfirmation(
+                  "applyAll",
+                  "Deseja aplicar este valor de PEDIDO a todas as peças?",
+                  () => applyToAll("op")
+                )
+              }
+            >
               Aplicar Todos
             </button>
           </label>
@@ -602,7 +661,13 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             TIPO PRODUÇÃO{" "}
             <button
               style={applyButtonStyle}
-              onClick={() => applyToAll("tipo_producao")}
+              onClick={() =>
+                executeWithSessionConfirmation(
+                  "applyAll",
+                  "Deseja aplicar este valor de PEDIDO a todas as peças?",
+                  () => applyToAll("tipo_producao")
+                )
+              }
             >
               Aplicar Todos
             </button>
@@ -634,7 +699,13 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             MATERIAL{" "}
             <button
               style={applyButtonStyle}
-              onClick={() => applyToAll("material")}
+              onClick={() =>
+                executeWithSessionConfirmation(
+                  "applyAll",
+                  "Deseja aplicar este valor de PEDIDO a todas as peças?",
+                  () => applyToAll("material")
+                )
+              }
             >
               Aplicar Todos
             </button>
@@ -690,7 +761,13 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             ESPESSURA{" "}
             <button
               style={applyButtonStyle}
-              onClick={() => applyToAll("espessura")}
+              onClick={() =>
+                executeWithSessionConfirmation(
+                  "applyAll",
+                  "Deseja aplicar este valor de PEDIDO a todas as peças?",
+                  () => applyToAll("espessura")
+                )
+              }
             >
               Aplicar Todos
             </button>
@@ -727,7 +804,13 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         </div>
 
         <button
-          onClick={handleConvertAllToBlocks}
+          onClick={() =>
+            executeWithSessionConfirmation(
+              "convertBlock",
+              "Deseja converter todas as geometrias complexas em Blocos/Inserts?",
+              handleConvertAllToBlocks
+            )
+          }
           title="Converte todas as peças complexas em blocos únicos"
           style={{
             background: "#ffc107",
