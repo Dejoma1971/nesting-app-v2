@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="512"
+   height="512"
+   viewBox="0 0 64 64"
+   fill="none"
+   version="1.1"
+   id="svg1127"
+   sodipodi:docname="logo.svg"
+   inkscape:export-filename="..\Pictures\pwa-192x192.png"
+   inkscape:export-xdpi="36"
+   inkscape:export-ydpi="36"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1131" />
+  <sodipodi:namedview
+     id="namedview1129"
+     pagecolor="#ffffff"
+     bordercolor="#999999"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     showgrid="false" />
+  <rect
+     width="64"
+     height="64"
+     fill="#007bff"
+     id="rect1091"
+     style="fill:#004fa4;fill-opacity:1"
+     x="0"
+     y="0" />
+  <path
+     d="m 11.605179,11.571989 33.30856,7.256022"
+     stroke="#ffffff"
+     strokeWidth="1"
+     strokeLinecap="round"
+     id="path1093"
+     style="stroke-width:2.24392" />
+  <path
+     d="M 11.441282,11.441282 24.99115,25.207366"
+     stroke="#ffffff"
+     strokeWidth="1"
+     strokeLinecap="round"
+     id="path1095"
+     style="stroke-width:1.95108" />
+  <path
+     d="m 11.6,11.6 4.8,28.8"
+     stroke="#ffffff"
+     strokeWidth="1"
+     strokeLinecap="round"
+     id="path1097"
+     style="stroke-width:2.4" />
+  <path
+     d="M 46.095749,21.039503 32.304251,26.376714"
+     stroke="#ffffff"
+     strokeWidth="1"
+     strokeLinecap="round"
+     id="path1099"
+     style="stroke-width:1.42992" />
+  <path
+     d="m 50.018683,22.921189 -2.437366,19.86573"
+     stroke="#ffffff"
+     strokeWidth="1"
+     strokeLinecap="round"
+     id="path1101"
+     style="stroke-width:2.20046" />
+  <path
+     d="m 25.249606,31.334178 -9.050563,9.266779"
+     stroke="#ffffff"
+     strokeWidth="1"
+     strokeLinecap="round"
+     id="path1103"
+     style="stroke-width:1.83161" />
+  <path
+     d="M 32.154619,31.352144 47.737273,42.982991"
+     stroke="#ffffff"
+     strokeWidth="1"
+     strokeLinecap="round"
+     id="path1105"
+     style="stroke-width:1.94315" />
+  <path
+     d="m 28.353989,32.859593 2.492022,15.29703"
+     stroke="#ffffff"
+     strokeWidth="1"
+     strokeLinecap="round"
+     id="path1107"
+     style="stroke-width:1.95245" />
+  <path
+     d="M 16.221254,40.185521 27.30307,49.371236"
+     stroke="#ffffff"
+     strokeWidth="1"
+     strokeLinecap="round"
+     id="path1109"
+     style="stroke-width:1.84205" />
+  <path
+     d="M 47.727976,42.577206 34.239592,50.028199"
+     stroke="#ffffff"
+     strokeWidth="1"
+     strokeLinecap="round"
+     id="path1111"
+     style="stroke-width:1.89456" />
+  <circle
+     cx="11.6"
+     cy="11.6"
+     r="4.8000002"
+     fill="#ffffff"
+     id="circle1113"
+     style="stroke-width:2.4" />
+  <circle
+     cx="50"
+     cy="18.799999"
+     r="4.8000002"
+     stroke="#ffffff"
+     strokeWidth="1"
+     id="circle1115"
+     style="stroke-width:2.4" />
+  <circle
+     cx="28.4"
+     cy="28.4"
+     stroke="#ffffff"
+     strokeWidth="1"
+     id="circle1117"
+     style="stroke-width:2.4"
+     r="4.8000002" />
+  <circle
+     cx="16.4"
+     cy="40.400002"
+     r="4.8000002"
+     fill="#ffffff"
+     id="circle1119"
+     style="stroke-width:2.4" />
+  <circle
+     cx="47.599998"
+     cy="42.799999"
+     r="4.8000002"
+     fill="#ffffff"
+     id="circle1121"
+     style="stroke-width:2.4" />
+  <circle
+     cx="30.799999"
+     cy="52.400002"
+     r="4.8000002"
+     stroke="#ffffff"
+     strokeWidth="1"
+     id="circle1123"
+     style="stroke-width:2.4" />
+</svg>

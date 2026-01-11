@@ -176,6 +176,9 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
   });
   const svgRef = useRef<SVGSVGElement>(null);
 
+  // --- NOVO: REF PARA O INTERVALO DE ROTAÇÃO CONTÍNUA ---
+  const rotationIntervalRef = useRef<number | null>(null);
+
   const bounds = useMemo(() => getBounds(part.entities, part.blocks), [part]);
 
   // --- ESTADO DO VIEWBOX (ZOOM E PAN) ---
@@ -464,6 +467,35 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
     );
   };
 
+  // CORREÇÃO DA LÓGICA DE INTERVALO COM REF:
+  // Precisamos rastrear o ângulo atual em uma Ref para que o intervalo veja o valor atualizado sem recriar o timer.
+  const currentRotationRef = useRef(labelState[activeTab].rotation);
+  useEffect(() => {
+    currentRotationRef.current = labelState[activeTab].rotation;
+  }, [labelState, activeTab]);
+
+  const handleMouseDownRotate = (delta: number) => {
+    // Aplica o primeiro
+    let newRot = (currentRotationRef.current + delta + 360) % 360;
+    onUpdate(activeTab, { rotation: newRot });
+
+    // Limpa anterior se houver
+    if (rotationIntervalRef.current) clearInterval(rotationIntervalRef.current);
+
+    // Inicia loop
+    rotationIntervalRef.current = window.setInterval(() => {
+      newRot = (currentRotationRef.current + delta + 360) % 360;
+      onUpdate(activeTab, { rotation: newRot });
+    }, 50); // 50ms = 20 quadros por segundo aprox
+  };
+
+  const stopRotation = () => {
+    if (rotationIntervalRef.current) {
+      clearInterval(rotationIntervalRef.current);
+      rotationIntervalRef.current = null;
+    }
+  };
+
   const renderControls = () => {
     const config = labelState[activeTab];
     const update = (changes: Partial<LabelConfig>) =>
@@ -476,6 +508,19 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
       border: `1px solid ${theme.buttonBorder}`,
       color: theme.text,
       borderRadius: 4,
+    };
+
+    // NOVO: Estilo Específico para Botões Quadrados (D-PAD)
+    // Isso garante que Cima/Baixo/Esq/Dir tenham exatamente o mesmo tamanho visual
+    const arrowBtnStyle: React.CSSProperties = {
+      ...btnStyle,
+      padding: 0, // Remove padding lateral que alargava o botão
+      width: "100%", // Ocupa toda a célula do grid
+      height: "32px", // Altura fixa igual à largura da coluna (definida no grid abaixo)
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: "14px", // Tamanho da seta ajustado
     };
 
     return (
@@ -508,7 +553,7 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
               value={config.fontSize}
               onChange={(e) => update({ fontSize: Number(e.target.value) })}
               style={{
-                width: "100%",
+                width: "90%",
                 padding: 8,
                 background: theme.panelBg,
                 color: theme.text,
@@ -521,14 +566,63 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
             <label style={{ display: "block", fontSize: 12, marginBottom: 5 }}>
               Rotação:
             </label>
-            <button
-              onClick={() => update({ rotation: (config.rotation + 90) % 360 })}
-              style={{ ...btnStyle, width: "100%", height: 34, marginTop: 1 }}
-            >
-              🔄 {config.rotation}°
-            </button>
+            {/* --- GRUPO DE ROTAÇÃO REFORMULADO --- */}
+            <div style={{ display: "flex", gap: 5, width: "100%" }}>
+              {/* 1. Botão Anti-Horário (Ajuste Fino) */}
+              <button
+                onMouseDown={() => handleMouseDownRotate(1)} // +1 grau (Trigonométrico/Anti-horário é positivo em SVG padrão, mas aqui o usuário espera esquerda)
+                // OBS: Normalmente seta curva para esquerda é anti-horário.
+                onMouseUp={stopRotation}
+                onMouseLeave={stopRotation}
+                title="Segure para girar (Ajuste Fino)"
+                style={{
+                  ...btnStyle,
+                  flex: "0 0 40px", // Largura fixa
+                  marginTop: 1,
+                  fontSize: "16px",
+                  padding: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                ↺
+              </button>
+
+              {/* 2. Botão Original 90 graus (Mantido no centro) */}
+              <button
+                onClick={() =>
+                  update({ rotation: (config.rotation + 90) % 360 })
+                }
+                style={{ ...btnStyle, marginTop: 1, fontSize: "13px" }}
+                title="Girar 90 graus"
+              >
+                {Math.round(config.rotation)}°
+              </button>
+
+              {/* 3. Botão Horário (Ajuste Fino) */}
+              <button
+                onMouseDown={() => handleMouseDownRotate(-1)} // -1 grau
+                onMouseUp={stopRotation}
+                onMouseLeave={stopRotation}
+                title="Segure para girar (Ajuste Fino)"
+                style={{
+                  ...btnStyle,
+                  flex: "0 0 40px", // Largura fixa
+                  marginTop: 1,
+                  fontSize: "16px",
+                  padding: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                ↻
+              </button>
+            </div>
           </div>
         </div>
+        {/* --- POSIÇÃO FINA (GRID CORRIGIDO) --- */}
         <div>
           <label
             style={{
@@ -543,35 +637,53 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "40px 40px 40px",
+              // ALTERADO: Colunas de 32px para botões quadrados (32x32)
+              gridTemplateColumns: "32px 32px 32px",
               gap: 5,
               justifyContent: "center",
             }}
           >
+            {/* Linha 1 */}
             <div></div>
             <button
-              style={btnStyle}
+              style={arrowBtnStyle}
               onClick={() => update({ offsetY: config.offsetY + 1 })}
             >
               ▲
             </button>
             <div></div>
+
+            {/* Linha 2 */}
             <button
-              style={btnStyle}
+              style={arrowBtnStyle}
               onClick={() => update({ offsetX: config.offsetX - 1 })}
             >
               ◄
             </button>
-            <div>✥</div>
+
+            {/* Ícone Centralizado */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                height: "32px",
+              }}
+            >
+              ✥
+            </div>
+
             <button
-              style={btnStyle}
+              style={arrowBtnStyle}
               onClick={() => update({ offsetX: config.offsetX + 1 })}
             >
               ►
             </button>
+
+            {/* Linha 3 */}
             <div></div>
             <button
-              style={btnStyle}
+              style={arrowBtnStyle}
               onClick={() => update({ offsetY: config.offsetY - 1 })}
             >
               ▼
@@ -579,6 +691,7 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
             <div></div>
           </div>
         </div>
+
         <div
           style={{ borderTop: `1px solid ${theme.border}`, margin: "10px 0" }}
         ></div>

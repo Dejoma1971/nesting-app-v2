@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Gerador de Ícones PWA (Upload)</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #1e1e1e; color: #fff; text-align: center; padding: 40px; }
+        h1 { color: #007bff; margin-bottom: 10px; }
+        p { color: #ccc; margin-bottom: 30px; }
+        
+        .upload-btn-wrapper { position: relative; overflow: hidden; display: inline-block; margin-bottom: 30px; }
+        .btn { border: 2px dashed #007bff; color: #007bff; background-color: transparent; padding: 15px 40px; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        .btn:hover { background-color: rgba(0, 123, 255, 0.1); }
+        .upload-btn-wrapper input[type=file] { font-size: 100px; position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer; }
+
+        .preview-container { display: flex; justify-content: center; gap: 40px; flex-wrap: wrap; margin-top: 20px; }
+        .preview-box { background: #2d2d2d; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        .preview-box h3 { margin-top: 0; color: #aaa; font-size: 14px; }
+        
+        canvas { background-color: transparent; /* Fundo transparente para ver se o SVG tem fundo mesmo */ border: 1px solid #444; }
+        
+        .download-btn { display: block; width: 100%; padding: 10px; margin-top: 15px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; opacity: 0.5; pointer-events: none; }
+        .download-btn.active { opacity: 1; pointer-events: all; }
+        .download-btn:hover { background: #218838; }
+    </style>
+</head>
+<body>
+
+    <h1>Gerador de Ícones PWA</h1>
+    <p>Selecione seu arquivo .svg do Inkscape e baixaremos os PNGs corretos.</p>
+
+    <div class="upload-btn-wrapper">
+        <button class="btn">📂 Escolher arquivo SVG</button>
+        <input type="file" id="uploadInput" accept=".svg" onchange="processarSVG(this)">
+    </div>
+
+    <div class="preview-container">
+        <div class="preview-box">
+            <h3>192 x 192 pixels</h3>
+            <canvas id="canvas192" width="192" height="192"></canvas>
+            <button id="btn192" class="download-btn" onclick="baixar('canvas192', 'pwa-192x192.png')">Baixar PNG</button>
+        </div>
+
+        <div class="preview-box">
+            <h3>512 x 512 pixels</h3>
+            <canvas id="canvas512" width="512" height="512" style="width: 200px; height: 200px;"></canvas>
+            <button id="btn512" class="download-btn" onclick="baixar('canvas512', 'pwa-512x512.png')">Baixar PNG</button>
+        </div>
+    </div>
+
+    <script>
+        function processarSVG(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                
+                reader.onload = function(e) {
+                    const img = new Image();
+                    // Garante o carregamento do SVG via Blob URL para evitar erros de sintaxe
+                    const blob = new Blob([e.target.result], {type: 'image/svg+xml'});
+                    const url = URL.createObjectURL(blob);
+                    
+                    img.onload = function() {
+                        desenhar(img, 'canvas192', 192);
+                        desenhar(img, 'canvas512', 512);
+                        
+                        // Ativa os botões
+                        document.getElementById('btn192').classList.add('active');
+                        document.getElementById('btn512').classList.add('active');
+                        
+                        // Libera memória
+                        URL.revokeObjectURL(url);
+                    };
+                    img.src = url;
+                }
+                
+                // Lê o arquivo como texto puro primeiro
+                reader.readAsText(input.files[0]);
+            }
+        }
+
+        function desenhar(img, canvasId, size) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            
+            // Limpa o canvas antes de desenhar
+            ctx.clearRect(0, 0, size, size);
+            
+            // Desenha a imagem esticando para o tamanho total do canvas
+            ctx.drawImage(img, 0, 0, size, size);
+        }
+
+        function baixar(canvasId, nomeArquivo) {
+            const canvas = document.getElementById(canvasId);
+            const link = document.createElement('a');
+            link.download = nomeArquivo;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+    </script>
+
+</body>
+</html>

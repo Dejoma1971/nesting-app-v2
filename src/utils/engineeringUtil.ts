@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { ImportedPart } from "../components/types";
-import { UnionFind, calculateBoundingBox, calculatePartNetArea, entitiesTouch, flattenGeometry, isContained, rotatePoint } from "../utils/geometryCore";
+import { UnionFind, calculateBoundingBox, calculatePartNetArea, entitiesTouch, flattenGeometry, isContained, rotatePoint, detectOpenEndpoints } from "../utils/geometryCore";
 
 // --- LÓGICA DE ROTAÇÃO ---
 export const applyRotationToPart = (
@@ -141,6 +141,10 @@ export const processFileToParts = (
     let netArea = calculatePartNetArea(normalizedEntities);
     if (netArea < 0.1) netArea = grossArea;
 
+    // ---> NOVO: Verifica se a peça está aberta <---
+    const openPoints = detectOpenEndpoints(normalizedEntities);
+    const hasError = openPoints.length > 0;
+
     finalParts.push({
       id: crypto.randomUUID(),
       name: `${fileName} - Item ${finalParts.length + 1}`,
@@ -157,6 +161,7 @@ export const processFileToParts = (
       espessura: defaults.espessura,
       autor: defaults.autor,
       dataCadastro: new Date().toISOString(),
+      hasOpenGeometry: hasError,
     });
   }
   return finalParts;

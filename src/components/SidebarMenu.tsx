@@ -403,13 +403,13 @@ export const SidebarMenu: React.FC<SidebarMenuProps> = ({
           )}
 
           {/* INSTALAR APP (Sempre visível para pagos, desabilitado se já instalado/erro) */}
-          {isPaid && (
+          {/* {isPaid && (
             <MenuButton
               label="Instalar Aplicativo"
               subText={
                 isInstallable
                   ? "Acesso rápido na área de trabalho"
-                  : "Indisponível no momento"
+                  : "Já instalado / Navegador não suportado"
               }
               icon={Icons.Download}
               onClick={() => {
@@ -420,7 +420,24 @@ export const SidebarMenu: React.FC<SidebarMenuProps> = ({
               highlight={isInstallable}
               disabled={!isInstallable}
             />
-          )}
+          )} */}
+
+          <MenuButton
+            label="Instalar Aplicativo"
+            subText={
+              isInstallable
+                ? "Acesso rápido na área de trabalho"
+                : "Indisponível no momento" // ou "Já instalado / Navegador não suportado"
+            }
+            icon={Icons.Download}
+            onClick={() => {
+              setIsOpen(false);
+              handleInstallClick();
+            }}
+            theme={theme}
+            highlight={isInstallable}
+            disabled={!isInstallable}
+          />
 
           <div
             style={{ height: "1px", background: theme.border, margin: "5px 0" }}

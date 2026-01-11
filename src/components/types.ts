@@ -25,6 +25,7 @@ export interface ImportedPart {
   dataCadastro: string; // ISO String
   cliente?: string;     // Opcional, mas útil
   quantity: number;
+  hasOpenGeometry?: boolean;
 }
 
 // --- ADICIONE DAQUI PARA BAIXO ---
@@ -48,6 +49,7 @@ export interface EngineeringScreenProps {
   parts: ImportedPart[];
   setParts: React.Dispatch<React.SetStateAction<ImportedPart[]>>;
   onOpenTeam?: () => void;
+  hasOpenGeometry?: boolean;
 }
 
 export interface CustomMaterial {
