@@ -76,12 +76,12 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   }, [viewingPartId, parts]);
 
   // --- NOVO: FUNÇÃO PARA CORRIGIR ---
-// ... dentro do EngineeringScreen.tsx
+  // ... dentro do EngineeringScreen.tsx
 
   const handleFixOpenGeometry = () => {
     // Busca a peça usando viewingPartId diretamente
     const currentPart = parts.find((p: ImportedPart) => p.id === viewingPartId);
-    
+
     if (!currentPart || openPoints.length < 2) return;
 
     // 1. Tenta gerar o fechamento inteligente
@@ -89,29 +89,29 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
 
     // 2. Verifica se o fechamento ocorreu ou foi abortado por segurança
     if (fixedEntities.length === currentPart.entities.length) {
-        // CASO 1: Abertura muito grande (> 1mm). O sistema abortou a edição geométrica.
-        alert(
-            "Atenção: A abertura é maior que o limite de segurança (1mm).\n\n" +
-            "O fechamento automático foi cancelado para evitar riscar a peça incorretamente.\n" +
-            "O alerta visual será removido, mas lembre-se que a geometria continua aberta."
-        );
-        // NOTA: Não fazemos 'return' aqui. O código segue abaixo para remover o alerta visual (Ignorar).
+      // CASO 1: Abertura muito grande (> 1mm). O sistema abortou a edição geométrica.
+      alert(
+        "Atenção: A abertura é maior que o limite de segurança (1mm).\n\n" +
+          "O fechamento automático foi cancelado para evitar riscar a peça incorretamente.\n" +
+          "O alerta visual será removido, mas lembre-se que a geometria continua aberta."
+      );
+      // NOTA: Não fazemos 'return' aqui. O código segue abaixo para remover o alerta visual (Ignorar).
     } else {
-        // CASO 2: Fechamento bem sucedido. Atualizamos a geometria.
-        currentPart.entities = fixedEntities;
-        // Feedback opcional (pode comentar se achar muito intrusivo)
-        // alert("Geometria fechada com sucesso!"); 
+      // CASO 2: Fechamento bem sucedido. Atualizamos a geometria.
+      currentPart.entities = fixedEntities;
+      // Feedback opcional (pode comentar se achar muito intrusivo)
+      // alert("Geometria fechada com sucesso!");
     }
 
     // 3. Em AMBOS os casos (Corrigido ou Ignorado Automaticamente), removemos a flag de erro.
     // Isso faz a miniatura e a tabela pararem de piscar imediatamente.
-    currentPart.hasOpenGeometry = false; 
+    currentPart.hasOpenGeometry = false;
 
     // 4. Limpa o estado local do modal (some a barra amarela)
-    setOpenPoints([]); 
-    
+    setOpenPoints([]);
+
     // 5. Força a atualização da tela para refletir a mudança de cor/borda
-    refreshData(); 
+    refreshData();
   };
 
   // --- NOVO: Lógica do Aviso "Cortar Agora" ---
@@ -1037,19 +1037,19 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 <th style={{ ...tableHeaderStyle, width: "250px" }}>
                   Espessura.
                 </th>
-                <th style={tableHeaderStyle}>Dimensões</th>
-                <th style={tableHeaderStyle}>Área (m²)</th>
-                <th style={tableHeaderStyle} title="Complexidade da peça">
-                  Entidades
-                </th>
                 <th
                   style={{
                     ...tableHeaderStyle,
                     width: "60px",
-                    color: "#007bff",
+                    color: theme.text,
                   }}
                 >
                   Qtd.
+                </th>
+                <th style={tableHeaderStyle}>Dimensões</th>
+                <th style={tableHeaderStyle}>Área (m²)</th>
+                <th style={tableHeaderStyle} title="Complexidade da peça">
+                  Entidades
                 </th>
               </tr>
             </thead>
@@ -1220,6 +1220,26 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                         ))}
                       </select>
                     </td>
+                    <td style={tableCellStyle}>
+                      <input
+                        type="number"
+                        min="1"
+                        value={part.quantity || 1}
+                        onChange={(e) =>
+                          handleRowChange(
+                            part.id,
+                            "quantity",
+                            Number(e.target.value)
+                          )
+                        }
+                        style={{
+                          ...cellInputStyle,
+                          textAlign: "center",
+                          fontWeight: "bold",
+                          color: theme.text,
+                        }}
+                      />
+                    </td>
 
                     <td
                       style={{
@@ -1248,26 +1268,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                       }}
                     >
                       {entCount}
-                    </td>
-                    <td style={tableCellStyle}>
-                      <input
-                        type="number"
-                        min="1"
-                        value={part.quantity || 1}
-                        onChange={(e) =>
-                          handleRowChange(
-                            part.id,
-                            "quantity",
-                            Number(e.target.value)
-                          )
-                        }
-                        style={{
-                          ...cellInputStyle,
-                          textAlign: "center",
-                          fontWeight: "bold",
-                          color: "#007bff",
-                        }}
-                      />
                     </td>
                   </tr>
                 );
@@ -1385,7 +1385,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 </div>
 
                 <div style={{ display: "flex", gap: "10px" }}>
-                  <button
+                  {/* <button
                     onClick={() => setOpenPoints([])}
                     style={{
                       background: "transparent",
@@ -1399,7 +1399,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                     }}
                   >
                     Ignorar
-                  </button>
+                  </button> */}
                   <button
                     onClick={handleFixOpenGeometry}
                     style={{
