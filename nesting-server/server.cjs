@@ -38,23 +38,32 @@ const JWT_SECRET =
   process.env.JWT_SECRET || "segredo-super-secreto-do-nesting-app";
 
 // ==========================================================
-// MIDDLEWARE DE AUTENTICAÇÃO (Definido aqui para usar o JWT_SECRET correto)
+// MIDDLEWARE DE AUTENTICAÇÃO (Melhorado para Debug)
 // ==========================================================
 function authenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
+  // O formato esperado é "Bearer <TOKEN>"
   const token = authHeader && authHeader.split(" ")[1];
 
   if (token == null) {
-    // console.log("DEBUG: Token não fornecido.");
+    console.log(
+      "❌ DEBUG AUTH: Token não fornecido ou cabeçalho mal formatado."
+    );
+    console.log("   Header recebido:", authHeader);
     return res.sendStatus(401);
   }
 
-  // CORREÇÃO: Usando a constante unificada JWT_SECRET
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
-      console.log("DEBUG: Erro ao verificar token:", err.message);
+      // ESTE LOG VAI TE MOSTRAR O MOTIVO DO LOOP:
+      console.log("🚫 DEBUG AUTH: Token rejeitado.");
+      console.log("   Motivo:", err.message); // Ex: "jwt expired", "invalid signature"
+
+      // Dica: Se o erro for "jwt malformed", o frontend está mandando lixo.
+      // Dica: Se for "invalid signature", o JWT_SECRET mudou entre o login e agora.
       return res.sendStatus(403);
     }
+
     req.user = user;
     next();
   });
@@ -177,7 +186,7 @@ app.post("/api/login", async (req, res) => {
         cargo: user.cargo,
       },
       JWT_SECRET,
-      { expiresIn: "24h" }
+      { expiresIn: "30d" }
     );
 
     res.json({
@@ -222,7 +231,7 @@ app.get("/api/auth/me", authenticateToken, async (req, res) => {
         cargo: user.cargo,
       },
       JWT_SECRET,
-      { expiresIn: "24h" }
+      { expiresIn: "30d" }
     );
 
     res.json({
