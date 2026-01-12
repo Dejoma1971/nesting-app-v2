@@ -19,7 +19,7 @@ interface RegisterProps {
   cropLines: unknown[]; // Mudado de 'any' para 'unknown' (seguro)
   user: User;           // Mudado de 'any' para interface User
   densidadeNumerica: number;
-  motor: "guillotine" | "true-shape";
+  motor: "guillotine" | "true-shape" | "wise";
 }
 
 // Interface auxiliar para acessar propriedades estendidas da peça (como tipo_producao)

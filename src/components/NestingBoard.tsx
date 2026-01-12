@@ -17,6 +17,7 @@ import { InteractiveCanvas } from "./InteractiveCanvas";
 import { useUndoRedo } from "../hooks/useUndoRedo";
 import { PartFilter, type FilterState } from "./PartFilter";
 import NestingWorker from "../workers/nesting.worker?worker";
+import WiseNestingWorker from "../workers/wiseNesting.worker?worker";
 import { useTheme } from "../context/ThemeContext";
 import { useLabelManager } from "../hooks/useLabelManager";
 import { GlobalLabelPanel, ThumbnailFlags } from "./labels/LabelControls";
@@ -417,7 +418,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const [gap, setGap] = useState(5);
   const [margin, setMargin] = useState(5);
-  const [strategy, setStrategy] = useState<"guillotine" | "true-shape">(
+  const [strategy, setStrategy] = useState<"guillotine" | "true-shape" | "wise">(
     "true-shape"
   );
   const [direction, setDirection] = useState<
@@ -447,6 +448,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
   const collisionWorkerRef = useRef<Worker | null>(null);
   const nestingWorkerRef = useRef<Worker | null>(null);
+  const wiseNestingWorkerRef = useRef<Worker | null>(null);
   // --- NOVO: Estados para o Checklist de Pedidos ---
   const [availableOrders, setAvailableOrders] = useState<string[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
@@ -1128,6 +1130,37 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
         if (result.placed.length === 0) alert("Nenhuma peça coube!");
       }, 50);
+      } else if (strategy === "wise") { 
+      // <--- INSERIR ESTE BLOCO NOVO --->
+      
+      // --- 3. MOTOR WISE NEST (Melhor Aproveitamento / Furos) ---
+      if (wiseNestingWorkerRef.current) wiseNestingWorkerRef.current.terminate();
+      wiseNestingWorkerRef.current = new WiseNestingWorker();
+
+      wiseNestingWorkerRef.current.onmessage = (e) => {
+        const result = e.data;
+        const duration = (Date.now() - startTime) / 1000;
+        setCalculationTime(duration);
+        
+        // Atualiza estados com o resultado do Wise
+        resetNestingResult(result.placed);
+        setFailedCount(result.failed.length);
+        setTotalBins(result.totalBins || 1);
+        setIsComputing(false);
+        
+        if (result.placed.length === 0) alert("Nenhuma peça coube no Wise Nest!");
+      };
+
+      wiseNestingWorkerRef.current.postMessage({
+        parts: JSON.parse(JSON.stringify(partsToNest)),
+        quantities,
+        gap,
+        margin,
+        binWidth: binSize.width,
+        binHeight: binSize.height,
+        rotationStep: 5, // Forçamos precisão alta no Wise (5 graus)
+        // iterations é ignorado pelo Wise
+      });      
     } else {
       // --- 2. MOTOR SMART NEST (Web Worker) ---
       if (nestingWorkerRef.current) nestingWorkerRef.current.terminate();
@@ -2247,6 +2280,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             <option value="guillotine">✂️ Guilhotina</option>{" "}
             {/* Mudou de "rect" */}
             <option value="true-shape">🧩 Smart Nest</option>
+            <option value="wise">🧠 Wise Nest (Preciso)</option> {/* <--- INSERIR ESTA LINHA */}
           </select>
         </div>
         <div

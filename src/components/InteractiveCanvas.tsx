@@ -13,7 +13,11 @@ import type { AppTheme } from "../styles/theme";
 import type { CropLine } from "../hooks/useSheetManager";
 
 // --- COLE ISTO LOGO APÓS OS IMPORTS ---
-const calculateRotatedDimensions = (w: number, h: number, rotationDeg: number) => {
+const calculateRotatedDimensions = (
+  w: number,
+  h: number,
+  rotationDeg: number
+) => {
   const rad = rotationDeg * (Math.PI / 180);
   // Calcula o bounding box real trigonométrico
   const occupiedW = w * Math.abs(Math.cos(rad)) + h * Math.abs(Math.sin(rad));
@@ -31,7 +35,7 @@ interface InteractiveCanvasProps {
   binHeight: number;
   margin: number;
   showDebug: boolean;
-  strategy: "guillotine" | "true-shape";
+  strategy: "guillotine" | "true-shape" | "wise";
   selectedPartIds: string[];
   theme: AppTheme;
 
@@ -40,11 +44,14 @@ interface InteractiveCanvasProps {
   // Props de Linhas de Retalho
   cropLines?: CropLine[];
   onCropLineMove?: (lineId: string, newPosition: number) => void;
-  onBackgroundContextMenu?: (e: React.MouseEvent, coords: { x: number; y: number }) => void;
+  onBackgroundContextMenu?: (
+    e: React.MouseEvent,
+    coords: { x: number; y: number }
+  ) => void;
 
   // Funções de Manipulação
   onPartsMove: (moves: { partId: string; dx: number; dy: number }[]) => void;
-  
+
   onPartReturn: (uuids: string[]) => void;
   onLabelDrag?: (
     partId: string,
@@ -392,13 +399,13 @@ interface PartElementProps {
   isSelected: boolean;
   isColliding?: boolean;
   onMouseDown: (e: React.MouseEvent, uuid: string) => void;
-  onLabelDown: (e: React.MouseEvent, type: "white" | "pink") => void;  
+  onLabelDown: (e: React.MouseEvent, type: "white" | "pink") => void;
   onDoubleClick: (e: React.MouseEvent, uuid: string) => void;
   onContextMenu: (e: React.MouseEvent, uuid: string) => void;
   onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void;
   partData: ImportedPart | undefined;
   showDebug: boolean;
-  strategy: "guillotine" | "true-shape";
+  strategy: "guillotine" | "true-shape" | "wise";
   transformData: any;
   theme: AppTheme;
   globalScale: number;
@@ -412,7 +419,7 @@ const PartElement = React.memo(
         isSelected,
         isColliding,
         onMouseDown,
-        onLabelDown,        
+        onLabelDown,
         onDoubleClick,
         onContextMenu,
         onEntityContextMenu,
@@ -420,12 +427,16 @@ const PartElement = React.memo(
         showDebug,
         strategy,
         transformData,
-        theme,        
+        theme,
       },
       ref
     ) => {
       if (!partData) return null;
-      const { occupiedW, occupiedH } = calculateRotatedDimensions(partData.width, partData.height, placed.rotation);
+      const { occupiedW, occupiedH } = calculateRotatedDimensions(
+        partData.width,
+        partData.height,
+        placed.rotation
+      );
 
       const finalTransform = transformData
         ? `translate(${placed.x + transformData.occupiedW / 2}, ${
@@ -439,7 +450,7 @@ const PartElement = React.memo(
       if (isSelected) strokeColor = "#01ff3cff";
       if (isColliding) strokeColor = "#ff0000";
 
-      const fillColor = isColliding ? "rgba(255, 0, 0, 0.3)" : "transparent";      
+      const fillColor = isColliding ? "rgba(255, 0, 0, 0.3)" : "transparent";
 
       return (
         <g ref={ref}>
@@ -489,7 +500,7 @@ const PartElement = React.memo(
                 )
               )}
             </g>
-          </g>          
+          </g>
         </g>
       );
     }
@@ -508,7 +519,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   showDebug,
   strategy,
   selectedPartIds,
-  onPartsMove,  
+  onPartsMove,
   onLabelDrag,
   onPartSelect,
   onContextMenu,
@@ -554,7 +565,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   const partRefs = useRef<{ [key: string]: SVGGElement | null }>({});
   const draggingIdsRef = useRef<string[]>([]);
   const currentDragDeltaRef = useRef({ dx: 0, dy: 0 });
-  
+
   const dragRef = useRef({
     startX: 0,
     startY: 0,
@@ -643,7 +654,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     placedParts.forEach((placed) => {
       const part = parts.find((p) => p.id === placed.partId);
       if (!part) return;
-      
+
       const cachedBox = boundingBoxCache[placed.partId];
       let box;
       if (cachedBox) {
@@ -665,8 +676,8 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       // Calculamos a caixa envolvente exata usando a função trigonométrica
       // (Certifique-se de que a função 'calculateRotatedDimensions' foi adicionada no topo do arquivo)
       const { occupiedW, occupiedH } = calculateRotatedDimensions(
-        part.width, 
-        part.height, 
+        part.width,
+        part.height,
         placed.rotation
       );
 
@@ -722,7 +733,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     },
     [strategy, selectedPartIds, getSVGPoint]
   );
-  
 
   const handleLabelDown = useCallback(
     (e: React.MouseEvent, partId: string, type: "white" | "pink") => {
@@ -949,19 +959,19 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           // 1. Calcula o deslocamento bruto do mouse (em coordenadas SVG)
           const rawDx = currentSvgPos.x - dragRef.current.startSvgX;
           const rawDy = currentSvgPos.y - dragRef.current.startSvgY;
-          
+
           // 2. CORREÇÃO DEFINITIVA DO ZOOM:
           // Dividimos o deslocamento pelo fator de escala (k).
           // Se o zoom é 2x, precisamos mover apenas 0.5 unidades na peça para acompanhar 1 unidade do mouse.
           const currentZoom = transformRef.current.k;
-          
+
           const deltaX = rawDx / currentZoom;
           const deltaY = rawDy / currentZoom;
 
           // (Removemos aquela lógica antiga de 'dampFactor' que tentava adivinhar o ajuste)
 
           // 3. Aplica inversão do Y (pois o sistema CNC usa Y para cima)
-          const machineDeltaY = -deltaY; 
+          const machineDeltaY = -deltaY;
 
           const { snapedDx, snapedDy, guides } = calculateSnap(
             deltaX,
@@ -970,15 +980,15 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
 
           setSnapLines(guides);
           currentDragDeltaRef.current = { dx: snapedDx, dy: snapedDy };
-          
-          // Nota: Para visualização suave durante o arraste (transform CSS), 
-          // precisamos multiplicar de volta pelo zoom visual apenas para o translate3d na tela, 
-          // OU aplicar o valor ajustado. 
-          // Como o 'el.style.transform' é visual e a peça está dentro do grupo escalado, 
+
+          // Nota: Para visualização suave durante o arraste (transform CSS),
+          // precisamos multiplicar de volta pelo zoom visual apenas para o translate3d na tela,
+          // OU aplicar o valor ajustado.
+          // Como o 'el.style.transform' é visual e a peça está dentro do grupo escalado,
           // aplicamos o deslocamento local (snapedDx).
-          // Porém, o translate3d do CSS opera em pixels de tela ou locais? 
+          // Porém, o translate3d do CSS opera em pixels de tela ou locais?
           // No SVG, transform em <g> opera no espaço local.
-          
+
           const visualSnapDy = snapedDy; // Y já invertido para coordenada de máquina, cuidado aqui.
           // O translate visual precisa ser no sistema de coordenadas da tela ou do SVG?
           // O ref `partRefs` aponta para o <g> da peça.
@@ -987,7 +997,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           // Mas espere: snapedDy é "machine coords" (Y para cima).
           // O SVG desenha Y para baixo, mas nós temos um `scale(1, -1)` no pai.
           // Então, aumentar Y localmente faz a peça subir. Está correto.
-          
+
           draggingIdsRef.current.forEach((id) => {
             const el = partRefs.current[id];
             if (el)
@@ -1036,7 +1046,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     dragMode,
     getSVGPoint,
     calculateSnap,
-    onLabelDrag,    
+    onLabelDrag,
     onPartReturn,
     onPartsMove,
     draggingLabel,
@@ -1242,24 +1252,28 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                 onContextMenu={(e) => {
                   e.preventDefault();
                   if (onBackgroundContextMenu) {
-          // 1. Pega a coordenada bruta do SVG (Screen -> SVG)
-          const svgPos = getSVGPoint(e.clientX, e.clientY);
-          
-          // 2. Remove o Pan e o Zoom (transform visual)
-          const visualX = (svgPos.x - transformRef.current.x) / transformRef.current.k;
-          const visualY = (svgPos.y - transformRef.current.y) / transformRef.current.k;
+                    // 1. Pega a coordenada bruta do SVG (Screen -> SVG)
+                    const svgPos = getSVGPoint(e.clientX, e.clientY);
 
-          // 3. Corrige o sistema de coordenadas da máquina (Y invertido)
-          // O grupo CNC tem scale(1, -1) e translate(0, binHeight)
-          // Portanto: Y_Real = Altura_Chapa - Y_Visual
-          const binX = visualX;
-          const binY = binHeight - visualY;
-          
-          // Envia o evento E as coordenadas reais calculadas
-          onBackgroundContextMenu(e, { x: binX, y: binY });
-      }
-    }}
-  />
+                    // 2. Remove o Pan e o Zoom (transform visual)
+                    const visualX =
+                      (svgPos.x - transformRef.current.x) /
+                      transformRef.current.k;
+                    const visualY =
+                      (svgPos.y - transformRef.current.y) /
+                      transformRef.current.k;
+
+                    // 3. Corrige o sistema de coordenadas da máquina (Y invertido)
+                    // O grupo CNC tem scale(1, -1) e translate(0, binHeight)
+                    // Portanto: Y_Real = Altura_Chapa - Y_Visual
+                    const binX = visualX;
+                    const binY = binHeight - visualY;
+
+                    // Envia o evento E as coordenadas reais calculadas
+                    onBackgroundContextMenu(e, { x: binX, y: binY });
+                  }
+                }}
+              />
 
               {/* CORREÇÃO: Mostra a margem sempre que ela for maior que 0, independente do Debug */}
               {margin > 0 && (
@@ -1292,7 +1306,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                     onMouseDown={handleMouseDownPart}
                     onLabelDown={(e, type) =>
                       handleLabelDown(e, placed.uuid, type)
-                    }                    
+                    }
                     onDoubleClick={handleDoubleClickPart}
                     onContextMenu={onContextMenu}
                     onEntityContextMenu={onEntityContextMenu}
