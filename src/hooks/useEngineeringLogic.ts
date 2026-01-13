@@ -14,6 +14,7 @@ import type {
 import {
   processFileToParts,
   applyRotationToPart,
+  applyMirrorToPart,
 } from "../utils/engineeringUtil";
 
 // LISTAS ESTÁTICAS (Fallback para modo Trial ou erro)
@@ -438,6 +439,17 @@ export const useEngineeringLogic = ({
     );
   };
 
+  const handleMirrorPart = (partId: string) => {
+  setParts((prevParts) =>
+    prevParts.map((part) => {
+      if (part.id === partId) {
+        return applyMirrorToPart(part);
+      }
+      return part;
+    })
+  );
+};
+
   const handleFileUpload = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -513,5 +525,6 @@ export const useEngineeringLogic = ({
     materialList,
     thicknessList,
     refreshData,
+    handleMirrorPart,
   };
 };

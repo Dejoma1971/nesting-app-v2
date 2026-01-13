@@ -63,6 +63,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     handleDirectNesting,
     handleGoToNestingEmpty,
     handleRotatePart,
+    handleMirrorPart,
     handleFileUpload,
     materialList, // <--- AGORA VAMOS USAR
     thicknessList, // <--- AGORA VAMOS USAR
@@ -1611,6 +1612,45 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               >
                 ↻ Girar Horário
               </button>
+              {/* --- INÍCIO DO BOTÃO ESPELHAR --- */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // CORREÇÃO: Usamos 'viewingPart.id' porque estamos dentro do modal
+                  handleMirrorPart(viewingPart.id);
+                }}
+                title="Espelhar (Flip Horizontal)"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "6px",
+                  marginLeft: "5px",
+                  borderRadius: "4px",
+                  border: `1px solid ${theme.border || "#ccc"}`,
+                  backgroundColor: theme.buttonBg || "#f0f0f0",
+                  color: theme.text || "#333",
+                  cursor: "pointer",
+                }}
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M7.5 12h9" />
+                  <path d="M16.5 7.5L21 12l-4.5 4.5" />
+                  <path d="M7.5 7.5L3 12l4.5 4.5" />
+                  <line x1="12" y1="4" x2="12" y2="20" strokeDasharray="2 2" />
+                </svg> 
+                  Espelhar
+              </button>
+              {/* --- FIM DO BOTÃO ESPELHAR --- */}
               <button
                 onClick={() => setViewingPartId(null)}
                 style={{

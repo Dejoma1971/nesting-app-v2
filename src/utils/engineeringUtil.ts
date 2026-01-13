@@ -68,6 +68,78 @@ export const applyRotationToPart = (
   return newPart;
 };
 
+// --- EM src/utils/engineeringUtil.ts ---
+
+export const applyMirrorToPart = (part: ImportedPart): ImportedPart => {
+  // 1. Clona a peça para não alterar o estado original diretamente
+  const newPart = JSON.parse(JSON.stringify(part));
+  
+  // 2. Espelha as entidades (Inverte o X)
+  newPart.entities = newPart.entities.map((ent: any) => {
+    
+    // Espelhar vértices (Lines, Polylines)
+    if (ent.vertices) {
+      ent.vertices = ent.vertices.map((v: any) => ({
+        ...v,
+        x: -v.x, // Inverte o X
+        y: v.y,
+        bulge: v.bulge ? -v.bulge : 0 // Inverte a curva (Bulge) se existir
+      }));
+      // Inverte a ordem dos vértices para manter a integridade (CW/CCW)
+      ent.vertices.reverse();
+    }
+    
+    // Espelhar Arcos e Círculos
+    if (ent.center) {
+      ent.center.x = -ent.center.x; // Inverte centro
+      
+      if (ent.type === 'ARC') {
+        // O espelhamento horizontal muda o sentido do ângulo.
+        // Novo Start = 180 - Antigo End
+        // Novo End = 180 - Antigo Start
+        const oldStart = ent.startAngle;
+        const oldEnd = ent.endAngle;
+        
+        // Função auxiliar para normalizar ângulos (0-360 ou radianos, dependendo do seu sistema)
+        // Assumindo radianos aqui pois DXF usa radianos, mas se seu visualizador usa graus, ajuste para 180.
+        // O seu código anterior usava Math.PI (radianos).
+        
+        ent.startAngle = Math.PI - oldEnd;
+        ent.endAngle = Math.PI - oldStart;
+      }
+    }
+    
+    return ent;
+  });
+
+  // 3. Recalcula a Bounding Box para normalizar a posição (trazer para 0,0)
+  const box = calculateBoundingBox(newPart.entities);
+  const minX = box.minX;
+  const minY = box.minY;
+
+  // 4. Normaliza (Move para a origem)
+  newPart.entities = newPart.entities.map((ent: any) => {
+    const move = (x: number, y: number) => ({ x: x - minX, y: y - minY });
+
+    if (ent.vertices) {
+      ent.vertices = ent.vertices.map((v: any) => {
+        const p = move(v.x, v.y);
+        return { ...v, x: p.x, y: p.y };
+      });
+    } else if (ent.center) {
+      const c = move(ent.center.x, ent.center.y);
+      ent.center = { x: c.x, y: c.y };
+    }
+    return ent;
+  });
+
+  // 5. Atualiza dimensões
+  newPart.width = box.maxX - box.minX;
+  newPart.height = box.maxY - box.minY;
+  
+  return newPart;
+};
+
 // --- Função Auxiliar para Agrupar Furos ---
 const mergeHolesIntoParts = (groups: any[][]): any[][] => {
   // Prepara os dados calculando BBox e Área para cada grupo
