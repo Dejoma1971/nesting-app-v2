@@ -356,7 +356,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     overflow: "hidden",
   };
   const leftPanel: React.CSSProperties = {
-    flex: 1,
+    flex: 0.92,
     borderRight: `1px solid ${theme.border}`,
     display: "flex",
     flexDirection: "column",
@@ -614,15 +614,19 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             PEDIDO{" "}
             <button
               style={applyButtonStyle}
+              // ALTERAÇÃO NO ONCLICK: Passamos 'selectedIds' como segundo parâmetro
               onClick={() =>
                 executeWithSessionConfirmation(
                   "applyAll",
-                  "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("pedido")
+                  selectedIds.length > 0
+                    ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
+                    : "Deseja aplicar este valor de PEDIDO a todas as peças?",
+                  () => applyToAll("pedido", selectedIds) // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
-              Aplicar Todos
+              {/* ALTERAÇÃO NO TEXTO: Muda conforme a seleção */}
+              {selectedIds.length > 0 ? "Aplicar Seleção" : "Aplicar Todos"}
             </button>
           </label>
           <input
@@ -637,15 +641,19 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             OP{" "}
             <button
               style={applyButtonStyle}
+              // ALTERAÇÃO NO ONCLICK: Passamos 'selectedIds' como segundo parâmetro
               onClick={() =>
                 executeWithSessionConfirmation(
                   "applyAll",
-                  "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("op")
+                  selectedIds.length > 0
+                    ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
+                    : "Deseja aplicar este valor de PEDIDO a todas as peças?",
+                  () => applyToAll("op", selectedIds) // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
-              Aplicar Todos
+              {/* ALTERAÇÃO NO TEXTO: Muda conforme a seleção */}
+              {selectedIds.length > 0 ? "Aplicar Seleção" : "Aplicar Todos"}
             </button>
           </label>
           <input
@@ -659,18 +667,22 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         {/* --- INSERÇÃO: TIPO DE PRODUÇÃO (BATCH) --- */}
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
-            TIPO PRODUÇÃO{" "}
+            TIPO PODUÇÃO{" "}
             <button
               style={applyButtonStyle}
+              // ALTERAÇÃO NO ONCLICK: Passamos 'selectedIds' como segundo parâmetro
               onClick={() =>
                 executeWithSessionConfirmation(
                   "applyAll",
-                  "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("tipo_producao")
+                  selectedIds.length > 0
+                    ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
+                    : "Deseja aplicar este valor de PEDIDO a todas as peças?",
+                  () => applyToAll("tipo_producao", selectedIds) // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
-              Aplicar Todos
+              {/* ALTERAÇÃO NO TEXTO: Muda conforme a seleção */}
+              {selectedIds.length > 0 ? "Aplicar Seleção" : "Aplicar Todos"}
             </button>
           </label>
           <select
@@ -700,15 +712,19 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             MATERIAL{" "}
             <button
               style={applyButtonStyle}
+              // ALTERAÇÃO NO ONCLICK: Passamos 'selectedIds' como segundo parâmetro
               onClick={() =>
                 executeWithSessionConfirmation(
                   "applyAll",
-                  "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("material")
+                  selectedIds.length > 0
+                    ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
+                    : "Deseja aplicar este valor de PEDIDO a todas as peças?",
+                  () => applyToAll("material", selectedIds) // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
-              Aplicar Todos
+              {/* ALTERAÇÃO NO TEXTO: Muda conforme a seleção */}
+              {selectedIds.length > 0 ? "Aplicar Seleção" : "Aplicar Todos"}
             </button>
           </label>
           <select
@@ -765,15 +781,19 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             ESPESSURA{" "}
             <button
               style={applyButtonStyle}
+              // ALTERAÇÃO NO ONCLICK: Passamos 'selectedIds' como segundo parâmetro
               onClick={() =>
                 executeWithSessionConfirmation(
                   "applyAll",
-                  "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("espessura")
+                  selectedIds.length > 0
+                    ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
+                    : "Deseja aplicar este valor de PEDIDO a todas as peças?",
+                  () => applyToAll("espessura", selectedIds) // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
-              Aplicar Todos
+              {/* ALTERAÇÃO NO TEXTO: Muda conforme a seleção */}
+              {selectedIds.length > 0 ? "Aplicar Seleção" : "Aplicar Todos"}
             </button>
           </label>
           <select
@@ -826,7 +846,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             padding: "10px 15px",
             borderRadius: "4px",
             cursor: "pointer",
-            fontSize: "13px",
+            fontSize: "12px",
             fontWeight: "bold",
             marginLeft: "15px",
           }}
@@ -840,7 +860,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             padding: "10px 15px",
             borderRadius: "4px",
             cursor: "pointer",
-            fontSize: "13px",
+            fontSize: "12px",
             fontWeight: "bold",
             marginLeft: "auto",
           }}
@@ -863,7 +883,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               padding: "10px",
               borderBottom: `1px solid ${theme.border}`,
               fontWeight: "bold",
-              fontSize: "12px",
+              fontSize: "11px",
               background: theme.headerBg,
               display: "flex",
               justifyContent: "space-between",
@@ -1109,7 +1129,26 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
 
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
+              {/* ------------------------------------------- */}
               <tr style={{ background: theme.hoverRow }}>
+                {/* --- INSERÇÃO: CHECKBOX MESTRE NA TABELA --- */}
+                <th
+                  style={{
+                    ...tableHeaderStyle,
+                    width: "30px",
+                    textAlign: "center",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={
+                      parts.length > 0 && selectedIds.length === parts.length
+                    }
+                    onChange={toggleSelectAll}
+                    disabled={parts.length === 0}
+                    style={{ cursor: "pointer" }}
+                  />
+                </th>
                 <th style={tableHeaderStyle}>#</th>
                 <th style={{ ...tableHeaderStyle, width: "150px" }}>
                   Nome Peça
@@ -1139,7 +1178,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 <th style={tableHeaderStyle}>Dimensões</th>
                 <th style={tableHeaderStyle}>Área (m²)</th>
                 <th style={tableHeaderStyle} title="Complexidade da peça">
-                  Entidades
+                  Entity
                 </th>
               </tr>
             </thead>
@@ -1179,6 +1218,22 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                     style={{ background: rowBackground, cursor: "pointer" }}
                     onClick={() => setSelectedPartId(part.id)}
                   >
+                    {/* --- INSERÇÃO: CHECKBOX INDIVIDUAL NA LINHA --- */}
+                    <td
+                      style={{ ...tableCellStyle, textAlign: "center" }}
+                      onClick={(e) => {
+                        e.stopPropagation(); // Evita selecionar a linha (azul) ao clicar no checkbox
+                        toggleSelection(part.id);
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(part.id)}
+                        readOnly // O controle é feito pelo onClick do pai (td) ou div
+                        style={{ cursor: "pointer" }}
+                      />
+                    </td>
+                    {/* ---------------------------------------------- */}
                     <td
                       style={{
                         ...tableCellStyle,
@@ -1190,7 +1245,10 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                     </td>
                     <td style={tableCellStyle}>
                       <input
-                        style={cellInputStyle}
+                        style={{
+                          ...cellInputStyle,
+                          fontSize: "10px", // <--- ADICIONE ESTA LINHA AQUI (pode testar 10px, 11px...)
+                        }}
                         value={part.name}
                         onChange={(e) =>
                           handleRowChange(part.id, "name", e.target.value)
@@ -1340,7 +1398,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                     <td
                       style={{
                         ...tableCellStyle,
-                        fontSize: "11px",
+                        fontSize: "10px",
                         opacity: 0.7,
                       }}
                     >
@@ -1349,7 +1407,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                     <td
                       style={{
                         ...tableCellStyle,
-                        fontSize: "11px",
+                        fontSize: "10px",
                         opacity: 0.7,
                       }}
                     >
@@ -1361,6 +1419,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                         color: entColor,
                         fontWeight: "bold",
                         textAlign: "center",
+                        fontSize: "11px",
                       }}
                     >
                       {entCount}

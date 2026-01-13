@@ -137,17 +137,40 @@ export const useEngineeringLogic = ({
     setBatchDefaults((prev) => ({ ...prev, [field]: value }));
   };
 
-  const applyToAll = (field: keyof ImportedPart) => {
+  // Alteração: Agora aceita um segundo argumento opcional 'idsToUpdate'
+  const applyToAll = (field: keyof ImportedPart, idsToUpdate?: string[]) => {
     const value = batchDefaults[field as keyof BatchDefaults];
     if (value === undefined) return;
+
+    // CENÁRIO 1: Aplicação Seletiva (Usuário marcou checkboxes)
+    if (idsToUpdate && idsToUpdate.length > 0) {
+      if (
+        !window.confirm(
+          `Confirma a aplicação de "${value}" em ${field.toUpperCase()} apenas para as ${
+            idsToUpdate.length
+          } peças selecionadas?`
+        )
+      )
+        return;
+
+      setParts((prev) =>
+        prev.map((p) =>
+          idsToUpdate.includes(p.id) ? { ...p, [field]: value } : p
+        )
+      );
+      return;
+    }
+
+    // CENÁRIO 2: Aplicação Total (Ninguém selecionado, comportamento padrão)
     if (
       !window.confirm(
-        `Deseja aplicar "${value}" em ${field.toUpperCase()} para TODAS as ${
+        `Nenhuma seleção detectada.\n\nDeseja aplicar "${value}" em ${field.toUpperCase()} para TODAS as ${
           parts.length
-        } peças?`
+        } peças da lista?`
       )
     )
       return;
+
     setParts((prev) => prev.map((p) => ({ ...p, [field]: value })));
   };
 
