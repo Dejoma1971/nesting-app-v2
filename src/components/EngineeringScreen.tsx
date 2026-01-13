@@ -68,6 +68,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     materialList, // <--- AGORA VAMOS USAR
     thicknessList, // <--- AGORA VAMOS USAR
     refreshData,
+    handleSaveLocalProject,
+    handleLoadLocalProject,
   } = useEngineeringLogic(props);
 
   const { parts, onBack, onOpenTeam } = props as any;
@@ -1112,19 +1114,92 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         <div style={rightPanel}>
           <div
             style={{
-              padding: "10px",
+              padding: "5px 10px", // Ajustei levemente o padding para ficar mais compacto
               borderBottom: `1px solid ${theme.border}`,
               fontWeight: "bold",
               fontSize: "12px",
               background: theme.headerBg,
               display: "flex",
               justifyContent: "space-between",
+              alignItems: "center", // Garante que texto e botões fiquem alinhados verticalmente
             }}
           >
             <span>CADASTRO TÉCNICO</span>
-            {loading && (
-              <span style={{ color: "#ffd700" }}>⏳ {processingMsg}</span>
-            )}
+
+            {/* --- ÁREA DA DIREITA: LOADING + BOTÕES DE ARQUIVO --- */}
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              {/* Mensagem de Carregamento (se houver) */}
+              {loading && (
+                <span
+                  style={{
+                    color: "#ffd700",
+                    fontSize: "11px",
+                    marginRight: "5px",
+                  }}
+                >
+                  ⏳ {processingMsg}
+                </span>
+              )}
+
+              {/* Botão SALVAR */}
+              <button
+                onClick={handleSaveLocalProject}
+                title="Salvar projeto (Backup Local)"
+                style={{
+                  background: "transparent",
+                  border: `1px solid ${theme.border}`,
+                  color: theme.text,
+                  borderRadius: "4px",
+                  padding: "3px 8px",
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = theme.hoverRow)
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.background = "transparent")
+                }
+              >
+                💾 Salvar
+              </button>
+
+              {/* Botão ABRIR (Input Escondido) */}
+              <label
+                title="Abrir projeto do computador"
+                style={{
+                  background: "transparent",
+                  border: `1px solid ${theme.border}`,
+                  color: theme.text,
+                  borderRadius: "4px",
+                  padding: "3px 8px",
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  marginBottom: 0, // Reset de estilo padrão de label
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = theme.hoverRow)
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.background = "transparent")
+                }
+              >
+                📂 Abrir
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={handleLoadLocalProject}
+                  style={{ display: "none" }}
+                />
+              </label>
+            </div>
+            {/* ---------------------------------------------------- */}
           </div>
 
           <table style={{ width: "100%", borderCollapse: "collapse" }}>

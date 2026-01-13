@@ -463,15 +463,15 @@ export const useEngineeringLogic = ({
   };
 
   const handleMirrorPart = (partId: string) => {
-  setParts((prevParts) =>
-    prevParts.map((part) => {
-      if (part.id === partId) {
-        return applyMirrorToPart(part);
-      }
-      return part;
-    })
-  );
-};
+    setParts((prevParts) =>
+      prevParts.map((part) => {
+        if (part.id === partId) {
+          return applyMirrorToPart(part);
+        }
+        return part;
+      })
+    );
+  };
 
   const handleFileUpload = async (
     event: React.ChangeEvent<HTMLInputElement>
@@ -520,6 +520,103 @@ export const useEngineeringLogic = ({
     setProcessingMsg("");
   };
 
+  // --- NOVO: SALVAR PROJETO LOCAL (COM SELEÇÃO DE PASTA) ---
+  const handleSaveLocalProject = async () => {
+    if (parts.length === 0) {
+      alert("A lista está vazia. Nada para salvar.");
+      return;
+    }
+
+    // Prepara os dados
+    const date = new Date().toISOString().slice(0, 10);
+    const suggestedName = `projeto_engenharia_${date}.json`;
+    const dataStr = JSON.stringify(parts, null, 2);
+
+    try {
+      // Tenta usar a API moderna (Abre janela "Salvar Como")
+      // Truque: Usamos (window as any) para o TypeScript aceitar a função nova sem reclamar
+      const win = window as any;
+
+      if (win.showSaveFilePicker) {
+        const handle = await win.showSaveFilePicker({
+          suggestedName: suggestedName,
+          types: [
+            {
+              description: "Arquivo de Projeto JSON",
+              accept: { "application/json": [".json"] },
+            },
+          ],
+        });
+
+        // Se o usuário escolher um local, escreve o arquivo
+        const writable = await handle.createWritable();
+        await writable.write(dataStr);
+        await writable.close();
+
+        // Sucesso: Sai da função aqui
+        return;
+      }
+    } catch (err: any) {
+      // Se o usuário clicar em "Cancelar" na janela, paramos tudo (não faz download)
+      if (err.name === "AbortError") return;
+
+      // Se der outro erro, o código segue para o método antigo abaixo (fallback)
+      console.warn(
+        "API de Salvar Como não suportada ou erro, usando método tradicional."
+      );
+    }
+
+    // --- MÉTODO TRADICIONAL (FALLBACK) ---
+    // Caso o navegador não suporte a janela de escolha (ex: Firefox)
+    const blob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = suggestedName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // --- NOVO: CARREGAR PROJETO LOCAL ---
+  const handleLoadLocalProject = (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (
+      !window.confirm(
+        "Isso irá substituir a lista atual pelo arquivo carregado. Deseja continuar?"
+      )
+    ) {
+      event.target.value = ""; // Limpa o input
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const loadedParts = JSON.parse(content);
+
+        // Validação simples para ver se é um arquivo válido do nosso sistema
+        if (Array.isArray(loadedParts)) {
+          setParts(loadedParts);
+          alert("Projeto carregado com sucesso!");
+        } else {
+          alert("Arquivo inválido ou corrompido.");
+        }
+      } catch (err) {
+        console.error(err);
+        alert("Erro ao ler o arquivo.");
+      }
+    };
+    reader.readAsText(file);
+    // Limpa o input para permitir carregar o mesmo arquivo novamente se necessário
+    event.target.value = "";
+  };
+
   return {
     user,
     loading,
@@ -549,5 +646,7 @@ export const useEngineeringLogic = ({
     thicknessList,
     refreshData,
     handleMirrorPart,
+    handleSaveLocalProject,
+    handleLoadLocalProject,
   };
 };
