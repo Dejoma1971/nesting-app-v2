@@ -720,6 +720,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             value={batchDefaults.material}
             onChange={(e) => handleDefaultChange("material", e.target.value)}
           >
+            {/* --- INSERÇÃO AQUI --- */}
+            <option value="">Selecione...</option>
+            {/* --------------------- */}
             {materialList.map((mat) => (
               <option key={mat} value={mat}>
                 {mat}
@@ -783,6 +786,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             value={batchDefaults.espessura}
             onChange={(e) => handleDefaultChange("espessura", e.target.value)}
           >
+            {/* --- INSERÇÃO AQUI --- */}
+            <option value="">Selecione...</option>
+            {/* --------------------- */}
             {thicknessList.map((opt) => (
               <option key={opt} value={opt}>
                 {opt}
@@ -1262,6 +1268,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                           handleRowChange(part.id, "material", e.target.value)
                         }
                       >
+                        {/* --- INSERÇÃO AQUI --- */}
+                        <option value="">Selecione...</option>
+                        {/* --------------------- */}
                         {materialList.map((mat) => (
                           <option
                             key={mat}
@@ -1290,6 +1299,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                           handleRowChange(part.id, "espessura", e.target.value)
                         }
                       >
+                        {/* --- INSERÇÃO AQUI --- */}
+                        <option value="">Selecione...</option>
+                        {/* --------------------- */}
                         {thicknessList.map((opt) => (
                           <option
                             key={opt}
@@ -1647,8 +1659,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   <path d="M16.5 7.5L21 12l-4.5 4.5" />
                   <path d="M7.5 7.5L3 12l4.5 4.5" />
                   <line x1="12" y1="4" x2="12" y2="20" strokeDasharray="2 2" />
-                </svg> 
-                  Espelhar
+                </svg>
+                Espelhar
               </button>
               {/* --- FIM DO BOTÃO ESPELHAR --- */}
               <button

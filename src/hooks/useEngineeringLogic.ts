@@ -60,8 +60,8 @@ export const useEngineeringLogic = ({
   const [batchDefaults, setBatchDefaults] = useState<BatchDefaults>({
     pedido: "",
     op: "",
-    material: "Inox 304",
-    espessura: "20",
+    material: "",
+    espessura: "",
     autor: "",
     tipo_producao: "NORMAL",
   });
