@@ -26,6 +26,9 @@ export interface ImportedPart {
   cliente?: string;     // Opcional, mas útil
   quantity: number;
   hasOpenGeometry?: boolean;
+  // --- ADICIONE ESTA LINHA ---
+  isRotationLocked?: boolean; // Define se a rotação é proibida (Sentido do fio)
+  // ---------------------------
 }
 
 // --- ADICIONE DAQUI PARA BAIXO ---
