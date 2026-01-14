@@ -26,3 +26,6 @@ dist-ssr
 .env
 *.env
 node_modules/
+
+# Ignorar pasta de banco de dados local
+database/
