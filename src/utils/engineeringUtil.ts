@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { ImportedPart } from "../components/types";
-import { UnionFind, calculateBoundingBox, calculatePartNetArea, entitiesTouch, flattenGeometry, isContained, rotatePoint, detectOpenEndpoints } from "../utils/geometryCore";
+import { UnionFind, calculateBoundingBox, calculatePartNetArea, entitiesTouch, flattenGeometry, rotatePoint, detectOpenEndpoints, isGroupContained, } from "../utils/geometryCore";
 
 // --- LÓGICA DE ROTAÇÃO ---
 export const applyRotationToPart = (
@@ -68,6 +68,129 @@ export const applyRotationToPart = (
   return newPart;
 };
 
+// --- EM src/utils/engineeringUtil.ts ---
+
+export const applyMirrorToPart = (part: ImportedPart): ImportedPart => {
+  // 1. Clona a peça para não alterar o estado original diretamente
+  const newPart = JSON.parse(JSON.stringify(part));
+  
+  // 2. Espelha as entidades (Inverte o X)
+  newPart.entities = newPart.entities.map((ent: any) => {
+    
+    // Espelhar vértices (Lines, Polylines)
+    if (ent.vertices) {
+      ent.vertices = ent.vertices.map((v: any) => ({
+        ...v,
+        x: -v.x, // Inverte o X
+        y: v.y,
+        bulge: v.bulge ? -v.bulge : 0 // Inverte a curva (Bulge) se existir
+      }));
+      // Inverte a ordem dos vértices para manter a integridade (CW/CCW)
+      ent.vertices.reverse();
+    }
+    
+    // Espelhar Arcos e Círculos
+    if (ent.center) {
+      ent.center.x = -ent.center.x; // Inverte centro
+      
+      if (ent.type === 'ARC') {
+        // O espelhamento horizontal muda o sentido do ângulo.
+        // Novo Start = 180 - Antigo End
+        // Novo End = 180 - Antigo Start
+        const oldStart = ent.startAngle;
+        const oldEnd = ent.endAngle;
+        
+        // Função auxiliar para normalizar ângulos (0-360 ou radianos, dependendo do seu sistema)
+        // Assumindo radianos aqui pois DXF usa radianos, mas se seu visualizador usa graus, ajuste para 180.
+        // O seu código anterior usava Math.PI (radianos).
+        
+        ent.startAngle = Math.PI - oldEnd;
+        ent.endAngle = Math.PI - oldStart;
+      }
+    }
+    
+    return ent;
+  });
+
+  // 3. Recalcula a Bounding Box para normalizar a posição (trazer para 0,0)
+  const box = calculateBoundingBox(newPart.entities);
+  const minX = box.minX;
+  const minY = box.minY;
+
+  // 4. Normaliza (Move para a origem)
+  newPart.entities = newPart.entities.map((ent: any) => {
+    const move = (x: number, y: number) => ({ x: x - minX, y: y - minY });
+
+    if (ent.vertices) {
+      ent.vertices = ent.vertices.map((v: any) => {
+        const p = move(v.x, v.y);
+        return { ...v, x: p.x, y: p.y };
+      });
+    } else if (ent.center) {
+      const c = move(ent.center.x, ent.center.y);
+      ent.center = { x: c.x, y: c.y };
+    }
+    return ent;
+  });
+
+  // 5. Atualiza dimensões
+  newPart.width = box.maxX - box.minX;
+  newPart.height = box.maxY - box.minY;
+  
+  return newPart;
+};
+
+// --- Função Auxiliar para Agrupar Furos ---
+const mergeHolesIntoParts = (groups: any[][]): any[][] => {
+  // Prepara os dados calculando BBox e Área para cada grupo
+  const candidateParts = groups.map(group => {
+    const box = calculateBoundingBox(group);
+    const area = (box.maxX - box.minX) * (box.maxY - box.minY);
+    return {
+      entities: group,
+      box,
+      area,
+      isHole: false,
+      children: [] as any[]
+    };
+  });
+
+  // Ordena do MAIOR para o MENOR (Fundamental para a lógica funcionar)
+  candidateParts.sort((a, b) => b.area - a.area);
+
+  // Verifica quem está dentro de quem
+  for (let i = 0; i < candidateParts.length; i++) {
+    const potentialHole = candidateParts[i];
+    
+    // Procura um pai apenas entre os itens maiores (índices anteriores)
+    // Itera de trás para frente para achar o menor pai possível (o pai imediato)
+    for (let j = i - 1; j >= 0; j--) {
+      const potentialParent = candidateParts[j];
+
+      // Se já é um furo, ignoramos (simplificação) ou se a caixa não contém
+      if (potentialHole.isHole) continue;
+
+      if (isGroupContained(potentialHole.entities, potentialParent.entities)) {
+        // Confirmado: É um furo deste pai
+        potentialParent.children.push(...potentialHole.entities);
+        potentialHole.isHole = true;
+        break; // Pare de procurar, já achou o dono
+      }
+    }
+  }
+
+  // Retorna apenas os pais, agora "recheados" com os furos
+  const finalGroups: any[][] = [];
+  candidateParts.forEach(part => {
+    if (!part.isHole) {
+      // Combina as entidades do contorno externo com as dos furos
+      finalGroups.push([...part.entities, ...part.children]);
+    }
+  });
+
+  return finalGroups;
+};
+
 // --- LÓGICA DE PARSING DE ARQUIVO ---
 export const processFileToParts = (
   flatEntities: any[],
@@ -89,37 +212,22 @@ export const processFileToParts = (
     clusters.get(root)!.push(ent);
   });
 
-  const candidateParts = Array.from(clusters.values()).map((ents) => ({
-    entities: ents,
-    box: calculateBoundingBox(ents),
-    children: [] as any[],
-    isHole: false,
-  }));
-  candidateParts.sort((a, b) => b.box.area - a.box.area);
+  // 1. Extrai os grupos do Map para um Array
+  const groupsArray = Array.from(clusters.values());
+
+  // 2. PROCESSA A HIERARQUIA (Usa a nova função)
+  const consolidatedGroups = mergeHolesIntoParts(groupsArray);
 
   const finalParts: ImportedPart[] = [];
-  for (let i = 0; i < candidateParts.length; i++) {
-    const parent = candidateParts[i];
-    if (parent.isHole) continue;
 
-    const width = parent.box.maxX - parent.box.minX;
-    const height = parent.box.maxY - parent.box.minY;
-
-    if (width < 2 && height < 2) continue;
-
-    for (let j = i + 1; j < candidateParts.length; j++) {
-      const child = candidateParts[j];
-      if (!child.isHole && isContained(child.box, parent.box)) {
-        parent.entities = parent.entities.concat(child.entities);
-        child.isHole = true;
-      }
-    }
-
-    const finalBox = calculateBoundingBox(parent.entities);
+  // 3. Itera sobre os grupos já consolidados (sem loop aninhado aqui)
+  consolidatedGroups.forEach((groupEntities) => {
+    const finalBox = calculateBoundingBox(groupEntities);
     const finalW = finalBox.maxX - finalBox.minX;
     const finalH = finalBox.maxY - finalBox.minY;
 
-    const normalizedEntities = parent.entities.map((ent: any) => {
+    // Normaliza as coordenadas (Move para 0,0)
+    const normalizedEntities = groupEntities.map((ent: any) => {
       const clone = JSON.parse(JSON.stringify(ent));
       const move = (x: number, y: number) => ({
         x: x - finalBox.minX,
@@ -141,7 +249,7 @@ export const processFileToParts = (
     let netArea = calculatePartNetArea(normalizedEntities);
     if (netArea < 0.1) netArea = grossArea;
 
-    // ---> NOVO: Verifica se a peça está aberta <---
+    // Verifica geometria aberta
     const openPoints = detectOpenEndpoints(normalizedEntities);
     const hasError = openPoints.length > 0;
 
@@ -163,6 +271,7 @@ export const processFileToParts = (
       dataCadastro: new Date().toISOString(),
       hasOpenGeometry: hasError,
     });
-  }
+  });
+
   return finalParts;
 };

@@ -63,10 +63,13 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     handleDirectNesting,
     handleGoToNestingEmpty,
     handleRotatePart,
+    handleMirrorPart,
     handleFileUpload,
     materialList, // <--- AGORA VAMOS USAR
     thicknessList, // <--- AGORA VAMOS USAR
     refreshData,
+    handleSaveLocalProject,
+    handleLoadLocalProject,
   } = useEngineeringLogic(props);
 
   const { parts, onBack, onOpenTeam } = props as any;
@@ -355,7 +358,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     overflow: "hidden",
   };
   const leftPanel: React.CSSProperties = {
-    flex: 1,
+    flex: 0.92,
     borderRight: `1px solid ${theme.border}`,
     display: "flex",
     flexDirection: "column",
@@ -613,15 +616,19 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             PEDIDO{" "}
             <button
               style={applyButtonStyle}
+              // ALTERAÇÃO NO ONCLICK: Passamos 'selectedIds' como segundo parâmetro
               onClick={() =>
                 executeWithSessionConfirmation(
                   "applyAll",
-                  "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("pedido")
+                  selectedIds.length > 0
+                    ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
+                    : "Deseja aplicar este valor de PEDIDO a todas as peças?",
+                  () => applyToAll("pedido", selectedIds) // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
-              Aplicar Todos
+              {/* ALTERAÇÃO NO TEXTO: Muda conforme a seleção */}
+              {selectedIds.length > 0 ? "Aplicar Seleção" : "Aplicar Todos"}
             </button>
           </label>
           <input
@@ -636,15 +643,19 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             OP{" "}
             <button
               style={applyButtonStyle}
+              // ALTERAÇÃO NO ONCLICK: Passamos 'selectedIds' como segundo parâmetro
               onClick={() =>
                 executeWithSessionConfirmation(
                   "applyAll",
-                  "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("op")
+                  selectedIds.length > 0
+                    ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
+                    : "Deseja aplicar este valor de PEDIDO a todas as peças?",
+                  () => applyToAll("op", selectedIds) // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
-              Aplicar Todos
+              {/* ALTERAÇÃO NO TEXTO: Muda conforme a seleção */}
+              {selectedIds.length > 0 ? "Aplicar Seleção" : "Aplicar Todos"}
             </button>
           </label>
           <input
@@ -658,18 +669,22 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         {/* --- INSERÇÃO: TIPO DE PRODUÇÃO (BATCH) --- */}
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
-            TIPO PRODUÇÃO{" "}
+            TIPO PODUÇÃO{" "}
             <button
               style={applyButtonStyle}
+              // ALTERAÇÃO NO ONCLICK: Passamos 'selectedIds' como segundo parâmetro
               onClick={() =>
                 executeWithSessionConfirmation(
                   "applyAll",
-                  "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("tipo_producao")
+                  selectedIds.length > 0
+                    ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
+                    : "Deseja aplicar este valor de PEDIDO a todas as peças?",
+                  () => applyToAll("tipo_producao", selectedIds) // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
-              Aplicar Todos
+              {/* ALTERAÇÃO NO TEXTO: Muda conforme a seleção */}
+              {selectedIds.length > 0 ? "Aplicar Seleção" : "Aplicar Todos"}
             </button>
           </label>
           <select
@@ -699,15 +714,19 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             MATERIAL{" "}
             <button
               style={applyButtonStyle}
+              // ALTERAÇÃO NO ONCLICK: Passamos 'selectedIds' como segundo parâmetro
               onClick={() =>
                 executeWithSessionConfirmation(
                   "applyAll",
-                  "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("material")
+                  selectedIds.length > 0
+                    ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
+                    : "Deseja aplicar este valor de PEDIDO a todas as peças?",
+                  () => applyToAll("material", selectedIds) // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
-              Aplicar Todos
+              {/* ALTERAÇÃO NO TEXTO: Muda conforme a seleção */}
+              {selectedIds.length > 0 ? "Aplicar Seleção" : "Aplicar Todos"}
             </button>
           </label>
           <select
@@ -719,6 +738,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             value={batchDefaults.material}
             onChange={(e) => handleDefaultChange("material", e.target.value)}
           >
+            {/* --- INSERÇÃO AQUI --- */}
+            <option value="">Selecione...</option>
+            {/* --------------------- */}
             {materialList.map((mat) => (
               <option key={mat} value={mat}>
                 {mat}
@@ -761,15 +783,19 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             ESPESSURA{" "}
             <button
               style={applyButtonStyle}
+              // ALTERAÇÃO NO ONCLICK: Passamos 'selectedIds' como segundo parâmetro
               onClick={() =>
                 executeWithSessionConfirmation(
                   "applyAll",
-                  "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("espessura")
+                  selectedIds.length > 0
+                    ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
+                    : "Deseja aplicar este valor de PEDIDO a todas as peças?",
+                  () => applyToAll("espessura", selectedIds) // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
-              Aplicar Todos
+              {/* ALTERAÇÃO NO TEXTO: Muda conforme a seleção */}
+              {selectedIds.length > 0 ? "Aplicar Seleção" : "Aplicar Todos"}
             </button>
           </label>
           <select
@@ -782,6 +808,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             value={batchDefaults.espessura}
             onChange={(e) => handleDefaultChange("espessura", e.target.value)}
           >
+            {/* --- INSERÇÃO AQUI --- */}
+            <option value="">Selecione...</option>
+            {/* --------------------- */}
             {thicknessList.map((opt) => (
               <option key={opt} value={opt}>
                 {opt}
@@ -819,7 +848,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             padding: "10px 15px",
             borderRadius: "4px",
             cursor: "pointer",
-            fontSize: "13px",
+            fontSize: "12px",
             fontWeight: "bold",
             marginLeft: "15px",
           }}
@@ -833,7 +862,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             padding: "10px 15px",
             borderRadius: "4px",
             cursor: "pointer",
-            fontSize: "13px",
+            fontSize: "12px",
             fontWeight: "bold",
             marginLeft: "auto",
           }}
@@ -856,7 +885,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               padding: "10px",
               borderBottom: `1px solid ${theme.border}`,
               fontWeight: "bold",
-              fontSize: "12px",
+              fontSize: "11px",
               background: theme.headerBg,
               display: "flex",
               justifyContent: "space-between",
@@ -1085,24 +1114,116 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         <div style={rightPanel}>
           <div
             style={{
-              padding: "10px",
+              padding: "5px 10px", // Ajustei levemente o padding para ficar mais compacto
               borderBottom: `1px solid ${theme.border}`,
               fontWeight: "bold",
               fontSize: "12px",
               background: theme.headerBg,
               display: "flex",
               justifyContent: "space-between",
+              alignItems: "center", // Garante que texto e botões fiquem alinhados verticalmente
             }}
           >
             <span>CADASTRO TÉCNICO</span>
-            {loading && (
-              <span style={{ color: "#ffd700" }}>⏳ {processingMsg}</span>
-            )}
+
+            {/* --- ÁREA DA DIREITA: LOADING + BOTÕES DE ARQUIVO --- */}
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              {/* Mensagem de Carregamento (se houver) */}
+              {loading && (
+                <span
+                  style={{
+                    color: "#ffd700",
+                    fontSize: "11px",
+                    marginRight: "5px",
+                  }}
+                >
+                  ⏳ {processingMsg}
+                </span>
+              )}
+
+              {/* Botão SALVAR */}
+              <button
+                onClick={handleSaveLocalProject}
+                title="Salvar projeto (Backup Local)"
+                style={{
+                  background: "transparent",
+                  border: `1px solid ${theme.border}`,
+                  color: theme.text,
+                  borderRadius: "4px",
+                  padding: "3px 8px",
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = theme.hoverRow)
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.background = "transparent")
+                }
+              >
+                💾 Salvar
+              </button>
+
+              {/* Botão ABRIR (Input Escondido) */}
+              <label
+                title="Abrir projeto do computador"
+                style={{
+                  background: "transparent",
+                  border: `1px solid ${theme.border}`,
+                  color: theme.text,
+                  borderRadius: "4px",
+                  padding: "3px 8px",
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  marginBottom: 0, // Reset de estilo padrão de label
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = theme.hoverRow)
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.background = "transparent")
+                }
+              >
+                📂 Abrir
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={handleLoadLocalProject}
+                  style={{ display: "none" }}
+                />
+              </label>
+            </div>
+            {/* ---------------------------------------------------- */}
           </div>
 
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
+              {/* ------------------------------------------- */}
               <tr style={{ background: theme.hoverRow }}>
+                {/* --- INSERÇÃO: CHECKBOX MESTRE NA TABELA --- */}
+                <th
+                  style={{
+                    ...tableHeaderStyle,
+                    width: "30px",
+                    textAlign: "center",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={
+                      parts.length > 0 && selectedIds.length === parts.length
+                    }
+                    onChange={toggleSelectAll}
+                    disabled={parts.length === 0}
+                    style={{ cursor: "pointer" }}
+                  />
+                </th>
                 <th style={tableHeaderStyle}>#</th>
                 <th style={{ ...tableHeaderStyle, width: "150px" }}>
                   Nome Peça
@@ -1132,7 +1253,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 <th style={tableHeaderStyle}>Dimensões</th>
                 <th style={tableHeaderStyle}>Área (m²)</th>
                 <th style={tableHeaderStyle} title="Complexidade da peça">
-                  Entidades
+                  Entity
                 </th>
               </tr>
             </thead>
@@ -1172,6 +1293,22 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                     style={{ background: rowBackground, cursor: "pointer" }}
                     onClick={() => setSelectedPartId(part.id)}
                   >
+                    {/* --- INSERÇÃO: CHECKBOX INDIVIDUAL NA LINHA --- */}
+                    <td
+                      style={{ ...tableCellStyle, textAlign: "center" }}
+                      onClick={(e) => {
+                        e.stopPropagation(); // Evita selecionar a linha (azul) ao clicar no checkbox
+                        toggleSelection(part.id);
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(part.id)}
+                        readOnly // O controle é feito pelo onClick do pai (td) ou div
+                        style={{ cursor: "pointer" }}
+                      />
+                    </td>
+                    {/* ---------------------------------------------- */}
                     <td
                       style={{
                         ...tableCellStyle,
@@ -1183,7 +1320,10 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                     </td>
                     <td style={tableCellStyle}>
                       <input
-                        style={cellInputStyle}
+                        style={{
+                          ...cellInputStyle,
+                          fontSize: "10px", // <--- ADICIONE ESTA LINHA AQUI (pode testar 10px, 11px...)
+                        }}
                         value={part.name}
                         onChange={(e) =>
                           handleRowChange(part.id, "name", e.target.value)
@@ -1261,6 +1401,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                           handleRowChange(part.id, "material", e.target.value)
                         }
                       >
+                        {/* --- INSERÇÃO AQUI --- */}
+                        <option value="">Selecione...</option>
+                        {/* --------------------- */}
                         {materialList.map((mat) => (
                           <option
                             key={mat}
@@ -1289,6 +1432,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                           handleRowChange(part.id, "espessura", e.target.value)
                         }
                       >
+                        {/* --- INSERÇÃO AQUI --- */}
+                        <option value="">Selecione...</option>
+                        {/* --------------------- */}
                         {thicknessList.map((opt) => (
                           <option
                             key={opt}
@@ -1327,7 +1473,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                     <td
                       style={{
                         ...tableCellStyle,
-                        fontSize: "11px",
+                        fontSize: "10px",
                         opacity: 0.7,
                       }}
                     >
@@ -1336,7 +1482,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                     <td
                       style={{
                         ...tableCellStyle,
-                        fontSize: "11px",
+                        fontSize: "10px",
                         opacity: 0.7,
                       }}
                     >
@@ -1348,6 +1494,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                         color: entColor,
                         fontWeight: "bold",
                         textAlign: "center",
+                        fontSize: "11px",
                       }}
                     >
                       {entCount}
@@ -1611,6 +1758,45 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               >
                 ↻ Girar Horário
               </button>
+              {/* --- INÍCIO DO BOTÃO ESPELHAR --- */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // CORREÇÃO: Usamos 'viewingPart.id' porque estamos dentro do modal
+                  handleMirrorPart(viewingPart.id);
+                }}
+                title="Espelhar (Flip Horizontal)"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "6px",
+                  marginLeft: "5px",
+                  borderRadius: "4px",
+                  border: `1px solid ${theme.border || "#ccc"}`,
+                  backgroundColor: theme.buttonBg || "#f0f0f0",
+                  color: theme.text || "#333",
+                  cursor: "pointer",
+                }}
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M7.5 12h9" />
+                  <path d="M16.5 7.5L21 12l-4.5 4.5" />
+                  <path d="M7.5 7.5L3 12l4.5 4.5" />
+                  <line x1="12" y1="4" x2="12" y2="20" strokeDasharray="2 2" />
+                </svg>
+                Espelhar
+              </button>
+              {/* --- FIM DO BOTÃO ESPELHAR --- */}
               <button
                 onClick={() => setViewingPartId(null)}
                 style={{
