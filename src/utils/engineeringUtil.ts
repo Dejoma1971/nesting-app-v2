@@ -1,65 +1,118 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { ImportedPart } from "../components/types";
-import { UnionFind, calculateBoundingBox, calculatePartNetArea, entitiesTouch, flattenGeometry, rotatePoint, detectOpenEndpoints, isGroupContained, } from "../utils/geometryCore";
+import {
+  UnionFind,
+  calculateBoundingBox,
+  calculatePartNetArea,
+  entitiesTouch,
+  detectOpenEndpoints,
+  isGroupContained,
+} from "../utils/geometryCore";
 
 // --- LÓGICA DE ROTAÇÃO ---
+// --- EM src/utils/engineeringUtil.ts ---
+
+// Função auxiliar para garantir que o ângulo do arco fique sempre limpo (0 a 360)
+const normalizeAngle = (angle: number): number => {
+  let a = angle % (2 * Math.PI);
+  if (a < 0) a += 2 * Math.PI;
+  return a;
+};
+
+// Arredondamento de segurança (4 casas decimais) para limpar sujeira do DXF
+const roundCoord = (val: number) => Math.round(val * 10000) / 10000;
+
 export const applyRotationToPart = (
   part: ImportedPart,
-  angle: number
+  angleInDegrees: number // Espera receber 90 ou -90
 ): ImportedPart => {
-  const flatEntities = flattenGeometry(part.entities, part.blocks);
-  const transform = { x: 0, y: 0, rotation: angle, scale: 1 };
+  // Clona a peça
+  const newPart = JSON.parse(JSON.stringify(part));
 
-  const rotatedEntities = flatEntities.map((ent: any) => {
-    const applyTrans = (x: number, y: number) =>
-      rotatePoint(x, y, transform.rotation);
+  // Normaliza o ângulo de entrada (apenas para garantir o sentido)
+  // Se for positivo (ex: 90) é Anti-Horário (CCW). Se negativo, Horário (CW).
+  const isCCW = angleInDegrees > 0;
 
+  // Define a função de transformação EXATA baseada em troca de eixos
+  // Isso evita uso de Math.sin/cos e impede deformação.
+  const transformPoint = (x: number, y: number) => {
+    if (isCCW) {
+      // 90 graus Anti-Horário: (x, y) -> (-y, x)
+      return { x: -y, y: x };
+    } else {
+      // 90 graus Horário: (x, y) -> (y, -x)
+      return { x: y, y: -x };
+    }
+  };
+
+  // Variação angular para Arcos (90 graus em Radianos = PI/2)
+  const angleDelta = isCCW ? Math.PI / 2 : -Math.PI / 2;
+
+  // Aplica a transformação em todas as entidades
+  newPart.entities = newPart.entities.map((ent: any) => {
+    // 1. Linhas
     if (ent.type === "LINE") {
-      const p1 = applyTrans(ent.vertices[0].x, ent.vertices[0].y);
-      const p2 = applyTrans(ent.vertices[1].x, ent.vertices[1].y);
+      const p1 = transformPoint(ent.vertices[0].x, ent.vertices[0].y);
+      const p2 = transformPoint(ent.vertices[1].x, ent.vertices[1].y);
       ent.vertices = [
-        { x: p1.x, y: p1.y },
-        { x: p2.x, y: p2.y },
+        { x: roundCoord(p1.x), y: roundCoord(p1.y) },
+        { x: roundCoord(p2.x), y: roundCoord(p2.y) },
       ];
-    } else if (ent.type === "LWPOLYLINE" || ent.type === "POLYLINE") {
+    }
+    // 2. Polilinhas (LWPOLYLINE / POLYLINE)
+    else if (ent.type === "LWPOLYLINE" || ent.type === "POLYLINE") {
       ent.vertices = ent.vertices.map((v: any) => {
-        const p = applyTrans(v.x, v.y);
-        return { ...v, x: p.x, y: p.y };
+        const p = transformPoint(v.x, v.y);
+        // Mantém o 'bulge' se existir, pois rotação ortogonal não muda a curvatura relativa
+        return { ...v, x: roundCoord(p.x), y: roundCoord(p.y) };
       });
-    } else if (ent.type === "CIRCLE" || ent.type === "ARC") {
-      const c = applyTrans(ent.center.x, ent.center.y);
-      ent.center = { x: c.x, y: c.y };
+    }
+    // 3. Círculos e Arcos
+    else if (ent.type === "CIRCLE" || ent.type === "ARC") {
+      const c = transformPoint(ent.center.x, ent.center.y);
+      ent.center = { x: roundCoord(c.x), y: roundCoord(c.y) };
+
+      // Se for Arco, precisa atualizar os ângulos inicial e final
       if (ent.type === "ARC") {
-        ent.startAngle += (angle * Math.PI) / 180;
-        ent.endAngle += (angle * Math.PI) / 180;
+        ent.startAngle = normalizeAngle(ent.startAngle + angleDelta);
+        ent.endAngle = normalizeAngle(ent.endAngle + angleDelta);
       }
     }
     return ent;
   });
 
-  const box = calculateBoundingBox(rotatedEntities);
+  // --- RE-NORMALIZAÇÃO DE POSIÇÃO ---
+  // A rotação pode jogar a peça para coordenadas negativas (ex: -500, 200).
+  // Precisamos calcular a nova caixa e trazer de volta para perto da origem (0,0).
+
+  const box = calculateBoundingBox(newPart.entities);
   const minX = box.minX;
   const minY = box.minY;
 
-  const newPart = JSON.parse(JSON.stringify(part));
-  newPart.width = box.maxX - box.minX;
-  newPart.height = box.maxY - box.minY;
-  newPart.blocks = {};
+  newPart.width = roundCoord(box.maxX - box.minX);
+  newPart.height = roundCoord(box.maxY - box.minY);
+  newPart.blocks = {}; // Remove estrutura de blocos para simplificar visualização
 
-  newPart.entities = rotatedEntities.map((ent: any) => {
-    const move = (x: number, y: number) => ({ x: x - minX, y: y - minY });
-    if (ent.vertices)
+  // Move todas as entidades para encostar na origem (0,0)
+  newPart.entities = newPart.entities.map((ent: any) => {
+    const move = (x: number, y: number) => ({
+      x: roundCoord(x - minX),
+      y: roundCoord(y - minY),
+    });
+
+    if (ent.vertices) {
       ent.vertices = ent.vertices.map((v: any) => {
         const p = move(v.x, v.y);
         return { ...v, x: p.x, y: p.y };
       });
-    else if (ent.center) {
+    } else if (ent.center) {
       const c = move(ent.center.x, ent.center.y);
       ent.center = { x: c.x, y: c.y };
     }
     return ent;
   });
 
+  // Recalcula áreas
   newPart.grossArea = newPart.width * newPart.height;
   let net = calculatePartNetArea(newPart.entities);
   if (net < 0.1) net = newPart.grossArea;
@@ -73,42 +126,41 @@ export const applyRotationToPart = (
 export const applyMirrorToPart = (part: ImportedPart): ImportedPart => {
   // 1. Clona a peça para não alterar o estado original diretamente
   const newPart = JSON.parse(JSON.stringify(part));
-  
+
   // 2. Espelha as entidades (Inverte o X)
   newPart.entities = newPart.entities.map((ent: any) => {
-    
     // Espelhar vértices (Lines, Polylines)
     if (ent.vertices) {
       ent.vertices = ent.vertices.map((v: any) => ({
         ...v,
         x: -v.x, // Inverte o X
         y: v.y,
-        bulge: v.bulge ? -v.bulge : 0 // Inverte a curva (Bulge) se existir
+        bulge: v.bulge ? -v.bulge : 0, // Inverte a curva (Bulge) se existir
       }));
       // Inverte a ordem dos vértices para manter a integridade (CW/CCW)
       ent.vertices.reverse();
     }
-    
+
     // Espelhar Arcos e Círculos
     if (ent.center) {
       ent.center.x = -ent.center.x; // Inverte centro
-      
-      if (ent.type === 'ARC') {
+
+      if (ent.type === "ARC") {
         // O espelhamento horizontal muda o sentido do ângulo.
         // Novo Start = 180 - Antigo End
         // Novo End = 180 - Antigo Start
         const oldStart = ent.startAngle;
         const oldEnd = ent.endAngle;
-        
+
         // Função auxiliar para normalizar ângulos (0-360 ou radianos, dependendo do seu sistema)
         // Assumindo radianos aqui pois DXF usa radianos, mas se seu visualizador usa graus, ajuste para 180.
         // O seu código anterior usava Math.PI (radianos).
-        
+
         ent.startAngle = Math.PI - oldEnd;
         ent.endAngle = Math.PI - oldStart;
       }
     }
-    
+
     return ent;
   });
 
@@ -136,14 +188,14 @@ export const applyMirrorToPart = (part: ImportedPart): ImportedPart => {
   // 5. Atualiza dimensões
   newPart.width = box.maxX - box.minX;
   newPart.height = box.maxY - box.minY;
-  
+
   return newPart;
 };
 
 // --- Função Auxiliar para Agrupar Furos ---
 const mergeHolesIntoParts = (groups: any[][]): any[][] => {
   // Prepara os dados calculando BBox e Área para cada grupo
-  const candidateParts = groups.map(group => {
+  const candidateParts = groups.map((group) => {
     const box = calculateBoundingBox(group);
     const area = (box.maxX - box.minX) * (box.maxY - box.minY);
     return {
@@ -151,7 +203,7 @@ const mergeHolesIntoParts = (groups: any[][]): any[][] => {
       box,
       area,
       isHole: false,
-      children: [] as any[]
+      children: [] as any[],
     };
   });
 
@@ -161,7 +213,7 @@ const mergeHolesIntoParts = (groups: any[][]): any[][] => {
   // Verifica quem está dentro de quem
   for (let i = 0; i < candidateParts.length; i++) {
     const potentialHole = candidateParts[i];
-    
+
     // Procura um pai apenas entre os itens maiores (índices anteriores)
     // Itera de trás para frente para achar o menor pai possível (o pai imediato)
     for (let j = i - 1; j >= 0; j--) {
@@ -181,7 +233,7 @@ const mergeHolesIntoParts = (groups: any[][]): any[][] => {
 
   // Retorna apenas os pais, agora "recheados" com os furos
   const finalGroups: any[][] = [];
-  candidateParts.forEach(part => {
+  candidateParts.forEach((part) => {
     if (!part.isHole) {
       // Combina as entidades do contorno externo com as dos furos
       finalGroups.push([...part.entities, ...part.children]);
