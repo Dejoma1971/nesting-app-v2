@@ -227,6 +227,20 @@ self.onmessage = (e: MessageEvent<NestingParams>) => {
   for (let r = 0; r < 360; r += rotationStep) rotations.push(r);
 
   for (const partId of todoList) {
+    // 1. Busca a peça original para saber se está travada
+    const originalPart = parts.find((p) => p.id === partId);
+
+    // 2. Define as rotações permitidas PARA ESTA PEÇA ESPECÍFICA
+    let allowedRotations: number[] = [];
+
+    if (originalPart?.isRotationLocked) {
+      // Se travada, só permite 0 graus
+      allowedRotations = [0];
+    } else {
+      // Se livre, usa a lista global gerada pelo rotationStep
+      allowedRotations = rotations;
+    }
+
     const tryToPlace = (
       currentPlacedGeoms: PartGeometry[]
     ): { x: number; y: number; r: number; geom: PartGeometry } | null => {
@@ -235,7 +249,8 @@ self.onmessage = (e: MessageEvent<NestingParams>) => {
 
       const baseGeom = baseGeometries.get(partId)!;
 
-      for (const r of rotations) {
+      // 3. Loop modificado: usa allowedRotations em vez de rotations
+      for (const r of allowedRotations) {
         for (let y = margin; y < binHeight - margin; y += stepY) {
           for (let x = margin; x < binWidth - margin; x += stepX) {
             const candidateGeom = transformGeometry(baseGeom, x, y, r);
@@ -273,6 +288,7 @@ self.onmessage = (e: MessageEvent<NestingParams>) => {
       return null;
     };
 
+    // ... (O RESTO DO CÓDIGO ABAIXO PERMANECE IGUAL)
     let result = tryToPlace(placedGeometriesOnCurrentBin);
 
     if (!result) {
