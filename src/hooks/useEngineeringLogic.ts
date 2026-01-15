@@ -15,6 +15,7 @@ import {
   processFileToParts,
   applyRotationToPart,
   applyMirrorToPart,
+  normalizeDxfRotation,
 } from "../utils/engineeringUtil";
 
 // LISTAS ESTÁTICAS (Fallback para modo Trial ou erro)
@@ -460,7 +461,7 @@ export const useEngineeringLogic = ({
         return p;
       })
     );
-  };  
+  };
 
   const handleMirrorPart = (partId: string) => {
     setParts((prevParts) =>
@@ -502,7 +503,12 @@ export const useEngineeringLogic = ({
             const content = e.target?.result as string;
             setProcessingMsg(`Processando ${file.name}...`);
             const parsed = parser.parseSync(content);
+
             if (parsed) {
+              // --- INSERÇÃO AQUI ---
+              // 2. Aplicamos o filtro para remover rotações perigosas
+              normalizeDxfRotation(parsed);
+              //
               const flatEnts = flattenGeometry(
                 (parsed as any).entities,
                 (parsed as any).blocks

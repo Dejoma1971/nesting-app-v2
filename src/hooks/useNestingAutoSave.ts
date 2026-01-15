@@ -2,6 +2,7 @@ import { useEffect, useCallback } from 'react';
 import type { PlacedPart } from '../utils/nestingCore';
 import type { ImportedPart } from '../components/types';
 import type { CropLine } from './useSheetManager';
+import type { LabelStateMap } from '../components/labels/LabelTypes';
 
 interface AutoSaveData {
   nestingResult: PlacedPart[];
@@ -12,6 +13,7 @@ interface AutoSaveData {
   currentBinIndex: number;
   cropLines: CropLine[];
   calculationTime: number | null; // <--- NOVO CAMPO
+  labelStates: LabelStateMap;
   timestamp: number;
 }
 
@@ -26,6 +28,7 @@ export const useNestingAutoSave = (
     currentBinIndex: number;
     cropLines: CropLine[];
     calculationTime: number | null; // <--- NOVO CAMPO
+    labelStates: LabelStateMap;
   }
 ) => {
   // 1. Efeito de Salvamento

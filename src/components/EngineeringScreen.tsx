@@ -88,6 +88,20 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     }
   }, [viewingPartId, parts]);
 
+  // --- [INSERÇÃO 1] EFEITO DE SCROLL AUTOMÁTICO PARA A MINIATURA ---
+  React.useEffect(() => {
+    if (selectedPartId) {
+      // Procura o elemento HTML do card pelo ID único
+      const element = document.getElementById(`part-card-${selectedPartId}`);
+      
+      if (element) {
+        // Rola suavemente até o elemento ficar no centro da visão
+        element.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+  }, [selectedPartId]);
+  // -----------------------------------------------------------------
+
   // --- NOVO: FUNÇÃO PARA CORRIGIR ---
   // ... dentro do EngineeringScreen.tsx
 
@@ -955,6 +969,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
 
               return (
                 <div
+                // --- [INSERÇÃO 2] ADICIONE ESTA LINHA AQUI ---
+                  id={`part-card-${part.id}`} 
+                  // ---------------------------------------------
                   key={part.id}
                   // ADICIONE ESTA LINHA (Aplica a classe de animação se tiver erro):
                   className={
