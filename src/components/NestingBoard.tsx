@@ -418,9 +418,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const [gap, setGap] = useState(5);
   const [margin, setMargin] = useState(5);
-  const [strategy, setStrategy] = useState<"guillotine" | "true-shape" | "wise">(
-    "true-shape"
-  );
+  const [strategy, setStrategy] = useState<
+    "guillotine" | "true-shape" | "wise"
+  >("true-shape");
   const [direction, setDirection] = useState<
     "auto" | "vertical" | "horizontal"
   >("horizontal");
@@ -1130,25 +1130,27 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
         if (result.placed.length === 0) alert("Nenhuma peça coube!");
       }, 50);
-      } else if (strategy === "wise") { 
+    } else if (strategy === "wise") {
       // <--- INSERIR ESTE BLOCO NOVO --->
-      
+
       // --- 3. MOTOR WISE NEST (Melhor Aproveitamento / Furos) ---
-      if (wiseNestingWorkerRef.current) wiseNestingWorkerRef.current.terminate();
+      if (wiseNestingWorkerRef.current)
+        wiseNestingWorkerRef.current.terminate();
       wiseNestingWorkerRef.current = new WiseNestingWorker();
 
       wiseNestingWorkerRef.current.onmessage = (e) => {
         const result = e.data;
         const duration = (Date.now() - startTime) / 1000;
         setCalculationTime(duration);
-        
+
         // Atualiza estados com o resultado do Wise
         resetNestingResult(result.placed);
         setFailedCount(result.failed.length);
         setTotalBins(result.totalBins || 1);
         setIsComputing(false);
-        
-        if (result.placed.length === 0) alert("Nenhuma peça coube no Wise Nest!");
+
+        if (result.placed.length === 0)
+          alert("Nenhuma peça coube no Wise Nest!");
       };
 
       wiseNestingWorkerRef.current.postMessage({
@@ -1160,7 +1162,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         binHeight: binSize.height,
         rotationStep: 5, // Forçamos precisão alta no Wise (5 graus)
         // iterations é ignorado pelo Wise
-      });      
+      });
     } else {
       // --- 2. MOTOR SMART NEST (Web Worker) ---
       if (nestingWorkerRef.current) nestingWorkerRef.current.terminate();
@@ -1386,15 +1388,42 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const handleContextRotate = useCallback(
     (angle: number) => {
       if (selectedPartIds.length === 0) return;
+
+      // 1. VERIFICAÇÃO PRÉVIA: Checa se há peças travadas na seleção atual
+      // Precisamos cruzar os dados: ID da Tela (UUID) -> ID da Peça -> Dados da Peça (isRotationLocked)
+      const hasLockedParts = selectedPartIds.some((uuid) => {
+        const placedPart = nestingResult.find((p) => p.uuid === uuid);
+        if (!placedPart) return false;
+        const originalPart = parts.find((p) => p.id === placedPart.partId);
+        return originalPart?.isRotationLocked === true;
+      });
+
+      // 2. SE HOUVER PEÇAS TRAVADAS, AVISA O USUÁRIO
+      if (hasLockedParts) {
+        alert(
+          "⚠️ AVISO:\n\nPeça possuí trava de rotação para manter o Sentido do Escovado"
+        );
+      }
+
+      // 3. EXECUTA A ROTAÇÃO (Apenas nas peças que NÃO estão travadas)
       setNestingResult((prev) =>
-        prev.map((p) =>
-          selectedPartIds.includes(p.uuid)
-            ? { ...p, rotation: (p.rotation + angle) % 360 }
-            : p
-        )
+        prev.map((placed) => {
+          if (selectedPartIds.includes(placed.uuid)) {
+            const originalPart = parts.find((p) => p.id === placed.partId);
+
+            // Bloqueio efetivo: Se tiver travada, retorna sem alterar
+            if (originalPart?.isRotationLocked) {
+              return placed;
+            }
+
+            // Se livre, rotaciona normalmente
+            return { ...placed, rotation: (placed.rotation + angle) % 360 };
+          }
+          return placed;
+        })
       );
     },
-    [selectedPartIds, setNestingResult]
+    [selectedPartIds, setNestingResult, parts, nestingResult] // <--- Adicione 'nestingResult' nas dependências
   );
 
   const handleContextMove = useCallback(
@@ -2280,7 +2309,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             <option value="guillotine">✂️ Guilhotina</option>{" "}
             {/* Mudou de "rect" */}
             <option value="true-shape">🧩 Smart Nest</option>
-            <option value="wise">🧠 Wise Nest (Preciso)</option> {/* <--- INSERIR ESTA LINHA */}
+            <option value="wise">🧠 Wise Nest (Preciso)</option>{" "}
+            {/* <--- INSERIR ESTA LINHA */}
           </select>
         </div>
         <div
@@ -2991,12 +3021,19 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   const box = calculateBoundingBox(part.entities, part.blocks);
                   const originalW = box.width || 100;
                   const originalH = box.height || 100;
-                  const isTall = originalH > originalW;
+
+                  // --- ALTERAÇÃO AQUI ---
+                  // Só consideramos "Alta" (para girar a visualização) se ela NÃO estiver travada.
+                  // Se estiver travada, queremos ver a orientação real (WYSIWYG).
+                  const shouldRotateVisual =
+                    originalH > originalW && !part.isRotationLocked;
+
                   const p = Math.max(originalW, originalH) * 0.1;
                   let finalViewBox = "";
                   let contentTransform = "";
 
-                  if (isTall) {
+                  if (shouldRotateVisual) {
+                    // LÓGICA ANTIGA: Gira a peça visualmente para caber melhor
                     const cx = (box.minX + box.maxX) / 2;
                     const cy = (box.minY + box.maxY) / 2;
                     contentTransform = `rotate(-90, ${cx}, ${cy})`;
@@ -3006,6 +3043,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                     const cameraY = cy - cameraH / 2;
                     finalViewBox = `${cameraX} ${cameraY} ${cameraW} ${cameraH}`;
                   } else {
+                    // VISUALIZAÇÃO REAL: Mostra como a peça realmente está
                     finalViewBox = `${box.minX - p} ${box.minY - p} ${
                       originalW + p * 2
                     } ${originalH + p * 2}`;
@@ -3073,6 +3111,53 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                           }}
                         />
                       </div>
+                      {/* --- INSERIR O CÓDIGO DO CADEADO AQUI (ENTRE AS DIVS) --- */}
+
+                      {part.isRotationLocked && (
+                        <div
+                          title="Rotação Travada (Sentido do Fio)"
+                          style={{
+                            position: "absolute",
+                            top: 35, // Coloquei 35 para ficar logo abaixo do checkbox
+                            left: 8,
+                            background: "#dc3545",
+                            color: "white",
+                            borderRadius: "50%",
+                            width: "18px",
+                            height: "18px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "10px",
+                            zIndex: 1000,
+                            boxShadow: "0 1px 2px rgba(0,0,0,0.3)",
+                            pointerEvents: "none",
+                          }}
+                        >
+                          <svg
+                            width="10"
+                            height="10"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <rect
+                              x="3"
+                              y="11"
+                              width="18"
+                              height="11"
+                              rx="2"
+                              ry="2"
+                            ></rect>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                          </svg>
+                        </div>
+                      )}
+
+                      {/* -------------------------------------------------------- */}
 
                       <div
                         style={{

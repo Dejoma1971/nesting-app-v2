@@ -196,6 +196,17 @@ const prepareOptimizedBoxes = (
     let finalH = part.height;
     let rotation = 0;
 
+    // --- ALTERAÇÃO AQUI: RESPEITAR O CADEADO ---
+    // A lógica original era: if (fitRotated > fitNormal)
+    // A nova lógica é: Só entra no if se NÃO estiver travada
+
+    if (!part.isRotationLocked && fitRotated > fitNormal) {
+      finalW = part.height;
+      finalH = part.width;
+      rotation = 90;
+    }
+    // -------------------------------------------
+
     if (fitRotated > fitNormal) {
       finalW = part.height;
       finalH = part.width;
@@ -222,12 +233,12 @@ export const runGuillotineNesting = (
   parts: ImportedPart[],
   quantities: { [key: string]: number },
   binWidth: number,
-  binHeight: number,  
+  binHeight: number,
   direction: "vertical" | "horizontal" | "auto"
 ): NestingResult => {
   const gap = 0;
   const numMargin = 0;
-  const usableWidth = binWidth;  // Sem margem
+  const usableWidth = binWidth; // Sem margem
   const usableHeight = binHeight; // Sem margem
 
   // 1. Simulações

@@ -460,7 +460,7 @@ export const useEngineeringLogic = ({
         return p;
       })
     );
-  };
+  };  
 
   const handleMirrorPart = (partId: string) => {
     setParts((prevParts) =>
@@ -470,6 +470,15 @@ export const useEngineeringLogic = ({
         }
         return part;
       })
+    );
+  };
+
+  // --- NOVO: ALTERNAR BLOQUEIO DE ROTAÇÃO ---
+  const handleToggleRotationLock = (partId: string) => {
+    setParts((prev) =>
+      prev.map((p) =>
+        p.id === partId ? { ...p, isRotationLocked: !p.isRotationLocked } : p
+      )
     );
   };
 
@@ -646,6 +655,7 @@ export const useEngineeringLogic = ({
     thicknessList,
     refreshData,
     handleMirrorPart,
+    handleToggleRotationLock,
     handleSaveLocalProject,
     handleLoadLocalProject,
   };

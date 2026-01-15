@@ -64,6 +64,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     handleGoToNestingEmpty,
     handleRotatePart,
     handleMirrorPart,
+    handleToggleRotationLock,
     handleFileUpload,
     materialList, // <--- AGORA VAMOS USAR
     thicknessList, // <--- AGORA VAMOS USAR
@@ -890,6 +891,11 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
+              // --- ALTERAÇÃO: FIXAR NO TOPO ---
+              position: "sticky",
+              top: 0,
+              zIndex: 10,
+              // --------------------------------
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -985,8 +991,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                     }}
                     style={{
                       position: "absolute",
-                      top: 5,
-                      left: 25,
+                      top: 12,
+                      left: -1,
                       zIndex: 20,
                       cursor: "pointer",
                     }}
@@ -1046,7 +1052,21 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                       }}
                       title="Visualizar"
                     >
-                      👁️
+                      {/* --- REMOVA O 👁️ E COLE ISTO NO LUGAR: --- */}
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                      </svg>
+                      {/* ----------------------------------------- */}
                     </button>
                     <button
                       onClick={(e) => handleDeletePart(part.id, e)}
@@ -1090,6 +1110,51 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                       )}
                     </svg>
                   </div>
+                  {/* --- VISUALIZAÇÃO DO CADEADO (SE ESTIVER TRAVADO) --- */}
+                  {part.isRotationLocked && (
+                    <div
+                      title="Rotação Travada (Sentido do Fio)"
+                      style={{
+                        position: "absolute",
+                        bottom: "22px", // Logo acima da barra de dimensão
+                        right: "5px",
+                        background: "#dc3545", // Vermelho
+                        color: "white",
+                        borderRadius: "50%",
+                        width: "18px",
+                        height: "18px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "10px",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                        zIndex: 15,
+                        pointerEvents: "none", // Deixa clicar no card através dele
+                      }}
+                    >
+                      <svg
+                        width="10"
+                        height="10"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <rect
+                          x="3"
+                          y="11"
+                          width="18"
+                          height="11"
+                          rx="2"
+                          ry="2"
+                        ></rect>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                      </svg>
+                    </div>
+                  )}
+                  {/* ---------------------------------------------------- */}
                   <div
                     style={{
                       width: "100%",
@@ -1114,14 +1179,19 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         <div style={rightPanel}>
           <div
             style={{
-              padding: "5px 10px", // Ajustei levemente o padding para ficar mais compacto
+              padding: "5px 10px",
               borderBottom: `1px solid ${theme.border}`,
               fontWeight: "bold",
               fontSize: "12px",
               background: theme.headerBg,
               display: "flex",
               justifyContent: "space-between",
-              alignItems: "center", // Garante que texto e botões fiquem alinhados verticalmente
+              alignItems: "center",
+              // --- ALTERAÇÃO: FIXAR NO TOPO ---
+              position: "sticky",
+              top: 0,
+              zIndex: 10,
+              // --------------------------------
             }}
           >
             <span>CADASTRO TÉCNICO</span>
@@ -1150,9 +1220,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   border: `1px solid ${theme.border}`,
                   color: theme.text,
                   borderRadius: "4px",
-                  padding: "3px 8px",
+                  padding: "5px 8px",
                   cursor: "pointer",
-                  fontSize: "11px",
+                  fontSize: "12px",
                   display: "flex",
                   alignItems: "center",
                   gap: "5px",
@@ -1175,9 +1245,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   border: `1px solid ${theme.border}`,
                   color: theme.text,
                   borderRadius: "4px",
-                  padding: "3px 8px",
+                  padding: "5px 8px",
                   cursor: "pointer",
-                  fontSize: "11px",
+                  fontSize: "12px",
                   display: "flex",
                   alignItems: "center",
                   gap: "5px",
@@ -1466,6 +1536,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                           textAlign: "center",
                           fontWeight: "bold",
                           color: theme.text,
+                          fontSize: "10px",
                         }}
                       />
                     </td>
@@ -1727,42 +1798,130 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 borderTop: `1px solid ${theme.border}`,
                 display: "flex",
                 justifyContent: "center",
-                gap: "20px",
+                gap: "10px",
                 background: theme.modalBg,
                 flexShrink: 0,
+                alignItems: "center",
               }}
             >
+              {/* --- NOVO: BOTÃO CADEADO (SENTIDO DO FIO) --- */}
               <button
-                onClick={() => handleRotatePart("ccw")}
+                onClick={() => handleToggleRotationLock(viewingPart.id)}
+                title={
+                  viewingPart.isRotationLocked
+                    ? "Destravar Rotação"
+                    : "Travar Rotação (Sentido do Fio)"
+                }
+                style={{
+                  padding: "8px",
+                  background: viewingPart.isRotationLocked
+                    ? "#dc3545"
+                    : "transparent",
+                  color: viewingPart.isRotationLocked ? "#fff" : theme.text,
+                  border: `1px solid ${
+                    viewingPart.isRotationLocked ? "#dc3545" : theme.border
+                  }`,
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginRight: "10px",
+                  transition: "all 0.2s",
+                }}
+              >
+                {viewingPart.isRotationLocked ? (
+                  // CADEADO FECHADO
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect
+                      x="3"
+                      y="11"
+                      width="18"
+                      height="11"
+                      rx="2"
+                      ry="2"
+                    ></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                  </svg>
+                ) : (
+                  // CADEADO ABERTO
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect
+                      x="3"
+                      y="11"
+                      width="18"
+                      height="11"
+                      rx="2"
+                      ry="2"
+                    ></rect>
+                    <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+                  </svg>
+                )}
+              </button>
+
+              <button
+                onClick={() =>
+                  !viewingPart.isRotationLocked && handleRotatePart("ccw")
+                }
+                disabled={viewingPart.isRotationLocked}
+                title="Girar Anti-Horário (90°)"
                 style={{
                   padding: "10px 20px",
                   background: theme.inputBg,
                   color: theme.text,
                   border: `1px solid ${theme.border}`,
                   borderRadius: "4px",
-                  cursor: "pointer",
+                  cursor: viewingPart.isRotationLocked
+                    ? "not-allowed"
+                    : "pointer",
+                  opacity: viewingPart.isRotationLocked ? 0.5 : 1,
                 }}
               >
                 ↺ Girar Anti-Horário
               </button>
+
               <button
-                onClick={() => handleRotatePart("cw")}
+                onClick={() =>
+                  !viewingPart.isRotationLocked && handleRotatePart("cw")
+                }
+                disabled={viewingPart.isRotationLocked}
+                title="Girar Horário (90°)"
                 style={{
                   padding: "10px 20px",
                   background: theme.inputBg,
                   color: theme.text,
                   border: `1px solid ${theme.border}`,
                   borderRadius: "4px",
-                  cursor: "pointer",
+                  cursor: viewingPart.isRotationLocked
+                    ? "not-allowed"
+                    : "pointer",
+                  opacity: viewingPart.isRotationLocked ? 0.5 : 1,
                 }}
               >
                 ↻ Girar Horário
               </button>
-              {/* --- INÍCIO DO BOTÃO ESPELHAR --- */}
+
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  // CORREÇÃO: Usamos 'viewingPart.id' porque estamos dentro do modal
                   handleMirrorPart(viewingPart.id);
                 }}
                 title="Espelhar (Flip Horizontal)"
@@ -1770,7 +1929,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  padding: "6px",
+                  padding: "6px 12px",
                   marginLeft: "5px",
                   borderRadius: "4px",
                   border: `1px solid ${theme.border || "#ccc"}`,
@@ -1794,9 +1953,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   <path d="M7.5 7.5L3 12l4.5 4.5" />
                   <line x1="12" y1="4" x2="12" y2="20" strokeDasharray="2 2" />
                 </svg>
-                Espelhar
+                <span style={{ marginLeft: "5px" }}>Espelhar</span>
               </button>
-              {/* --- FIM DO BOTÃO ESPELHAR --- */}
+
               <button
                 onClick={() => setViewingPartId(null)}
                 style={{
