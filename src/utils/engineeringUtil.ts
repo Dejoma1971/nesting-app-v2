@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { ImportedPart } from "../components/types";
+
 import {
   UnionFind,
   calculateBoundingBox,
@@ -377,4 +378,37 @@ export const processFileToParts = (
   });
 
   return finalParts;
+};
+// --- FUNÇÃO DE NORMALIZAÇÃO DE ROTAÇÃO (FILTRO DE SEGURANÇA) ---
+export const normalizeDxfRotation = (dxfObject: any) => {
+  // Função interna para varrer uma lista de entidades
+  const cleanEntities = (entities: any[]) => {
+    if (!entities) return;
+
+    entities.forEach((ent) => {
+      // Se encontrar um BLOCO (INSERT)
+      if (ent.type === "INSERT") {
+        // Se ele tiver rotação (Código 50 do DXF), forçamos para 0
+        if (ent.rotation && ent.rotation !== 0) {
+          // console.log(`Normalizando rotação de bloco: ${ent.name} (Era ${ent.rotation}°)`);
+          ent.rotation = 0;
+        }
+      }
+    });
+  };
+
+  // 1. Limpa as entidades principais do desenho (Model Space)
+  if (dxfObject.entities) {
+    cleanEntities(dxfObject.entities);
+  }
+
+  // 2. Limpa definições internas de blocos (caso haja blocos dentro de blocos)
+  if (dxfObject.blocks) {
+    Object.keys(dxfObject.blocks).forEach((blockName) => {
+      const block = dxfObject.blocks[blockName];
+      if (block.entities) {
+        cleanEntities(block.entities);
+      }
+    });
+  }
 };
