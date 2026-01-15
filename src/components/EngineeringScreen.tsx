@@ -891,6 +891,11 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
+              // --- ALTERAÇÃO: FIXAR NO TOPO ---
+              position: "sticky",
+              top: 0,
+              zIndex: 10,
+              // --------------------------------
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -1174,14 +1179,19 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         <div style={rightPanel}>
           <div
             style={{
-              padding: "5px 10px", // Ajustei levemente o padding para ficar mais compacto
+              padding: "5px 10px",
               borderBottom: `1px solid ${theme.border}`,
               fontWeight: "bold",
               fontSize: "12px",
               background: theme.headerBg,
               display: "flex",
               justifyContent: "space-between",
-              alignItems: "center", // Garante que texto e botões fiquem alinhados verticalmente
+              alignItems: "center",
+              // --- ALTERAÇÃO: FIXAR NO TOPO ---
+              position: "sticky",
+              top: 0,
+              zIndex: 10,
+              // --------------------------------
             }}
           >
             <span>CADASTRO TÉCNICO</span>
