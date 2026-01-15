@@ -987,13 +987,17 @@ export const detectOpenEndpoints = (entities: any[]): Point[] => {
 
 // ... (mantenha imports e funções anteriores)
 
-export const closeOpenPath = (entities: any[], openPoints: Point[]): any[] => {
+export const closeOpenPath = (
+  entities: any[],
+  openPoints: Point[],
+  tolerance: number = 1.0
+): any[] => {
   const newEntities = [...entities];
   const pointsToProcess = [...openPoints];
 
   // Tolerância para "Gap de CAD" (ex: 5mm).
   // Se a distância for maior que isso, assumimos que NÃO deve ser fechado automaticamente para não riscar a peça.
-  const MAX_GAP_DISTANCE = 1.0;
+  const MAX_GAP_DISTANCE = tolerance;
 
   while (pointsToProcess.length >= 2) {
     const current = pointsToProcess.pop()!;

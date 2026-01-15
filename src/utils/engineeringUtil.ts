@@ -9,6 +9,7 @@ import {
   flattenGeometry,
   detectOpenEndpoints,
   isGroupContained,
+  closeOpenPath,
 } from "../utils/geometryCore";
 
 // --- LÓGICA DE ROTAÇÃO ---
@@ -353,19 +354,41 @@ export const processFileToParts = (
     let netArea = calculatePartNetArea(normalizedEntities);
     if (netArea < 0.1) netArea = grossArea;
 
-    // Verifica geometria aberta
-    const openPoints = detectOpenEndpoints(normalizedEntities);
-    const hasError = openPoints.length > 0;
+    // --- LÓGICA DE AUTOCORREÇÃO INTELIGENTE ---
+
+    // 1. Detecta falhas iniciais
+    let currentEntities = normalizedEntities;
+    const openPoints = detectOpenEndpoints(currentEntities); // <--- MUDANÇA: de 'let' para 'const'
+    let hasError = openPoints.length > 0;
+
+    // 2. Se houver erro, tenta corrigir gaps pequenos (<= 0.5mm)
+    if (hasError) {
+      // Tenta fechar usando tolerância restrita de 0.5mm
+      const fixedEntities = closeOpenPath(currentEntities, openPoints, 0.5);
+
+      // Verifica se a correção resolveu TUDO
+      const remainingOpenPoints = detectOpenEndpoints(fixedEntities);
+
+      if (remainingOpenPoints.length === 0) {
+        // SUCESSO: O gap era pequeno e foi fechado.
+        // Assumimos a geometria corrigida e removemos o alerta.
+        currentEntities = fixedEntities;
+        hasError = false;
+      }
+      // Se ainda sobrar pontos (gap > 0.5), mantemos hasError = true
+      // e usamos a geometria original (ou a parcialmente fechada, se preferir).
+      // Aqui mantemos a original para o usuário ver onde está o problema grande.
+    }
 
     finalParts.push({
       id: crypto.randomUUID(),
       name: `${fileName} - Item ${finalParts.length + 1}`,
-      entities: normalizedEntities,
+      entities: currentEntities, // <--- USA A GEOMETRIA (POSSIVELMENTE CORRIGIDA)
       blocks: {},
       width: finalW,
       height: finalH,
       grossArea,
-      netArea,
+      netArea, // Nota: A área líquida muda minimamente, não precisa recalcular para gaps de 0.5mm
       quantity: 1,
       pedido: defaults.pedido,
       op: defaults.op,
@@ -373,7 +396,7 @@ export const processFileToParts = (
       espessura: defaults.espessura,
       autor: defaults.autor,
       dataCadastro: new Date().toISOString(),
-      hasOpenGeometry: hasError,
+      hasOpenGeometry: hasError, // <--- SÓ FICA TRUE SE O GAP FOR MAIOR QUE 0.5mm
     });
   });
 
