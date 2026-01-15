@@ -478,6 +478,16 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const thumbnailRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
+  const {
+    labelStates,
+    setLabelStates,
+    globalWhiteEnabled,
+    globalPinkEnabled,
+    toggleGlobal,
+    togglePartFlag,
+    updateLabelConfig,
+  } = useLabelManager(parts);
+
   // --- HOOKS ---
   const [
     nestingResult,
@@ -501,6 +511,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       currentBinIndex,
       cropLines,
       calculationTime,
+      labelStates,
     }),
     [
       nestingResult,
@@ -511,6 +522,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       currentBinIndex,
       cropLines,
       calculationTime,
+      labelStates,
     ]
   );
 
@@ -548,6 +560,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           setCurrentBinIndex(savedData.currentBinIndex);
           if (setCropLines) setCropLines(savedData.cropLines);
 
+          // --- INSERIR ESTE BLOCO NOVO AQUI ---
+          if (savedData.labelStates) {
+            setLabelStates(savedData.labelStates);
+          }
+          // ------------------------------------
+
           // Restaura o tempo de cálculo (Densidade)
           if (savedData.calculationTime !== undefined) {
             setCalculationTime(savedData.calculationTime);
@@ -572,6 +590,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     setCurrentBinIndex,
     setCropLines,
     setCalculationTime, // Adicionei setCalculationTime nas dependências também por segurança
+    setLabelStates,
   ]);
 
   const {
@@ -622,15 +641,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     // 2. Atualiza o input de busca (separado por vírgula)
     setSearchQuery(newList.join(", "));
   };
-
-  const {
-    labelStates,
-    globalWhiteEnabled,
-    globalPinkEnabled,
-    toggleGlobal,
-    togglePartFlag,
-    updateLabelConfig,
-  } = useLabelManager(parts);
 
   const { isBinSaved, markBinAsSaved, resetAllSaveStatus } =
     useNestingSaveStatus(nestingResult);

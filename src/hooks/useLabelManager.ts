@@ -151,6 +151,7 @@ export const useLabelManager = (parts: ImportedPart[]) => {
 
   return {
     labelStates,
+    setLabelStates,
     globalWhiteEnabled,
     globalPinkEnabled,
     toggleGlobal,
