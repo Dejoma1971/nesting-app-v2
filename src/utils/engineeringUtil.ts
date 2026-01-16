@@ -379,6 +379,7 @@ export const processFileToParts = (
       // e usamos a geometria original (ou a parcialmente fechada, se preferir).
       // Aqui mantemos a original para o usuário ver onde está o problema grande.
     }
+    
 
     finalParts.push({
       id: crypto.randomUUID(),
