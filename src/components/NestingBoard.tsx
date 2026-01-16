@@ -35,6 +35,7 @@ import { SidebarMenu } from "../components/SidebarMenu";
 import { useNestingAutoSave } from "../hooks/useNestingAutoSave";
 // ... outras importações
 import { useProductionRegister } from "../hooks/useProductionRegister"; // <--- GARANTA ESTA LINHA
+import { useNestingFileManager } from "../hooks/useNestingFileManager";
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
 
 interface Size {
@@ -530,6 +531,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     isTrial,
     currentAutoSaveState
   );
+
   // --- EFEITO: RESTAURAÇÃO DE ESTADO (AUTO-LOAD) ---
   // --- EFEITO: RESTAURAÇÃO DE ESTADO (AUTO-LOAD) ---
   useEffect(() => {
@@ -645,6 +647,43 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const { isBinSaved, markBinAsSaved, resetAllSaveStatus } =
     useNestingSaveStatus(nestingResult);
 
+  // --- INTEGRAÇÃO: GERENCIADOR DE ARQUIVO LOCAL ---
+  const { handleSaveProject, handleLoadProject, fileInputRef } =
+    useNestingFileManager({
+      currentState: {
+        parts,
+        quantities,
+        nestingResult,
+        binSize,
+        totalBins,
+        currentBinIndex,
+        cropLines,
+        gap,
+        margin,
+        strategy,
+        direction,
+        labelStates,
+        disabledNestingIds,
+      },
+      setters: {
+        setParts,
+        setQuantities,
+        setNestingResult,
+        setBinSize,
+        setTotalBins,
+        setCurrentBinIndex,
+        setCropLines,
+        setGap,
+        setMargin,
+        setStrategy,
+        setDirection,
+        setLabelStates,
+        setDisabledNestingIds,
+        resetProduction, // Agora o erro vai sumir
+        resetAllSaveStatus, // Agora o erro vai sumir
+      },
+    });
+  // ------------------------------------------------
   // --- VARIÁVEIS DERIVADAS ---
   const isCurrentSheetSaved = isBinSaved(currentBinIndex);
 
@@ -2156,6 +2195,64 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             gap: "10px",
           }}
         >
+          {/* --- NOVOS BOTÕES: ARQUIVO LOCAL --- */}
+          <div
+            style={{
+              display: "flex",
+              gap: "5px",
+              marginRight: "10px",
+              borderRight: `1px solid ${theme.border}`,
+              paddingRight: "15px",
+            }}
+          >
+            {/* Input Oculto para Carregar */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: "none" }}
+              accept=".json"
+              onChange={handleLoadProject}
+            />
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              title="Abrir projeto salvo no computador"
+              style={{
+                background: "transparent",
+                border: `1px solid ${theme.border}`,
+                color: theme.text,
+                padding: "6px 12px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontSize: "13px",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+              }}
+            >
+              📂 Abrir
+            </button>
+
+            <button
+              onClick={handleSaveProject}
+              title="Salvar projeto atual no computador"
+              style={{
+                background: "transparent",
+                border: `1px solid ${theme.border}`,
+                color: theme.text,
+                padding: "6px 12px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontSize: "13px",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+              }}
+            >
+              💾 Salvar Projeto
+            </button>
+          </div>
+          {/* ----------------------------------- */}
           {/* BOTÃO BUSCAR PEDIDO (ALTERADO) */}
           <button
             onClick={() => {
