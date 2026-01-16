@@ -8,9 +8,10 @@ import {
   entitiesTouch,
   flattenGeometry,
   detectOpenEndpoints,
-  isGroupContained,
   closeOpenPath,
 } from "../utils/geometryCore";
+
+import { consolidateNestedParts } from "../utils/geometryConsolidation";
 
 // --- LÓGICA DE ROTAÇÃO ---
 // --- EM src/utils/engineeringUtil.ts ---
@@ -245,57 +246,6 @@ export const applyMirrorToPart = (part: ImportedPart): ImportedPart => {
   return newPart;
 };
 
-// --- Função Auxiliar para Agrupar Furos ---
-const mergeHolesIntoParts = (groups: any[][]): any[][] => {
-  // Prepara os dados calculando BBox e Área para cada grupo
-  const candidateParts = groups.map((group) => {
-    const box = calculateBoundingBox(group);
-    const area = (box.maxX - box.minX) * (box.maxY - box.minY);
-    return {
-      entities: group,
-      box,
-      area,
-      isHole: false,
-      children: [] as any[],
-    };
-  });
-
-  // Ordena do MAIOR para o MENOR (Fundamental para a lógica funcionar)
-  candidateParts.sort((a, b) => b.area - a.area);
-
-  // Verifica quem está dentro de quem
-  for (let i = 0; i < candidateParts.length; i++) {
-    const potentialHole = candidateParts[i];
-
-    // Procura um pai apenas entre os itens maiores (índices anteriores)
-    // Itera de trás para frente para achar o menor pai possível (o pai imediato)
-    for (let j = i - 1; j >= 0; j--) {
-      const potentialParent = candidateParts[j];
-
-      // Se já é um furo, ignoramos (simplificação) ou se a caixa não contém
-      if (potentialHole.isHole) continue;
-
-      if (isGroupContained(potentialHole.entities, potentialParent.entities)) {
-        // Confirmado: É um furo deste pai
-        potentialParent.children.push(...potentialHole.entities);
-        potentialHole.isHole = true;
-        break; // Pare de procurar, já achou o dono
-      }
-    }
-  }
-
-  // Retorna apenas os pais, agora "recheados" com os furos
-  const finalGroups: any[][] = [];
-  candidateParts.forEach((part) => {
-    if (!part.isHole) {
-      // Combina as entidades do contorno externo com as dos furos
-      finalGroups.push([...part.entities, ...part.children]);
-    }
-  });
-
-  return finalGroups;
-};
-
 // --- LÓGICA DE PARSING DE ARQUIVO ---
 export const processFileToParts = (
   flatEntities: any[],
@@ -321,7 +271,7 @@ export const processFileToParts = (
   const groupsArray = Array.from(clusters.values());
 
   // 2. PROCESSA A HIERARQUIA (Usa a nova função)
-  const consolidatedGroups = mergeHolesIntoParts(groupsArray);
+  const consolidatedGroups = consolidateNestedParts(groupsArray);
 
   const finalParts: ImportedPart[] = [];
 
@@ -379,7 +329,6 @@ export const processFileToParts = (
       // e usamos a geometria original (ou a parcialmente fechada, se preferir).
       // Aqui mantemos a original para o usuário ver onde está o problema grande.
     }
-    
 
     finalParts.push({
       id: crypto.randomUUID(),
