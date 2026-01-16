@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import DxfParser from "dxf-parser";
 import { useAuth } from "../context/AuthContext";
-import { flattenGeometry } from "../utils/geometryCore";
+
 import { EngineeringService } from "../components/menus/engineeringService";
 import type {
   BatchDefaults,
@@ -15,7 +15,6 @@ import {
   processFileToParts,
   applyRotationToPart,
   applyMirrorToPart,
-  normalizeDxfRotation,
 } from "../utils/engineeringUtil";
 
 // LISTAS ESTÁTICAS (Fallback para modo Trial ou erro)
@@ -505,18 +504,13 @@ export const useEngineeringLogic = ({
             const parsed = parser.parseSync(content);
 
             if (parsed) {
-              // --- INSERÇÃO AQUI ---
-              // 2. Aplicamos o filtro para remover rotações perigosas
-              normalizeDxfRotation(parsed);
-              //
-              const flatEnts = flattenGeometry(
-                (parsed as any).entities,
-                (parsed as any).blocks
-              );
+              // MUDANÇA: Passamos as entidades 'cruas' e os blocos separadamente
+              // A função processFileToParts agora cuida de explodir e corrigir espelhamentos
               const partsFromFile = processFileToParts(
-                flatEnts,
+                (parsed as any).entities,
                 file.name,
-                batchDefaults
+                batchDefaults,
+                (parsed as any).blocks // <--- O 4º ARGUMENTO QUE FALTAVA
               );
               newPartsGlobal.push(...partsFromFile);
             }

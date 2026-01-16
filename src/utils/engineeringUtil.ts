@@ -11,7 +11,9 @@ import {
   closeOpenPath,
 } from "../utils/geometryCore";
 
+import { explodeDXFGeometry } from "../utils/dxfExploder";
 import { consolidateNestedParts } from "../utils/geometryConsolidation";
+
 
 // --- LÓGICA DE ROTAÇÃO ---
 // --- EM src/utils/engineeringUtil.ts ---
@@ -248,10 +250,14 @@ export const applyMirrorToPart = (part: ImportedPart): ImportedPart => {
 
 // --- LÓGICA DE PARSING DE ARQUIVO ---
 export const processFileToParts = (
-  flatEntities: any[],
+  rawEntities: any[],     // Mudamos o nome para deixar claro que são dados crus
   fileName: string,
-  defaults: any
+  defaults: any,
+  dxfBlocks: any          // <--- NOVO PARÂMETRO NECESSÁRIO
 ): ImportedPart[] => {
+ // 1. APLICA A CORREÇÃO DE ESPELHAMENTO/ROTAÇÃO
+  // Isso converte os blocos "crus" em geometrias planas com coordenadas corrigidas
+  const flatEntities = explodeDXFGeometry(rawEntities, dxfBlocks);
   const n = flatEntities.length;
   const uf = new UnionFind(n);
 
