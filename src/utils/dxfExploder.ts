@@ -10,7 +10,7 @@ type InsertData = {
   rotation: number; // Em graus
 };
 
-// --- FUNÇÕES MATEMÁTICAS AUXILIARES (SPLINE E ELIPSE) ---
+// --- FUNÇÕES MATEMÁTICAS AUXILIARES ---
 
 // Normaliza ângulo para 0-2PI
 const normalizeAngle = (angle: number): number => {
@@ -19,7 +19,61 @@ const normalizeAngle = (angle: number): number => {
   return a;
 };
 
-// Calcula um ponto em uma Elipse dado o parâmetro t (em radianos)
+// Calcula pontos de um segmento de arco definido por Bulge (DXF Polyline)
+// Retorna uma lista de pontos intermediários (sem incluir p1, mas incluindo p2 se necessário)
+const getBulgeCurvePoints = (
+  p1: Point,
+  p2: Point,
+  bulge: number,
+  resolution: number = 16
+): Point[] => {
+  if (bulge === 0) return [];
+
+  const dist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+
+  // Se a distância for muito pequena, ignora curva
+  if (dist < 0.0001) return [];
+
+  const radius = ((dist / 2) * (1 + bulge * bulge)) / (2 * Math.abs(bulge));
+
+  // Cálculo do Centro do Arco usando vetores
+  const midX = (p1.x + p2.x) / 2;
+  const midY = (p1.y + p2.y) / 2;
+
+  // Vetor perpendicular à corda
+  const perpX = -(p2.y - p1.y);
+  const perpY = p2.x - p1.x;
+  const perpLen = Math.sqrt(perpX * perpX + perpY * perpY);
+
+  // Distância do ponto médio até o centro
+  const distMidToCenter = ((dist / 2) * (1 - bulge * bulge)) / (2 * bulge);
+
+  const cx = midX + (perpX / perpLen) * distMidToCenter;
+  const cy = midY + (perpY / perpLen) * distMidToCenter;
+
+  const startAngle = Math.atan2(p1.y - cy, p1.x - cx);
+  const endAngle = Math.atan2(p2.y - cy, p2.x - cx);
+
+  const points: Point[] = [];
+
+  let totalAngle = endAngle - startAngle;
+  // Ajuste de voltas completas
+  if (bulge > 0 && totalAngle < 0) totalAngle += 2 * Math.PI;
+  if (bulge < 0 && totalAngle > 0) totalAngle -= 2 * Math.PI;
+
+  for (let i = 1; i <= resolution; i++) {
+    const t = i / resolution;
+    const a = startAngle + t * totalAngle;
+    points.push({
+      x: cx + radius * Math.cos(a),
+      y: cy + radius * Math.sin(a),
+    });
+  }
+
+  return points;
+};
+
+// Calcula um ponto em uma Elipse
 const getEllipsePoint = (
   cx: number,
   cy: number,
@@ -28,29 +82,17 @@ const getEllipsePoint = (
   ratio: number,
   t: number
 ): Point => {
-  // Cálculo do eixo menor baseado no vetor do eixo maior
   const majorLen = Math.sqrt(majorX * majorX + majorY * majorY);
   const minorLen = majorLen * ratio;
-
-  // Ângulo de rotação da elipse
   const rotAngle = Math.atan2(majorY, majorX);
-
-  // Paramétrica padrão sem rotação
   const xLocal = majorLen * Math.cos(t);
   const yLocal = minorLen * Math.sin(t);
-
-  // Aplica rotação da elipse
   const xRotated = xLocal * Math.cos(rotAngle) - yLocal * Math.sin(rotAngle);
   const yRotated = xLocal * Math.sin(rotAngle) + yLocal * Math.cos(rotAngle);
-
-  return {
-    x: cx + xRotated,
-    y: cy + yRotated,
-  };
+  return { x: cx + xRotated, y: cy + yRotated };
 };
 
-// Função simples para interpolação B-Spline (De Boor simplificado)
-// Converte Spline em pontos discretos
+// Interpolação Spline (B-Spline)
 const interpolateSpline = (
   controlPoints: Point[],
   degree: number,
@@ -58,81 +100,54 @@ const interpolateSpline = (
   segments: number
 ): Point[] => {
   const points: Point[] = [];
-
-  // Se não houver knots suficientes ou controle, retorna os pontos de controle (fallback simples)
   if (!controlPoints || controlPoints.length < degree + 1)
     return controlPoints || [];
-
-  // Se knots não forem fornecidos, gera vetor de nós uniforme (comum em DXFs simples)
   let k = knots;
   if (!k || k.length === 0) {
     k = [];
     for (let i = 0; i < controlPoints.length + degree + 1; i++) k.push(i);
   }
-
-  // Define o domínio t [start, end]
   const domainStart = k[degree];
   const domainEnd = k[k.length - 1 - degree];
 
   for (let j = 0; j <= segments; j++) {
     const t = domainStart + (j / segments) * (domainEnd - domainStart);
-
-    // De Boor's Algorithm
-    // Copia os pontos de controle relevantes para calcular este t
-    // Otimização: para um t, apenas (degree + 1) pontos de controle influenciam
-    // Para simplificar a implementação aqui, vamos usar uma versão básica iterativa
-    // Nota: Implementação completa de NURBS é pesada. Esta é uma aproximação cúbica.
-
-    // Encontra o span do knot (índice i tal que k[i] <= t < k[i+1])
     let i = degree;
     while (i < k.length - degree - 2 && t >= k[i + 1]) i++;
-
-    const d = [...controlPoints]; // Clone
-    // Algoritmo iterativo
+    const d = [...controlPoints];
     const v: Point[] = [];
     for (let idx = 0; idx <= degree; idx++) {
       v[idx] = d[i - degree + idx] || { x: 0, y: 0 };
     }
-
     for (let r = 1; r <= degree; r++) {
-      for (let j = degree; j >= r; j--) {
+      for (let jj = degree; jj >= r; jj--) {
         const alpha =
-          (t - k[i - degree + j]) / (k[i + 1 + j - r] - k[i - degree + j] || 1); // Evita div por 0
-        const x = (1 - alpha) * v[j - 1].x + alpha * v[j].x;
-        const y = (1 - alpha) * v[j - 1].y + alpha * v[j].y;
-        v[j] = { x, y };
+          (t - k[i - degree + jj]) /
+          (k[i + 1 + jj - r] - k[i - degree + jj] || 1);
+        const x = (1 - alpha) * v[jj - 1].x + alpha * v[jj].x;
+        const y = (1 - alpha) * v[jj - 1].y + alpha * v[jj].y;
+        v[jj] = { x, y };
       }
     }
-
     points.push(v[degree]);
   }
-
   return points;
 };
 
 // --- FUNÇÕES DE TRANSFORMAÇÃO ---
 
-/**
- * Aplica a Matriz de Transformação (Escala -> Rotação -> Translação)
- */
 const transformPoint = (p: Point, t: InsertData): Point => {
-  // 1. Escala (Resolve o espelhamento X=-1)
+  // 1. Escala
   const x1 = p.x * t.scaleX;
   const y1 = p.y * t.scaleY;
-
   // 2. Rotação
   const rad = (t.rotation * Math.PI) / 180;
   const cos = Math.cos(rad);
   const sin = Math.sin(rad);
-
   const x2 = x1 * cos - y1 * sin;
   const y2 = x1 * sin + y1 * cos;
-
   // 3. Translação
-  return {
-    x: x2 + t.x,
-    y: y2 + t.y,
-  };
+  return { x: x2 + t.x, y: y2 + t.y };
 };
 
 /**
@@ -164,28 +179,70 @@ export const explodeDXFGeometry = (
         transform.scaleY = transform.scaleX;
       }
 
-      // Achata os resultados (pois applyTransformation pode retornar array se converter Spline)
-      // Mas aqui vamos simplificar: chamamos explode de novo nos filhos já transformados
-      // A função applyTransformationToEntity abaixo retorna 1 entidade alterada OU precisamos lidar com conversão de tipo.
-      // Estratégia melhor: Explodir recursivamente e tratar as geometrias resultantes.
+      // CORREÇÃO DE BASE POINT
+      const basePoint = {
+        x: blockData.position?.x || blockData.origin?.x || 0,
+        y: blockData.position?.y || blockData.origin?.y || 0,
+        z: blockData.position?.z || blockData.origin?.z || 0,
+      };
 
-      // Pequeno ajuste: vamos usar uma função auxiliar para aplicar a matriz
-      // em vez de repetir a lógica dentro do map.
       const transformedChildren: any[] = [];
 
       for (const child of blockData.entities) {
-        // Clona
+        // Clona e aplica o offset negativo do Base Point IMEDIATAMENTE
         const clone = JSON.parse(JSON.stringify(child));
-        // Transforma e converte (pode virar LWPOLYLINE se for Spline)
+
+        // Aplica correção de offset em primitivas
+        if (clone.type === "LINE") {
+          clone.vertices[0].x -= basePoint.x;
+          clone.vertices[0].y -= basePoint.y;
+          clone.vertices[1].x -= basePoint.x;
+          clone.vertices[1].y -= basePoint.y;
+        } else if (clone.type === "LWPOLYLINE" || clone.type === "POLYLINE") {
+          clone.vertices.forEach((v: any) => {
+            v.x -= basePoint.x;
+            v.y -= basePoint.y;
+          });
+        } else if (
+          clone.type === "CIRCLE" ||
+          clone.type === "ARC" ||
+          clone.type === "ELLIPSE"
+        ) {
+          clone.center.x -= basePoint.x;
+          clone.center.y -= basePoint.y;
+        } else if (clone.type === "INSERT") {
+          // Se for bloco aninhado, ajusta sua posição de inserção
+          if (clone.x !== undefined) clone.x -= basePoint.x;
+          if (clone.y !== undefined) clone.y -= basePoint.y;
+          if (clone.position) {
+            clone.position.x -= basePoint.x;
+            clone.position.y -= basePoint.y;
+          }
+        } else if (clone.type === "SPLINE") {
+          if (clone.controlPoints) {
+            clone.controlPoints.forEach((cp: any) => {
+              cp.x -= basePoint.x;
+              cp.y -= basePoint.y;
+            });
+          }
+          if (clone.fitPoints) {
+            clone.fitPoints.forEach((fp: any) => {
+              fp.x -= basePoint.x;
+              fp.y -= basePoint.y;
+            });
+          }
+        }
+
+        // Processa geometria (aplica matriz e converte arcos distorcidos)
         const processed = processEntityGeometry(clone, transform);
         transformedChildren.push(processed);
       }
 
+      // Recursão para blocos aninhados
       result.push(...explodeDXFGeometry(transformedChildren, blocksRecord));
     }
-    // --- CASO 2: ENTIDADES SOLTAS (GEOMETRIA PURA) ---
+    // --- CASO 2: ENTIDADES SOLTAS ---
     else {
-      // Se não é insert, aplicamos transformação identidade (apenas para processar Splines/Elipses soltas)
       const identity: InsertData = {
         x: 0,
         y: 0,
@@ -202,9 +259,13 @@ export const explodeDXFGeometry = (
 };
 
 // --- FUNÇÃO CENTRAL DE PROCESSAMENTO GEOMÉTRICO ---
-// Aplica transformação E converte curvas complexas (Spline/Ellipse) em Polilinhas
 const processEntityGeometry = (ent: any, t: InsertData): any => {
   const clone = JSON.parse(JSON.stringify(ent));
+
+  // Detecção de Escala Não-Uniforme (Distorção)
+  const isNonUniform =
+    Math.abs(Math.abs(t.scaleX) - Math.abs(t.scaleY)) > 0.001;
+  const isMirrored = t.scaleX * t.scaleY < 0;
 
   // 1. LINHAS
   if (clone.type === "LINE") {
@@ -224,16 +285,66 @@ const processEntityGeometry = (ent: any, t: InsertData): any => {
 
   // 2. POLILINHAS
   else if (clone.type === "LWPOLYLINE" || clone.type === "POLYLINE") {
-    const isMirrored = t.scaleX * t.scaleY < 0;
-    clone.vertices = clone.vertices.map((v: any) => {
-      const p = transformPoint({ x: v.x, y: v.y }, t);
-      const newBulge = isMirrored && v.bulge ? -v.bulge : v.bulge;
-      return { ...v, x: p.x, y: p.y, bulge: newBulge };
-    });
+    // CASO ESPECIAL: Escala não-uniforme quebra a matemática do "bulge"
+    if (
+      isNonUniform &&
+      clone.vertices.some((v: any) => v.bulge && v.bulge !== 0)
+    ) {
+      const newVerts: Point[] = []; // Alterado para const
+
+      for (let i = 0; i < clone.vertices.length; i++) {
+        const curr = clone.vertices[i];
+        const next = clone.vertices[(i + 1) % clone.vertices.length];
+
+        newVerts.push({ x: curr.x, y: curr.y });
+
+        if (curr.bulge && (clone.closed || i < clone.vertices.length - 1)) {
+          const curvePoints = getBulgeCurvePoints(
+            { x: curr.x, y: curr.y },
+            { x: next.x, y: next.y },
+            curr.bulge
+          );
+          newVerts.push(...curvePoints);
+        }
+      }
+
+      const transformedVerts = newVerts.map((v) => transformPoint(v, t));
+
+      return {
+        type: "LWPOLYLINE",
+        vertices: transformedVerts,
+        closed: clone.closed || false,
+      };
+    }
+
+    // CASO PADRÃO
+    else {
+      clone.vertices = clone.vertices.map((v: any) => {
+        const p = transformPoint({ x: v.x, y: v.y }, t);
+        const newBulge = isMirrored && v.bulge ? -v.bulge : v.bulge;
+        return { ...v, x: p.x, y: p.y, bulge: newBulge };
+      });
+    }
   }
 
   // 3. CÍRCULOS
   else if (clone.type === "CIRCLE") {
+    if (isNonUniform) {
+      const segments = 64;
+      const verts: Point[] = [];
+      for (let i = 0; i < segments; i++) {
+        const ang = (i / segments) * 2 * Math.PI;
+        const px = clone.center.x + clone.radius * Math.cos(ang);
+        const py = clone.center.y + clone.radius * Math.sin(ang);
+        verts.push(transformPoint({ x: px, y: py }, t));
+      }
+      return {
+        type: "LWPOLYLINE",
+        vertices: verts,
+        closed: true,
+      };
+    }
+
     const c = transformPoint({ x: clone.center.x, y: clone.center.y }, t);
     clone.center = { x: c.x, y: c.y };
     clone.radius *= Math.abs(t.scaleX);
@@ -241,6 +352,28 @@ const processEntityGeometry = (ent: any, t: InsertData): any => {
 
   // 4. ARCOS
   else if (clone.type === "ARC") {
+    if (isNonUniform) {
+      const segments = 32;
+      const start = clone.startAngle; // Alterado para const
+      let end = clone.endAngle;
+      if (end < start) end += 2 * Math.PI;
+
+      const verts: Point[] = [];
+      const total = end - start;
+
+      for (let i = 0; i <= segments; i++) {
+        const ang = start + (i / segments) * total;
+        const px = clone.center.x + clone.radius * Math.cos(ang);
+        const py = clone.center.y + clone.radius * Math.sin(ang);
+        verts.push(transformPoint({ x: px, y: py }, t));
+      }
+      return {
+        type: "LWPOLYLINE",
+        vertices: verts,
+        closed: false,
+      };
+    }
+
     const c = transformPoint({ x: clone.center.x, y: clone.center.y }, t);
     clone.center = { x: c.x, y: c.y };
     const r = clone.radius;
@@ -251,7 +384,6 @@ const processEntityGeometry = (ent: any, t: InsertData): any => {
     const endX = r * Math.cos(clone.endAngle);
     const endY = r * Math.sin(clone.endAngle);
 
-    // Vetores relativos transformados (sem translação)
     const vStart = transformPoint(
       { x: startX, y: startY },
       { ...t, x: 0, y: 0 }
@@ -260,7 +392,6 @@ const processEntityGeometry = (ent: any, t: InsertData): any => {
 
     const ang1 = normalizeAngle(Math.atan2(vStart.y, vStart.x));
     const ang2 = normalizeAngle(Math.atan2(vEnd.y, vEnd.x));
-    const isMirrored = t.scaleX * t.scaleY < 0;
 
     if (isMirrored) {
       clone.startAngle = ang2;
@@ -271,18 +402,12 @@ const processEntityGeometry = (ent: any, t: InsertData): any => {
     }
   }
 
-  // 5. SPLINE (NOVO!) -> Converte para LWPOLYLINE
+  // 5. SPLINE -> LWPOLYLINE
   else if (clone.type === "SPLINE") {
-    // Se tiver fitPoints, usamos eles (aproximação linear simples)
-    // Se não, calculamos B-Spline usando controlPoints
     let points: Point[] = [];
-
     if (clone.fitPoints && clone.fitPoints.length > 0) {
-      // Caminho simples: conecta os fit points
       points = clone.fitPoints.map((fp: any) => ({ x: fp.x, y: fp.y }));
     } else {
-      // Caminho Matemático: Interpola B-Spline
-      // Resolução: 20 segmentos por ponto de controle (suave o suficiente para corte)
       const segments = (clone.controlPoints.length || 2) * 20;
       points = interpolateSpline(
         clone.controlPoints,
@@ -291,14 +416,7 @@ const processEntityGeometry = (ent: any, t: InsertData): any => {
         segments
       );
     }
-
-    // Aplica a transformação da matriz em TODOS os pontos gerados
-    const transformedVerts = points.map((p) => {
-      const tp = transformPoint(p, t);
-      return { x: tp.x, y: tp.y };
-    });
-
-    // Retorna como uma Polilinha para o sistema entender
+    const transformedVerts = points.map((p) => transformPoint(p, t));
     return {
       type: "LWPOLYLINE",
       vertices: transformedVerts,
@@ -306,14 +424,12 @@ const processEntityGeometry = (ent: any, t: InsertData): any => {
     };
   }
 
-  // 6. ELIPSE (NOVO!) -> Converte para LWPOLYLINE
+  // 6. ELIPSE -> LWPOLYLINE
   else if (clone.type === "ELLIPSE") {
-    const segments = 64; // Resolução da elipse
+    const segments = 64;
     const startAngle = clone.startAngle || 0;
     let endAngle = clone.endAngle;
-    if (endAngle === undefined) endAngle = 2 * Math.PI; // Elipse completa
-
-    // Garante sentido correto
+    if (endAngle === undefined) endAngle = 2 * Math.PI;
     if (endAngle < startAngle) endAngle += 2 * Math.PI;
 
     const verts: any[] = [];
@@ -321,8 +437,6 @@ const processEntityGeometry = (ent: any, t: InsertData): any => {
 
     for (let i = 0; i <= segments; i++) {
       const tParam = startAngle + (i / segments) * totalAngle;
-
-      // Calcula ponto na geometria local
       const pLocal = getEllipsePoint(
         clone.center.x,
         clone.center.y,
@@ -331,8 +445,6 @@ const processEntityGeometry = (ent: any, t: InsertData): any => {
         clone.axisRatio,
         tParam
       );
-
-      // Aplica a transformação global (Espelhamento/Rotação do bloco)
       const pGlobal = transformPoint(pLocal, t);
       verts.push({ x: pGlobal.x, y: pGlobal.y });
     }

@@ -3,15 +3,15 @@ import { calculateBoundingBox } from "./geometryCore";
 
 type Entity = any;
 type Box = { minX: number; minY: number; maxX: number; maxY: number };
+type Point = { x: number; y: number };
 
 // --- 1. FUNÇÕES AUXILIARES DE GEOMETRIA ---
 
 /**
- * Verifica se a caixa 'inner' está grosseiramente dentro da 'outer'.
- * (Otimização rápida antes de fazer o cálculo pesado de polígonos)
+ * Verifica se a caixa 'inner' está completamente dentro da 'outer' com uma margem de segurança.
  */
 const isBBoxContained = (inner: Box, outer: Box): boolean => {
-  const EPSILON = 0.0001;
+  const EPSILON = 0.001; // Tolerância milimétrica
   return (
     inner.minX >= outer.minX - EPSILON &&
     inner.maxX <= outer.maxX + EPSILON &&
@@ -21,98 +21,86 @@ const isBBoxContained = (inner: Box, outer: Box): boolean => {
 };
 
 /**
- * Verifica se um Ponto (x, y) está matematicamente dentro de uma entidade Pai (Círculo ou Polígono).
- * Usa algoritmo Ray-Casting para formas complexas (como perfis U ou L).
+ * Verifica a intersecção de um raio horizontal partindo de P(x,y) com o segmento A-B
  */
-const isPointInEntity = (
-  x: number,
-  y: number,
-  parentEntity: Entity
-): boolean => {
-  // Caso 1: Pai é Círculo
-  if (parentEntity.type === "CIRCLE") {
-    const dx = x - parentEntity.center.x;
-    const dy = y - parentEntity.center.y;
-    return dx * dx + dy * dy <= parentEntity.radius * parentEntity.radius;
-  }
+const rayIntersectsSegment = (p: Point, a: Point, b: Point): boolean => {
+  // Verificação básica de Y (o raio horizontal deve estar na altura do segmento)
+  // Usa > e <= para lidar com vértices exatos e evitar contagem dupla
+  const yCheck = a.y > p.y !== b.y > p.y;
 
-  // Caso 2: Pai é Linha ou Polilinha (Tratamos como segmentos)
-  if (parentEntity.vertices && parentEntity.vertices.length >= 2) {
-    // Ray Casting: Traça uma linha horizontal de (x,y) para a direita (infinito)
-    let inside = false;
-    const vs = parentEntity.vertices;
+  if (!yCheck) return false;
 
-    for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
-      const xi = vs[i].x,
-        yi = vs[i].y;
-      const xj = vs[j].x,
-        yj = vs[j].y;
+  // Calcula a coordenada X da intersecção
+  const intersectX = ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x;
 
-      // Verifica intersecção com o segmento da aresta
-      const intersect =
-        yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
-
-      if (intersect) inside = !inside;
-    }
-    return inside;
-  }
-
-  return false;
+  // O raio é para a direita, então a intersecção deve ser maior que p.x
+  return p.x < intersectX;
 };
 
 /**
- * Verifica se o grupo 'child' está VERDADEIRAMENTE contido na geometria do 'parent'.
- * Não apenas no BBox, mas dentro da área preenchida.
+ * Algoritmo robusto de Ray Casting (Ponto em Conjunto de Entidades)
+ * Corrige o erro de contagem dupla em linhas soltas.
  */
-const isStrictlyContained = (
-  childEntities: Entity[],
+const isPointInsidePolygonSet = (
+  x: number,
+  y: number,
   parentEntities: Entity[]
 ): boolean => {
-  // Pega um ponto de teste do filho (o centro do BBox)
-  const childBox = calculateBoundingBox(childEntities);
-  const testX = (childBox.minX + childBox.maxX) / 2;
-  const testY = (childBox.minY + childBox.maxY) / 2;
+  const p = { x, y };
+  let intersections = 0;
+  let isInsideCircle = false;
 
-  // O filho está contido se o ponto de teste estiver dentro de ALGUMA entidade fechada do pai
-  // (Ou se o pai for um conjunto de linhas que formam um loop - simplificação: checa colisão com qualquer "massa" do pai)
-
-  // Verifica contra todas as entidades do pai que formam área (Polilinhas ou Círculos)
-  // Se o pai for composto de várias linhas soltas (ex: Exploded Rect), o RayCasting falha se não iterarmos como um todo.
-  // Para robustez máxima neste caso DXF, assumimos que o pai tem ao menos uma entidade "container" (Polyline/Circle)
-  // OU testamos contra todas e fazemos uma regra de "Voto" (odd/even total).
-
-  let totalIntersections = 0;
-
-  for (const pEnt of parentEntities) {
-    // Se o pai tem um Círculo, e o ponto ta dentro, tá contido. Fim.
-    if (pEnt.type === "CIRCLE") {
-      if (isPointInEntity(testX, testY, pEnt)) return true;
+  for (const ent of parentEntities) {
+    // 1. CÍRCULOS (Prioridade)
+    // Se o pai tem um círculo e o ponto está nele, assumimos que está dentro da peça
+    // (Útil para arruelas ou peças circulares onde o contorno é um Circle DXF)
+    if (ent.type === "CIRCLE") {
+      const dx = x - ent.center.x;
+      const dy = y - ent.center.y;
+      if (dx * dx + dy * dy <= ent.radius * ent.radius) {
+        isInsideCircle = true;
+        // Não damos break imediato porque peças complexas podem ter furos negativos,
+        // mas para nesting simples, estar dentro da massa principal é suficiente.
+        // Vamos considerar TRUE se estiver na massa positiva.
+      }
     }
 
-    // Se for polilinha/linha, somamos intersecções para o Ray Casting Global
-    if (pEnt.vertices && pEnt.vertices.length > 1) {
-      const vs = pEnt.vertices;
-      for (let i = 0; i < vs.length - 1; i++) {
-        const xi = vs[i].x,
-          yi = vs[i].y;
-        const xj = vs[i + 1].x,
-          yj = vs[i + 1].y;
-
-        const intersect =
-          yi > testY !== yj > testY &&
-          testX < ((xj - xi) * (testY - yi)) / (yj - yi) + xi;
-
-        if (intersect) totalIntersections++;
+    // 2. LINE (Trata como segmento único)
+    else if (ent.type === "LINE") {
+      if (rayIntersectsSegment(p, ent.vertices[0], ent.vertices[1])) {
+        intersections++;
       }
-      // Fecha o loop se for polilinha fechada ou último ponto volta pro primeiro?
-      // DXF Lines soltas não fecham sozinhas, mas o array de grupos sim.
-      // Se o grupo forma um loop visual, as linhas se conectam.
-      // Vamos assumir que 'entitiesTouch' já agrupou tudo.
+    }
+
+    // 3. POLYLINES (Trata como cadeia de segmentos)
+    else if (
+      (ent.type === "LWPOLYLINE" || ent.type === "POLYLINE") &&
+      ent.vertices
+    ) {
+      const vs = ent.vertices;
+      const count = vs.length;
+
+      // Itera os segmentos da polilinha
+      for (let i = 0; i < count - 1; i++) {
+        if (rayIntersectsSegment(p, vs[i], vs[i + 1])) {
+          intersections++;
+        }
+      }
+
+      // Se for fechada, verifica o último segmento voltando ao primeiro
+      if (ent.closed && count > 1) {
+        if (rayIntersectsSegment(p, vs[count - 1], vs[0])) {
+          intersections++;
+        }
+      }
     }
   }
 
-  // Se a linha imaginária cruzou um número ímpar de fronteiras, o ponto está dentro.
-  return totalIntersections % 2 !== 0;
+  // Se detectou que está dentro de um Círculo geométrico do pai, retorna true.
+  if (isInsideCircle) return true;
+
+  // Caso contrário, usa a regra Par/Ímpar do Ray Casting nas linhas/polilinhas
+  return intersections % 2 !== 0;
 };
 
 // --- 2. FUNÇÃO PRINCIPAL ---
@@ -138,20 +126,21 @@ export const consolidateNestedParts = (groups: Entity[][]): Entity[][] => {
     const child = candidates[i];
     if (child.isConsumed) continue;
 
-    // Procura um pai nos itens maiores
+    // Procura um pai nos itens MAIORES
     for (let j = i - 1; j >= 0; j--) {
       const parent = candidates[j];
 
-      // O pai precisa ser grande o suficiente (evita linhas soltas engolindo coisas)
+      // Ignora ruído
       if (parent.area < 0.1) continue;
 
-      // PASSO A: OTIMIZAÇÃO (BBOX)
-      // Se não estiver nem na caixa, nem perde tempo calculando geometria
+      // PASSO A: Bounding Box (Rápido)
       if (!isBBoxContained(child.box, parent.box)) continue;
 
-      // PASSO B: VERIFICAÇÃO GEOMÉTRICA PRECISA [NOVO!]
-      // Garante que não é apenas um aninhamento no vazio de um "U"
-      if (isStrictlyContained(child.entities, parent.entities)) {
+      // PASSO B: Geometria Precisa (Ray Casting Corrigido)
+      const testX = (child.box.minX + child.box.maxX) / 2;
+      const testY = (child.box.minY + child.box.maxY) / 2;
+
+      if (isPointInsidePolygonSet(testX, testY, parent.entities)) {
         parent.children.push(...child.entities, ...child.children);
         child.isConsumed = true;
         break;
