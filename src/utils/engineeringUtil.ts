@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { ImportedPart } from "../components/types";
+import { runGatekeeper } from "./gatekeeperUtil"; // <--- IMPORTAÇÃO NOVA
 
 import {
   UnionFind,
@@ -45,7 +46,7 @@ const transformPoint = (p: { x: number; y: number }, t: InsertData) => {
 // --- LÓGICA DE ROTAÇÃO E ESPELHAMENTO (Mantidas) ---
 export const applyRotationToPart = (
   part: ImportedPart,
-  angleInDegrees: number
+  angleInDegrees: number,
 ): ImportedPart => {
   const flatEntities = flattenGeometry(part.entities, part.blocks);
   const newPart = JSON.parse(JSON.stringify(part));
@@ -78,11 +79,11 @@ export const applyRotationToPart = (
         const r = ent.radius;
         const start = rotatePt(
           r * Math.cos(ent.startAngle),
-          r * Math.sin(ent.startAngle)
+          r * Math.sin(ent.startAngle),
         );
         const end = rotatePt(
           r * Math.cos(ent.endAngle),
-          r * Math.sin(ent.endAngle)
+          r * Math.sin(ent.endAngle),
         );
         ent.startAngle = normalizeAngle(Math.atan2(start.y, start.x));
         ent.endAngle = normalizeAngle(Math.atan2(end.y, end.x));
@@ -146,11 +147,11 @@ export const applyMirrorToPart = (part: ImportedPart): ImportedPart => {
         const r = ent.radius;
         const start = mirrorPt(
           r * Math.cos(ent.startAngle),
-          r * Math.sin(ent.startAngle)
+          r * Math.sin(ent.startAngle),
         );
         const end = mirrorPt(
           r * Math.cos(ent.endAngle),
-          r * Math.sin(ent.endAngle)
+          r * Math.sin(ent.endAngle),
         );
         const ang1 = normalizeAngle(Math.atan2(start.y, start.x));
         const ang2 = normalizeAngle(Math.atan2(end.y, end.x));
@@ -195,7 +196,7 @@ const createPartFromEntities = (
   entities: any[],
   fileName: string,
   defaults: any,
-  index: number
+  index: number,
 ): ImportedPart => {
   const box = calculateBoundingBox(entities);
   const width = box.maxX - box.minX;
@@ -276,11 +277,11 @@ const applyTransformToEntity = (ent: any, t: InsertData) => {
   } else if (clone.type === "LINE") {
     const p1 = transformPoint(
       { x: clone.vertices[0].x, y: clone.vertices[0].y },
-      t
+      t,
     );
     const p2 = transformPoint(
       { x: clone.vertices[1].x, y: clone.vertices[1].y },
-      t
+      t,
     );
     clone.vertices = [
       { x: p1.x, y: p1.y },
@@ -312,13 +313,35 @@ export const processFileToParts = (
   rawEntities: any[],
   fileName: string,
   defaults: any,
-  dxfBlocks: any
+  dxfBlocks: any,
 ): ImportedPart[] => {
+  // === INICIO DA ALTERAÇÃO (FAIL FAST) ===npm run dev
+  try {
+    runGatekeeper(rawEntities);
+  } catch (error: any) {
+    // Limpa a mensagem técnica
+    const msg = error.message ? error.message.replace("VALIDATION_ERROR: ", "") : "Arquivo inválido";
+    
+    const instructionalMessage = `⚠️ IMPORTAÇÃO RECUSADA (Análise Rápida)\n\n` +
+      `MOTIVO: ${msg}\n\n` +
+      `--- O QUE FAZER? ---\n` +
+      `1. O arquivo contém peças desenhadas com linhas soltas.\n` +
+      `2. Abra no CAD, selecione a peça e crie um BLOCO.\n` +
+      `3. O sistema exige blocos para não sobrecarregar seu navegador.\n\n` +
+      `A importação foi cancelada.`;
+
+    window.alert(instructionalMessage);
+    
+    return [];
+  }
+  // === FIM DA ALTERAÇÃO ===
+
   const finalParts: ImportedPart[] = [];
   const looseEntities: any[] = [];
   let partCounter = 0;
 
   // FILA DE PROCESSAMENTO (Inicializa com as entidades da raiz)
+  // Como o porteiro já passou, sabemos que aqui só tem INSERTs ou Lixo seguro (texto/cota).
   const processingQueue = [...rawEntities];
 
   while (processingQueue.length > 0) {
@@ -345,7 +368,7 @@ export const processFileToParts = (
           "CIRCLE",
           "SPLINE",
           "ELLIPSE",
-        ].includes(e.type)
+        ].includes(e.type),
       );
 
       // Verifica se tem sub-blocos
@@ -393,7 +416,7 @@ export const processFileToParts = (
           // Aplica a transformação do PAI para o MUNDO
           const transformedChild = applyTransformToEntity(
             childClone,
-            transform
+            transform,
           );
 
           // Joga de volta na fila para análise recursiva
@@ -412,7 +435,7 @@ export const processFileToParts = (
             partGeometry,
             fileName,
             defaults,
-            partCounter++
+            partCounter++,
           );
           if (blockName) part.name = `${blockName} (${fileName})`;
           finalParts.push(part);
@@ -435,7 +458,7 @@ export const processFileToParts = (
       "CIRCLE",
       "SPLINE",
       "ELLIPSE",
-    ].includes(e.type)
+    ].includes(e.type),
   );
 
   if (meaningfulLoose.length > 0) {
@@ -468,7 +491,7 @@ export const processFileToParts = (
           groupEntities,
           fileName,
           defaults,
-          partCounter++
+          partCounter++,
         );
         part.name = `${fileName} - Solto ${partCounter}`;
         finalParts.push(part);
