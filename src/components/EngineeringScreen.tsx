@@ -12,7 +12,6 @@ import { MaterialConfigModal } from "../components/MaterialConfigModal";
 import type { EngineeringScreenProps, ImportedPart } from "./types";
 import { useEngineeringLogic } from "../hooks/useEngineeringLogic"; // Ajuste o caminho se necessário (ex: ../hooks/)
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
-import { Puzzle } from "lucide-react";
 import { FaPuzzlePiece } from "react-icons/fa";
 
 // Mapeamento amigável para o usuário vs Valor no Banco
