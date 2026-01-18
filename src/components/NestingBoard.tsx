@@ -332,6 +332,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // Estado para controlar o modal da equipe
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
 
+  
+const [viewKey, setViewKey] = useState(0); // Controla o reset visual do Canvas
+
+
   useEffect(() => {
     if (user && user.token) {
       fetch("http://localhost:3001/api/subscription/status", {
@@ -1315,6 +1319,23 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     setCropLines,
     clearSavedState,
   ]);
+
+  // ⬇️ --- ADICIONE ESTE BLOCO AQUI --- ⬇️
+const handleRefreshView = useCallback(() => {
+    // 1. Incrementa a chave para forçar o React a recriar o componente Canvas
+    setViewKey((prev) => prev + 1);
+
+    // 2. Força uma atualização rasa nos estados para garantir sincronia
+    setNestingResult((prev) => [...prev]);
+    
+    // 3. Limpa qualquer menu ou seleção que possa estar travada na tela
+    setContextMenu(null);
+    setSheetMenu(null);
+    
+    // Feedback visual opcional no console
+    console.log("♻️ Interface gráfica recarregada (Soft Reset).");
+}, [setNestingResult]);
+// ⬆️ -------------------------------- ⬆️
 
   // --- NOVA FUNÇÃO: Navegação Segura para Home ---
   const handleSafeHomeExit = useCallback(() => {
@@ -2585,6 +2606,44 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           />{" "}
           Ver Box
         </label>
+        {/* ⬇️ --- BOTÃO DE REFRESH COM ÍCONE PADRÃO --- ⬇️ */}
+<button
+  onClick={handleRefreshView}
+  title="Recarregar visualização (Destravar interface)"
+  style={{
+    background: "transparent",
+    border: `1px solid ${theme.border}`,
+    color: theme.text,
+    padding: "5px 8px", // Ajustei levemente o padding
+    borderRadius: "4px",
+    cursor: "pointer",
+    fontSize: "12px",
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    marginLeft: "10px",
+    transition: "background 0.2s"
+  }}
+  onMouseEnter={(e) => e.currentTarget.style.background = theme.hoverRow}
+  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+>
+  {/* Ícone SVG de Refresh Padrão */}
+  <svg 
+    width="16" 
+    height="16" 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round"
+  >
+    <path d="M23 4v6h-6"></path>
+    <path d="M1 20v-6h6"></path>
+    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+  </svg>  
+</button>
+{/* ⬆️ ------------------------------------------ ⬆️ */}
 
         {/* LÓGICA DOS BOTÕES DE COLISÃO (CORRIGIDA) */}
         {strategy === "guillotine" ? (
@@ -2843,6 +2902,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           )}
 
           <InteractiveCanvas
+            key={viewKey}
             parts={displayedParts}
             placedParts={currentPlacedParts}
             binWidth={binSize.width}
