@@ -12,6 +12,8 @@ import { MaterialConfigModal } from "../components/MaterialConfigModal";
 import type { EngineeringScreenProps, ImportedPart } from "./types";
 import { useEngineeringLogic } from "../hooks/useEngineeringLogic"; // Ajuste o caminho se necessário (ex: ../hooks/)
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
+import { Puzzle } from "lucide-react";
+import { FaPuzzlePiece } from "react-icons/fa";
 
 // Mapeamento amigável para o usuário vs Valor no Banco
 const PRODUCTION_TYPES = [
@@ -500,21 +502,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               (e.currentTarget.style.background = "transparent")
             }
           >
-            <svg
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="3" y="3" width="7" height="7"></rect>
-              <rect x="14" y="3" width="7" height="7"></rect>
-              <rect x="14" y="14" width="7" height="7"></rect>
-              <rect x="3" y="14" width="7" height="7"></rect>
-            </svg>
+            <FaPuzzlePiece size={24} />
           </button>
           {/* -------------------------------- */}
 
@@ -600,7 +588,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               gap: "5px",
             }}
           >
-            🚀 Cortar Agora
+            <FaPuzzlePiece size={24} /> Nesting Now
           </button>
           <SidebarMenu
             onNavigate={(screen) => {
