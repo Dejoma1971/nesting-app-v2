@@ -12,6 +12,7 @@ import { MaterialConfigModal } from "../components/MaterialConfigModal";
 import type { EngineeringScreenProps, ImportedPart } from "./types";
 import { useEngineeringLogic } from "../hooks/useEngineeringLogic"; // Ajuste o caminho se necessário (ex: ../hooks/)
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
+import { FaPuzzlePiece } from "react-icons/fa";
 
 // Mapeamento amigável para o usuário vs Valor no Banco
 const PRODUCTION_TYPES = [
@@ -29,6 +30,10 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
 
   // --- NOVO ESTADO PARA PONTOS ABERTOS ---
   const [openPoints, setOpenPoints] = useState<any[]>([]);
+  
+  // ⬇️ --- INSERIR AQUI (Cria o contador para o reset) --- ⬇️
+  const [viewKey, setViewKey] = useState(0); 
+  // ⬆️ -------------------------------------------------- ⬆️
 
   // --- [INSERÇÃO 1] ESTADO DE CONFIRMAÇÕES DA SESSÃO ---
   const [sessionApprovals, setSessionApprovals] = useState({
@@ -101,6 +106,13 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     }
   }, [selectedPartId]);
   // -----------------------------------------------------------------
+
+  // ⬇️ --- INSERIR AQUI (A função que o botão vai chamar) --- ⬇️
+  const handleRefreshView = () => {
+    setViewKey((prev) => prev + 1);
+    console.log("♻️ Interface da Engenharia recarregada.");
+  };
+  // ⬆️ ------------------------------------------------------ ⬆️
 
   // --- NOVO: FUNÇÃO PARA CORRIGIR ---
   // ... dentro do EngineeringScreen.tsx
@@ -500,21 +512,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               (e.currentTarget.style.background = "transparent")
             }
           >
-            <svg
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="3" y="3" width="7" height="7"></rect>
-              <rect x="14" y="3" width="7" height="7"></rect>
-              <rect x="14" y="14" width="7" height="7"></rect>
-              <rect x="3" y="14" width="7" height="7"></rect>
-            </svg>
+            <FaPuzzlePiece size={24} />
           </button>
           {/* -------------------------------- */}
 
@@ -540,6 +538,33 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         </div>
 
         <div style={{ display: "flex", gap: "15px", alignItems: "center" }}>
+
+         {/* ⬇️ --- INSERIR O BOTÃO AQUI --- ⬇️ */}
+  <button
+    onClick={handleRefreshView}
+    title="Recarregar visualização (Destravar interface)"
+    style={{
+      background: "transparent",
+      color: theme.text,
+      border: `1px solid ${theme.border}`,
+      padding: "8px 10px",
+      borderRadius: "4px",
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      gap: "6px",
+      fontSize: "12px"
+    }}
+  >
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M23 4v6h-6"></path>
+      <path d="M1 20v-6h6"></path>
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+    </svg>
+    Atualizar
+  </button>
+  {/* ⬆️ ---------------------------- ⬆️ */} 
+
           <button
             onClick={() =>
               executeWithSessionConfirmation(
@@ -600,7 +625,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               gap: "5px",
             }}
           >
-            🚀 Cortar Agora
+            <FaPuzzlePiece size={24} /> Nesting Now
           </button>
           <SidebarMenu
             onNavigate={(screen) => {
@@ -893,7 +918,10 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         </label>
       </div>
 
-      <div style={splitContainer}>
+      {/* --- AQUI É ONDE A MÁGICA ACONTECE --- */}
+      <div key={viewKey} style={splitContainer}>
+      {/* ------------------------------------- */}
+
         <div style={leftPanel}>
           <div
             style={{
