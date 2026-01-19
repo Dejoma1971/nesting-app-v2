@@ -18,6 +18,7 @@ import { useUndoRedo } from "../hooks/useUndoRedo";
 import { PartFilter, type FilterState } from "./PartFilter";
 import NestingWorker from "../workers/nesting.worker?worker";
 import WiseNestingWorker from "../workers/wiseNesting.worker?worker";
+import SmartNestNewWorker from "../workers/smartNestNew.worker?worker";
 import { useTheme } from "../context/ThemeContext";
 import { useLabelManager } from "../hooks/useLabelManager";
 import { GlobalLabelPanel, ThumbnailFlags } from "./labels/LabelControls";
@@ -424,7 +425,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const [gap, setGap] = useState(5);
   const [margin, setMargin] = useState(5);
   const [strategy, setStrategy] = useState<
-    "guillotine" | "true-shape" | "wise"
+    "guillotine" | "true-shape" | "true-shape-v2" | "wise"
   >("true-shape");
   const [direction, setDirection] = useState<
     "auto" | "vertical" | "horizontal"
@@ -454,6 +455,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const collisionWorkerRef = useRef<Worker | null>(null);
   const nestingWorkerRef = useRef<Worker | null>(null);
   const wiseNestingWorkerRef = useRef<Worker | null>(null);
+  const smartNestNewWorkerRef = useRef<Worker | null>(null);
+  
   // --- NOVO: Estados para o Checklist de Pedidos ---
   const [availableOrders, setAvailableOrders] = useState<string[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
@@ -664,7 +667,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         cropLines,
         gap,
         margin,
-        strategy,
+        strategy: strategy === "true-shape-v2" ? "true-shape" : strategy,
         direction,
         labelStates,
         disabledNestingIds,
@@ -1100,7 +1103,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         user,
         densidadeNumerica,
         cropLines,
-        motor: strategy, // <--- Passa 'guillotine' ou 'true-shape'
+        motor: strategy === "true-shape-v2" ? "true-shape" : strategy,
       });
 
       if (registro.success) {
@@ -1184,11 +1187,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         if (result.placed.length === 0) alert("Nenhuma peça coube!");
       }, 50);
     } else if (strategy === "wise") {
-      // <--- INSERIR ESTE BLOCO NOVO --->
-
       // --- 3. MOTOR WISE NEST (Melhor Aproveitamento / Furos) ---
-      if (wiseNestingWorkerRef.current)
-        wiseNestingWorkerRef.current.terminate();
+      if (wiseNestingWorkerRef.current) wiseNestingWorkerRef.current.terminate();
       wiseNestingWorkerRef.current = new WiseNestingWorker();
 
       wiseNestingWorkerRef.current.onmessage = (e) => {
@@ -1196,14 +1196,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         const duration = (Date.now() - startTime) / 1000;
         setCalculationTime(duration);
 
-        // Atualiza estados com o resultado do Wise
         resetNestingResult(result.placed);
         setFailedCount(result.failed.length);
         setTotalBins(result.totalBins || 1);
         setIsComputing(false);
 
-        if (result.placed.length === 0)
-          alert("Nenhuma peça coube no Wise Nest!");
+        if (result.placed.length === 0) alert("Nenhuma peça coube no Wise Nest!");
       };
 
       wiseNestingWorkerRef.current.postMessage({
@@ -1213,37 +1211,70 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         margin,
         binWidth: binSize.width,
         binHeight: binSize.height,
-        rotationStep: 5, // Forçamos precisão alta no Wise (5 graus)
-        // iterations é ignorado pelo Wise
+        rotationStep: 5,
       });
+
+    } else if (strategy === "true-shape-v2") {
+       // --- 4. MOTOR SMART NEST V2 (First Fit / Preencher) ---
+       // <--- AQUI ENTRA A LÓGICA DO NOVO MOTOR SELECIONADO NO DROPDOWN
+       if (smartNestNewWorkerRef.current) smartNestNewWorkerRef.current.terminate();
+       smartNestNewWorkerRef.current = new SmartNestNewWorker();
+
+       smartNestNewWorkerRef.current.onmessage = (e) => {
+          const result = e.data;
+          const duration = (Date.now() - startTime) / 1000;
+          setCalculationTime(duration);
+          
+          resetNestingResult(result.placed);
+          setFailedCount(result.failed.length);
+          setTotalBins(result.totalBins || 1);
+          setIsComputing(false);
+
+          if (result.placed.length === 0) alert("Nenhuma peça coube (Motor V2)!");
+       };
+
+       smartNestNewWorkerRef.current.postMessage({
+          parts: JSON.parse(JSON.stringify(partsToNest)),
+          quantities,
+          gap,
+          margin,
+          binWidth: binSize.width,
+          binHeight: binSize.height,
+          strategy: "true-shape", // O worker interno usa a mesma lógica base
+          iterations,
+          rotationStep,
+          direction,
+       });
+
     } else {
-      // --- 2. MOTOR SMART NEST (Web Worker) ---
-      if (nestingWorkerRef.current) nestingWorkerRef.current.terminate();
-      nestingWorkerRef.current = new NestingWorker();
+       // --- 2. MOTOR SMART NEST PADRÃO (Next Fit / Original) ---
+       // <--- CAI AQUI SE strategy === "true-shape"
+       if (nestingWorkerRef.current) nestingWorkerRef.current.terminate();
+       nestingWorkerRef.current = new NestingWorker();
 
-      nestingWorkerRef.current.onmessage = (e) => {
-        const result = e.data;
-        const duration = (Date.now() - startTime) / 1000;
-        setCalculationTime(duration);
-        resetNestingResult(result.placed);
-        setFailedCount(result.failed.length);
-        setTotalBins(result.totalBins || 1);
-        setIsComputing(false);
-        if (result.placed.length === 0) alert("Nenhuma peça coube!");
-      };
+       nestingWorkerRef.current.onmessage = (e) => {
+          const result = e.data;
+          const duration = (Date.now() - startTime) / 1000;
+          setCalculationTime(duration);
+          resetNestingResult(result.placed);
+          setFailedCount(result.failed.length);
+          setTotalBins(result.totalBins || 1);
+          setIsComputing(false);
+          if (result.placed.length === 0) alert("Nenhuma peça coube!");
+       };
 
-      nestingWorkerRef.current.postMessage({
-        parts: JSON.parse(JSON.stringify(partsToNest)),
-        quantities,
-        gap,
-        margin,
-        binWidth: binSize.width,
-        binHeight: binSize.height,
-        strategy,
-        iterations,
-        rotationStep, // Será sempre 90
-        direction,
-      });
+       nestingWorkerRef.current.postMessage({
+          parts: JSON.parse(JSON.stringify(partsToNest)),
+          quantities,
+          gap,
+          margin,
+          binWidth: binSize.width,
+          binHeight: binSize.height,
+          strategy,
+          iterations,
+          rotationStep, 
+          direction,
+       });
     }
   }, [
     displayedParts,
@@ -1261,6 +1292,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     iterations,
     rotationStep,
     direction,
+    // REMOVIDO: useSmartNestV2 (Não usamos mais essa variável)
   ]);
 
   const handleCheckGuillotineCollisions = useCallback(() => {
@@ -2440,10 +2472,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             <option value="guillotine">✂️ Guilhotina</option>{" "}
             {/* Mudou de "rect" */}
             <option value="true-shape">🧩 Smart Nest</option>
+            <option value="true-shape-v2">⚡ Smart Nest V2</option>
             <option value="wise">🧠 Wise Nest (Preciso)</option>{" "}
             {/* <--- INSERIR ESTA LINHA */}
           </select>
-        </div>
+        </div>       
         <div
           style={{
             display: "flex",
@@ -2924,7 +2957,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             binHeight={binSize.height}
             margin={margin}
             showDebug={showDebug}
-            strategy={strategy}
+            strategy={strategy === "true-shape-v2" ? "true-shape" : strategy}
             theme={theme}
             selectedPartIds={selectedPartIds}
             collidingPartIds={collidingPartIds}
