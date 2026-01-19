@@ -75,7 +75,7 @@ const bulgeToArc = (p1: any, p2: any, bulge: number) => {
 
 const calculateBoundingBox = (
   entities: any[],
-  blocks: any = {}
+  blocks: any = {},
 ): {
   minX: number;
   minY: number;
@@ -103,7 +103,7 @@ const calculateBoundingBox = (
     cy: number,
     r: number,
     startAngle: number,
-    endAngle: number
+    endAngle: number,
   ) => {
     let start = startAngle % (2 * Math.PI);
     if (start < 0) start += 2 * Math.PI;
@@ -135,7 +135,7 @@ const calculateBoundingBox = (
           traverse(
             block.entities,
             ox + (ent.position?.x || 0),
-            oy + (ent.position?.y || 0)
+            oy + (ent.position?.y || 0),
           );
         else if (ent.position) update(ox + ent.position.x, oy + ent.position.y);
       } else if (ent.vertices) {
@@ -162,16 +162,16 @@ const calculateBoundingBox = (
             oy + ent.center.y,
             ent.radius,
             ent.startAngle,
-            ent.endAngle
+            ent.endAngle,
           );
         else {
           update(
             ox + ent.center.x - ent.radius,
-            oy + ent.center.y - ent.radius
+            oy + ent.center.y - ent.radius,
           );
           update(
             ox + ent.center.x + ent.radius,
-            oy + ent.center.y + ent.radius
+            oy + ent.center.y + ent.radius,
           );
         }
       }
@@ -206,7 +206,7 @@ const renderEntityFunction = (
   index: number,
   blocks: any,
   scale = 1,
-  color: string = "currentColor"
+  color: string = "currentColor",
 ): React.ReactNode => {
   switch (entity.type) {
     case "INSERT": {
@@ -220,7 +220,7 @@ const renderEntityFunction = (
           }) scale(${scale})`}
         >
           {block.entities.map((s: any, i: number) =>
-            renderEntityFunction(s, i, blocks, 1, color)
+            renderEntityFunction(s, i, blocks, 1, color),
           )}
         </g>
       );
@@ -332,11 +332,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // Estado para controlar o modal da equipe
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
 
-  
-const [viewKey, setViewKey] = useState(0); // Controla o reset visual do Canvas
+  const [viewKey, setViewKey] = useState(0); // Controla o reset visual do Canvas
 
-const [isRefreshing, setIsRefreshing] = useState(false);
-
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     if (user && user.token) {
@@ -445,11 +443,11 @@ const [isRefreshing, setIsRefreshing] = useState(false);
         initialQ[p.id] = p.quantity || 1;
       });
       return initialQ;
-    }
+    },
   );
 
   const [disabledNestingIds, setDisabledNestingIds] = useState<Set<string>>(
-    new Set()
+    new Set(),
   );
 
   const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
@@ -462,7 +460,7 @@ const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     collisionWorkerRef.current = new Worker(
-      new URL("../workers/collision.worker.ts", import.meta.url)
+      new URL("../workers/collision.worker.ts", import.meta.url),
     );
 
     collisionWorkerRef.current.onmessage = (e: MessageEvent) => {
@@ -471,7 +469,7 @@ const [isRefreshing, setIsRefreshing] = useState(false);
 
       if (collisions.length > 0) {
         alert(
-          `⚠️ ALERTA DE COLISÃO!\n\n${collisions.length} peças com problemas marcadas em VERMELHO.`
+          `⚠️ ALERTA DE COLISÃO!\n\n${collisions.length} peças com problemas marcadas em VERMELHO.`,
         );
       } else {
         alert("✅ Verificação Completa! Nenhuma colisão.");
@@ -530,12 +528,12 @@ const [isRefreshing, setIsRefreshing] = useState(false);
       cropLines,
       calculationTime,
       labelStates,
-    ]
+    ],
   );
 
   const { loadSavedState, clearSavedState } = useNestingAutoSave(
     isTrial,
-    currentAutoSaveState
+    currentAutoSaveState,
   );
 
   // --- EFEITO: RESTAURAÇÃO DE ESTADO (AUTO-LOAD) ---
@@ -739,7 +737,7 @@ const [isRefreshing, setIsRefreshing] = useState(false);
       const addLabelVector = (
         config: LabelConfig,
         color: string,
-        type: "white" | "pink"
+        type: "white" | "pink",
       ) => {
         // 2. LÓGICA DE PRIORIDADE:
         // Usa o texto editado (config.text). Se estiver vazio, usa o padrão (defaultText).
@@ -756,7 +754,7 @@ const [isRefreshing, setIsRefreshing] = useState(false);
             posX,
             posY,
             config.fontSize,
-            color
+            color,
           );
 
           const rotatedLines = vectorLines.map((line: any) => {
@@ -799,12 +797,12 @@ const [isRefreshing, setIsRefreshing] = useState(false);
 
   const currentPlacedParts = useMemo(
     () => nestingResult.filter((p) => p.binId === currentBinIndex),
-    [nestingResult, currentBinIndex]
+    [nestingResult, currentBinIndex],
   );
 
   const currentEfficiencies = useMemo(() => {
     const partsInSheet = nestingResult.filter(
-      (p) => p.binId === currentBinIndex
+      (p) => p.binId === currentBinIndex,
     );
     if (partsInSheet.length === 0) return { real: "0,0", effective: "0,0" };
 
@@ -891,11 +889,11 @@ const [isRefreshing, setIsRefreshing] = useState(false);
                   "Content-Type": "application/json",
                   Authorization: `Bearer ${user.token}`, // <--- TOKEN ADICIONADO
                 },
-              }
+              },
             );
             if (response.status === 404) {
               alert(
-                `Nenhuma peça encontrada para o pedido: ${initialSearchQuery}`
+                `Nenhuma peça encontrada para o pedido: ${initialSearchQuery}`,
               );
               setIsSearching(false);
               return;
@@ -964,7 +962,7 @@ const [isRefreshing, setIsRefreshing] = useState(false);
         lineId: undefined, // Sem ID de linha significa que clicou no fundo
       });
     },
-    []
+    [],
   );
 
   const handleLineContextMenu = useCallback(
@@ -972,7 +970,7 @@ const [isRefreshing, setIsRefreshing] = useState(false);
       e.preventDefault();
       setSheetMenu({ x: e.clientX, y: e.clientY, lineId });
     },
-    []
+    [],
   );
 
   const handleAddCropLineWrapper = useCallback(
@@ -993,7 +991,7 @@ const [isRefreshing, setIsRefreshing] = useState(false);
       addCropLine(type, position);
       setSheetMenu(null); // Fecha o menu após adicionar
     },
-    [addCropLine, binSize, sheetMenu] // Adicione sheetMenu nas dependências
+    [addCropLine, binSize, sheetMenu], // Adicione sheetMenu nas dependências
   );
 
   const handleDeleteSheetWrapper = useCallback(() => {
@@ -1015,7 +1013,7 @@ const [isRefreshing, setIsRefreshing] = useState(false);
     (uuidsToRemove: string[]) => {
       // 1. Calcula como ficará a mesa antes de atualizar o estado
       const newResult = nestingResult.filter(
-        (p) => !uuidsToRemove.includes(p.uuid)
+        (p) => !uuidsToRemove.includes(p.uuid),
       );
 
       // 2. Verifica se limpou tudo (ou se a lista resultante está vazia)
@@ -1031,7 +1029,7 @@ const [isRefreshing, setIsRefreshing] = useState(false);
 
       // 4. Lógica de Scroll (mantida)
       const targetPlaced = nestingResult.find((p) =>
-        uuidsToRemove.includes(p.uuid)
+        uuidsToRemove.includes(p.uuid),
       );
       const partIdToScroll = targetPlaced?.partId;
 
@@ -1045,7 +1043,7 @@ const [isRefreshing, setIsRefreshing] = useState(false);
         }, 100);
       }
     },
-    [nestingResult, setNestingResult, setCropLines]
+    [nestingResult, setNestingResult, setCropLines],
   );
 
   useEffect(() => {
@@ -1086,7 +1084,7 @@ const [isRefreshing, setIsRefreshing] = useState(false);
     let densidadeNumerica = 0;
     if (currentEfficiencies && currentEfficiencies.effective) {
       densidadeNumerica = Number(
-        currentEfficiencies.effective.replace(",", ".")
+        currentEfficiencies.effective.replace(",", "."),
       );
     }
 
@@ -1122,14 +1120,14 @@ const [isRefreshing, setIsRefreshing] = useState(false);
       cropLines,
       null, // User null para garantir que o manager antigo não tente salvar no banco
       densidadeNumerica,
-      bancoSalvoComSucesso // <--- O PARÂMETRO MAIS IMPORTANTE
+      bancoSalvoComSucesso, // <--- O PARÂMETRO MAIS IMPORTANTE
     );
   };
 
   const handleCalculate = useCallback(() => {
     // 1. Identifica quais peças vão para o cálculo
     const partsToNest = displayedParts.filter(
-      (p) => !disabledNestingIds.has(p.id)
+      (p) => !disabledNestingIds.has(p.id),
     );
 
     if (partsToNest.length === 0) {
@@ -1173,7 +1171,7 @@ const [isRefreshing, setIsRefreshing] = useState(false);
           quantities,
           binSize.width,
           binSize.height,
-          direction
+          direction,
         );
 
         const duration = (Date.now() - startTime) / 1000;
@@ -1276,14 +1274,14 @@ const [isRefreshing, setIsRefreshing] = useState(false);
       currentPlacedParts,
       parts,
       binSize.width,
-      binSize.height
+      binSize.height,
     );
 
     setCollidingPartIds(collisions);
 
     if (collisions.length > 0) {
       alert(
-        `⚠️ ALERTA DE GUILHOTINA!\n\n${collisions.length} peças sobrepostas ou fora da chapa.`
+        `⚠️ ALERTA DE GUILHOTINA!\n\n${collisions.length} peças sobrepostas ou fora da chapa.`,
       );
     } else {
       alert("✅ Corte Guilhotina Validado! Tudo OK.");
@@ -1293,7 +1291,7 @@ const [isRefreshing, setIsRefreshing] = useState(false);
   const handleClearTable = useCallback(() => {
     if (
       window.confirm(
-        "ATENÇÃO: Isso limpará a mesa de corte E O BANCO DE PEÇAS. Deseja reiniciar?"
+        "ATENÇÃO: Isso limpará a mesa de corte E O BANCO DE PEÇAS. Deseja reiniciar?",
       )
     ) {
       resetNestingResult([]);
@@ -1322,23 +1320,23 @@ const [isRefreshing, setIsRefreshing] = useState(false);
     clearSavedState,
   ]);
 
-const handleRefreshView = useCallback(() => {
+  const handleRefreshView = useCallback(() => {
     // 1. Liga a animação
-    setIsRefreshing(true); 
+    setIsRefreshing(true);
 
     // 2. Incrementa a chave para forçar o React a recriar o componente Canvas
     setViewKey((prev) => prev + 1);
 
     // 3. Força uma atualização rasa nos estados para garantir sincronia
     setNestingResult((prev) => [...prev]);
-    
+
     // 4. Limpa menus travados
     setContextMenu(null);
     setSheetMenu(null);
-    
+
     // 5. Desliga a animação após 0.7s
     setTimeout(() => setIsRefreshing(false), 700);
-    
+
     console.log("♻️ Interface gráfica recarregada (Soft Reset).");
   }, [setNestingResult]);
 
@@ -1349,7 +1347,7 @@ const handleRefreshView = useCallback(() => {
 
     if (hasWorkInProgress) {
       const confirmExit = window.confirm(
-        "Atenção: Você tem um trabalho em andamento não salvo.\n\nSe sair agora, o progresso será perdido. Deseja continuar?"
+        "Atenção: Você tem um trabalho em andamento não salvo.\n\nSe sair agora, o progresso será perdido. Deseja continuar?",
       );
 
       if (confirmExit) {
@@ -1381,7 +1379,7 @@ const handleRefreshView = useCallback(() => {
     // SEGURANÇA: Bloqueia busca sem login
     if (!user || !user.token) {
       alert(
-        "Erro de segurança: Você precisa estar logado para buscar no banco."
+        "Erro de segurança: Você precisa estar logado para buscar no banco.",
       );
       return;
     }
@@ -1398,7 +1396,7 @@ const handleRefreshView = useCallback(() => {
             "Content-Type": "application/json",
             Authorization: `Bearer ${user.token}`, // <--- TOKEN ADICIONADO
           },
-        }
+        },
       );
       if (response.status === 404) {
         alert("Nenhum pedido encontrado.");
@@ -1476,7 +1474,7 @@ const handleRefreshView = useCallback(() => {
       // 2. SE HOUVER PEÇAS TRAVADAS, AVISA O USUÁRIO
       if (hasLockedParts) {
         alert(
-          "⚠️ AVISO:\n\nPeça possuí trava de rotação para manter o Sentido do Escovado"
+          "⚠️ AVISO:\n\nPeça possuí trava de rotação para manter o Sentido do Escovado",
         );
       }
 
@@ -1495,10 +1493,10 @@ const handleRefreshView = useCallback(() => {
             return { ...placed, rotation: (placed.rotation + angle) % 360 };
           }
           return placed;
-        })
+        }),
       );
     },
-    [selectedPartIds, setNestingResult, parts, nestingResult] // <--- Adicione 'nestingResult' nas dependências
+    [selectedPartIds, setNestingResult, parts, nestingResult], // <--- Adicione 'nestingResult' nas dependências
   );
 
   const handleContextMove = useCallback(
@@ -1508,11 +1506,11 @@ const handleRefreshView = useCallback(() => {
         prev.map((p) =>
           selectedPartIds.includes(p.uuid)
             ? { ...p, x: p.x + dx, y: p.y - dy }
-            : p
-        )
+            : p,
+        ),
       );
     },
-    [selectedPartIds, setNestingResult]
+    [selectedPartIds, setNestingResult],
   );
 
   const handlePartsMove = useCallback(
@@ -1532,7 +1530,7 @@ const handleRefreshView = useCallback(() => {
         return newPlaced;
       });
     },
-    [setNestingResult]
+    [setNestingResult],
   );
 
   const handlePartsMoveWithClear = useCallback(
@@ -1542,7 +1540,7 @@ const handleRefreshView = useCallback(() => {
         setCollidingPartIds([]);
       }
     },
-    [handlePartsMove, collidingPartIds]
+    [handlePartsMove, collidingPartIds],
   );
 
   const handleCheckCollisions = useCallback(() => {
@@ -1565,7 +1563,7 @@ const handleRefreshView = useCallback(() => {
 
   const handlePartSelect = useCallback((ids: string[], append: boolean) => {
     setSelectedPartIds((prev) =>
-      append ? [...new Set([...prev, ...ids])] : ids
+      append ? [...new Set([...prev, ...ids])] : ids,
     );
   }, []);
 
@@ -1576,7 +1574,7 @@ const handleRefreshView = useCallback(() => {
       if (!selectedPartIds.includes(partId)) setSelectedPartIds([partId]);
       setContextMenu({ visible: true, x: e.clientX, y: e.clientY });
     },
-    [selectedPartIds]
+    [selectedPartIds],
   );
 
   const handleThumbnailContextMenu = (e: React.MouseEvent, partId: string) => {
@@ -1608,7 +1606,7 @@ const handleRefreshView = useCallback(() => {
       };
       setNestingResult((prev) => [...prev, newPlacedPart]);
     },
-    [parts, currentBinIndex, setNestingResult]
+    [parts, currentBinIndex, setNestingResult],
   );
 
   const formatArea = useCallback(
@@ -1616,7 +1614,7 @@ const handleRefreshView = useCallback(() => {
       mm2 > 100000
         ? (mm2 / 1000000).toFixed(3) + " m²"
         : mm2.toFixed(0) + " mm²",
-    []
+    [],
   );
 
   const totalPlacedCounts = useMemo(() => {
@@ -1741,7 +1739,7 @@ const handleRefreshView = useCallback(() => {
   const renderProgressBar = (
     produced: number,
     total: number,
-    color: string
+    color: string,
   ) => {
     const pct = Math.min(100, Math.round((produced / total) * 100));
     return (
@@ -2318,8 +2316,8 @@ const handleRefreshView = useCallback(() => {
               background: isCurrentSheetSaved
                 ? "#28a745"
                 : lockedBins.includes(currentBinIndex)
-                ? "#17a2b8"
-                : "#007bff",
+                  ? "#17a2b8"
+                  : "#007bff",
               color: "white",
               border: "none",
               padding: "6px 12px",
@@ -2342,8 +2340,8 @@ const handleRefreshView = useCallback(() => {
             {isSaving
               ? "⏳ Salvando..."
               : isCurrentSheetSaved
-              ? "✅ Chapa Salva"
-              : "💾 Salvar DXF"}
+                ? "✅ Chapa Salva"
+                : "💾 Salvar DXF"}
           </button>
           {/* <button
             onClick={handleExportPDF}
@@ -2612,51 +2610,55 @@ const handleRefreshView = useCallback(() => {
           Ver Box
         </label>
         {/* ⬇️ --- BOTÃO DE REFRESH COM ÍCONE PADRÃO --- ⬇️ */}
-<button
-  onClick={handleRefreshView}
-  disabled={isRefreshing}
-  title="Recarregar visualização (Destravar interface)"
-  style={{
-    background: "transparent",
-    border: `1px solid ${theme.border}`,
-    color: theme.text,
-    padding: "5px 6px", // Ajustei levemente o padding
-    borderRadius: "4px",
-    cursor: isRefreshing ? "wait" : "pointer", // Cursor de espera
-    fontSize: "12px",
-    display: "flex",
-    alignItems: "center",
-    gap: "6px",
-    marginLeft: "10px",
-    transition: "background 0.2s"
-  }}
-  onMouseEnter={(e) => e.currentTarget.style.background = theme.hoverRow}
-  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
->
-  {/* Ícone SVG com Rotação */}
-          <svg 
-            width="16" 
-            height="16" 
-            viewBox="0 0 24 24" 
-            fill="none" 
-            stroke="currentColor" 
-            strokeWidth="2" 
-            strokeLinecap="round" 
+        <button
+          onClick={handleRefreshView}
+          disabled={isRefreshing}
+          title="Recarregar visualização (Destravar interface)"
+          style={{
+            background: "transparent",
+            border: `1px solid ${theme.border}`,
+            color: theme.text,
+            padding: "5px 6px", // Ajustei levemente o padding
+            borderRadius: "4px",
+            cursor: isRefreshing ? "wait" : "pointer", // Cursor de espera
+            fontSize: "12px",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            marginLeft: "10px",
+            transition: "background 0.2s",
+          }}
+          onMouseEnter={(e) =>
+            (e.currentTarget.style.background = theme.hoverRow)
+          }
+          onMouseLeave={(e) =>
+            (e.currentTarget.style.background = "transparent")
+          }
+        >
+          {/* Ícone SVG com Rotação */}
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
             strokeLinejoin="round"
             style={{
               // A Mágica da Rotação:
-              transformOrigin: "center", 
+              transformOrigin: "center",
               transformBox: "fill-box",
               transition: "transform 0.7s ease",
-              transform: isRefreshing ? "rotate(360deg)" : "rotate(0deg)"
+              transform: isRefreshing ? "rotate(360deg)" : "rotate(0deg)",
             }}
           >
             <path d="M23 4v6h-6"></path>
             <path d="M1 20v-6h6"></path>
             <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-          </svg>  
+          </svg>
         </button>
-{/* ⬆️ ------------------------------------------ ⬆️ */}
+        {/* ⬆️ ------------------------------------------ ⬆️ */}
 
         {/* LÓGICA DOS BOTÕES DE COLISÃO (CORRIGIDA) */}
         {strategy === "guillotine" ? (
@@ -2889,7 +2891,7 @@ const handleRefreshView = useCallback(() => {
               <button
                 onClick={() =>
                   setCurrentBinIndex(
-                    Math.min(totalBins - 1, currentBinIndex + 1)
+                    Math.min(totalBins - 1, currentBinIndex + 1),
                   )
                 }
                 disabled={currentBinIndex === totalBins - 1}
@@ -3379,8 +3381,8 @@ const handleRefreshView = useCallback(() => {
                                 i,
                                 part.blocks,
                                 1,
-                                isDoneVisual ? theme.border : theme.text
-                              )
+                                isDoneVisual ? theme.border : theme.text,
+                              ),
                             )}
                           </g>
                         </svg>
@@ -3531,8 +3533,8 @@ const handleRefreshView = useCallback(() => {
                       const rowBg = isOnCurrentSheet
                         ? "rgba(40, 167, 69, 0.05)"
                         : isDoneVisual
-                        ? "rgba(40, 167, 69, 0.1)"
-                        : "transparent";
+                          ? "rgba(40, 167, 69, 0.1)"
+                          : "transparent";
 
                       return (
                         <tr

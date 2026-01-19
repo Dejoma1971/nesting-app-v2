@@ -11,6 +11,7 @@ import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
 import type { AppTheme } from "../styles/theme";
 import type { CropLine } from "../hooks/useSheetManager";
+import { getOBBCorners } from "../utils/obbUtil";
 
 // --- COLE ISTO LOGO APÓS OS IMPORTS ---
 const calculateRotatedDimensions = (
@@ -432,11 +433,34 @@ const PartElement = React.memo(
       ref
     ) => {
       if (!partData) return null;
+      // 1. Mantemos o cálculo do AABB apenas para achar o CENTRO da peça
       const { occupiedW, occupiedH } = calculateRotatedDimensions(
         partData.width,
         partData.height,
         placed.rotation
       );
+
+      // 2. Calculamos o Centro Geométrico da peça com base no AABB atual
+      // (placed.x e placed.y atualmente representam o canto do AABB)
+      const cx = placed.x + occupiedW / 2;
+      const cy = placed.y + occupiedH / 2;
+
+      // 3. Calculamos a origem (Top-Left) que a peça teria se NÃO estivesse rotacionada
+      const ox = cx - partData.width / 2;
+      const oy = cy - partData.height / 2;
+
+      // 4. Usamos nossa nova função matemática para pegar os 4 cantos rotacionados
+      const corners = getOBBCorners(
+        ox,
+        oy,
+        partData.width,
+        partData.height,
+        placed.rotation
+      );
+
+      // 5. Transformamos os cantos em uma string para o SVG <polygon>
+      const pointsStr = corners.map((p) => `${p.x},${p.y}`).join(" ");
+      
 
       const finalTransform = transformData
         ? `translate(${placed.x + transformData.occupiedW / 2}, ${
@@ -468,11 +492,9 @@ const PartElement = React.memo(
               opacity: isSelected ? 0.8 : 1,
             }}
           >
-            <rect
-              x={placed.x}
-              y={placed.y}
-              width={occupiedW}
-              height={occupiedH}
+            {/* SUBSTITUA O <rect> ANTIGO POR ISTO: */}
+            <polygon
+              points={pointsStr}
               fill={fillColor}
               stroke={
                 isColliding
@@ -485,7 +507,7 @@ const PartElement = React.memo(
               }
               strokeWidth={1}
               vectorEffect="non-scaling-stroke"
-              pointerEvents="all"
+              pointerEvents="all" // Garante que o clique funcione na área rotacionada
             />
             <g transform={finalTransform} style={{ pointerEvents: "none" }}>
               {partData.entities.map((ent, j) =>
