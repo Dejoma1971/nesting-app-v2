@@ -17,7 +17,7 @@ import { getOBBCorners } from "../utils/obbUtil";
 const calculateRotatedDimensions = (
   w: number,
   h: number,
-  rotationDeg: number
+  rotationDeg: number,
 ) => {
   const rad = rotationDeg * (Math.PI / 180);
   // Calcula o bounding box real trigonométrico
@@ -47,7 +47,7 @@ interface InteractiveCanvasProps {
   onCropLineMove?: (lineId: string, newPosition: number) => void;
   onBackgroundContextMenu?: (
     e: React.MouseEvent,
-    coords: { x: number; y: number }
+    coords: { x: number; y: number },
   ) => void;
 
   // Funções de Manipulação
@@ -58,7 +58,7 @@ interface InteractiveCanvasProps {
     partId: string,
     type: "white" | "pink",
     dx: number,
-    dy: number
+    dy: number,
   ) => void;
   onPartSelect: (partIds: string[], append: boolean) => void;
   onContextMenu: (e: React.MouseEvent, partId: string) => void;
@@ -97,7 +97,7 @@ interface SnapLine {
 const bulgeToArc = (
   p1: { x: number; y: number },
   p2: { x: number; y: number },
-  bulge: number
+  bulge: number,
 ) => {
   const chordDx = p2.x - p1.x;
   const chordDy = p2.y - p1.y;
@@ -115,7 +115,7 @@ const renderEntityFunction = (
   scale = 1,
   color: string = "currentColor",
   onLabelDown?: (e: React.MouseEvent, type: "white" | "pink") => void,
-  onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void
+  onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void,
 ): React.ReactNode => {
   const handleLabelDown = (e: React.MouseEvent) => {
     if (entity.isLabel && onLabelDown) {
@@ -154,8 +154,8 @@ const renderEntityFunction = (
               1,
               color,
               onLabelDown,
-              onEntityContextMenu
-            )
+              onEntityContextMenu,
+            ),
           )}
         </g>
       );
@@ -316,7 +316,7 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
     cy: number,
     r: number,
     startAngle: number,
-    endAngle: number
+    endAngle: number,
   ) => {
     let start = startAngle % (2 * Math.PI);
     if (start < 0) start += 2 * Math.PI;
@@ -347,7 +347,7 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
           traverse(
             b.entities,
             (ent.position?.x || 0) + ox,
-            (ent.position?.y || 0) + oy
+            (ent.position?.y || 0) + oy,
           );
         else update((ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
       } else if (ent.vertices) {
@@ -374,16 +374,16 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
             ent.center.y + oy,
             ent.radius,
             ent.startAngle,
-            ent.endAngle
+            ent.endAngle,
           );
         else {
           update(
             ent.center.x + ox - ent.radius,
-            ent.center.y + oy - ent.radius
+            ent.center.y + oy - ent.radius,
           );
           update(
             ent.center.x + ox + ent.radius,
-            ent.center.y + oy + ent.radius
+            ent.center.y + oy + ent.radius,
           );
         }
       }
@@ -430,14 +430,14 @@ const PartElement = React.memo(
         transformData,
         theme,
       },
-      ref
+      ref,
     ) => {
       if (!partData) return null;
       // 1. Mantemos o cálculo do AABB apenas para achar o CENTRO da peça
       const { occupiedW, occupiedH } = calculateRotatedDimensions(
         partData.width,
         partData.height,
-        placed.rotation
+        placed.rotation,
       );
 
       // 2. Calculamos o Centro Geométrico da peça com base no AABB atual
@@ -455,12 +455,11 @@ const PartElement = React.memo(
         oy,
         partData.width,
         partData.height,
-        placed.rotation
+        placed.rotation,
       );
 
       // 5. Transformamos os cantos em uma string para o SVG <polygon>
       const pointsStr = corners.map((p) => `${p.x},${p.y}`).join(" ");
-      
 
       const finalTransform = transformData
         ? `translate(${placed.x + transformData.occupiedW / 2}, ${
@@ -487,8 +486,8 @@ const PartElement = React.memo(
                 strategy === "guillotine"
                   ? "default"
                   : isSelected
-                  ? "move"
-                  : "pointer",
+                    ? "move"
+                    : "pointer",
               opacity: isSelected ? 0.8 : 1,
             }}
           >
@@ -500,10 +499,10 @@ const PartElement = React.memo(
                 isColliding
                   ? "red"
                   : isSelected
-                  ? "#01ff3cff"
-                  : showDebug
-                  ? "red"
-                  : "none"
+                    ? "#01ff3cff"
+                    : showDebug
+                      ? "red"
+                      : "none"
               }
               strokeWidth={1}
               vectorEffect="non-scaling-stroke"
@@ -518,15 +517,15 @@ const PartElement = React.memo(
                   1,
                   strokeColor,
                   onLabelDown,
-                  onEntityContextMenu
-                )
+                  onEntityContextMenu,
+                ),
               )}
             </g>
           </g>
         </g>
       );
-    }
-  )
+    },
+  ),
 );
 PartElement.displayName = "PartElement";
 
@@ -575,7 +574,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   } | null>(null);
 
   const [boundingBoxCache, setBoundingBoxCache] = useState<BoundingBoxCache>(
-    {}
+    {},
   );
   const [snapLines, setSnapLines] = useState<SnapLine[]>([]);
 
@@ -613,10 +612,10 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       if (panGroupRef.current)
         panGroupRef.current.setAttribute(
           "transform",
-          `translate(${newT.x}, ${newT.y}) scale(${newT.k})`
+          `translate(${newT.x}, ${newT.y}) scale(${newT.k})`,
         );
     },
-    []
+    [],
   );
 
   useEffect(() => {
@@ -634,7 +633,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         point.x = e.clientX;
         point.y = e.clientY;
         const svgPoint = point.matrixTransform(
-          svgElement.getScreenCTM()?.inverse()
+          svgElement.getScreenCTM()?.inverse(),
         );
         mouseX = svgPoint.x;
         mouseY = svgPoint.y;
@@ -660,7 +659,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
 
   const resetZoom = useCallback(
     () => updateTransform({ x: 0, y: 0, k: 1 }),
-    [updateTransform]
+    [updateTransform],
   );
   const handleMouseDownContainer = useCallback(() => {}, []);
   const handleDoubleClickContainer = useCallback(
@@ -668,7 +667,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       e.preventDefault();
       onPartSelect([], false);
     },
-    [onPartSelect]
+    [onPartSelect],
   );
 
   const partTransforms = useMemo(() => {
@@ -700,7 +699,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       const { occupiedW, occupiedH } = calculateRotatedDimensions(
         part.width,
         part.height,
-        placed.rotation
+        placed.rotation,
       );
 
       transforms[placed.uuid] = {
@@ -730,7 +729,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         onPartSelect([uuid], false);
       }
     },
-    [selectedPartIds, onPartSelect]
+    [selectedPartIds, onPartSelect],
   );
 
   const handleMouseDownPart = useCallback(
@@ -753,7 +752,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         };
       }
     },
-    [strategy, selectedPartIds, getSVGPoint]
+    [strategy, selectedPartIds, getSVGPoint],
   );
 
   const handleLabelDown = useCallback(
@@ -770,7 +769,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         initialY: 0,
       };
     },
-    [getSVGPoint]
+    [getSVGPoint],
   );
 
   const handleLineDown = useCallback(
@@ -778,7 +777,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       e: React.MouseEvent,
       lineId: string,
       type: "horizontal" | "vertical",
-      position: number
+      position: number,
     ) => {
       e.stopPropagation();
       e.preventDefault();
@@ -794,7 +793,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         initialY: 0,
       };
     },
-    [getSVGPoint]
+    [getSVGPoint],
   );
 
   const calculateSnap = useCallback(
@@ -942,7 +941,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       });
       return { snapedDx: deltaX + snapDx, snapedDy: deltaY + snapDy, guides };
     },
-    [placedParts, partTransforms, binWidth, binHeight]
+    [placedParts, partTransforms, binWidth, binHeight],
   );
 
   useEffect(() => {
@@ -997,7 +996,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
 
           const { snapedDx, snapedDy, guides } = calculateSnap(
             deltaX,
-            machineDeltaY
+            machineDeltaY,
           );
 
           setSnapLines(guides);
@@ -1088,7 +1087,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       const visualY = (svgPos.y - transform.y) / transform.k;
       onCanvasDrop(partId, visualX, binHeight - visualY);
     },
-    [getSVGPoint, transform, binHeight, onCanvasDrop]
+    [getSVGPoint, transform, binHeight, onCanvasDrop],
   );
 
   const handleNativeDragOver = useCallback((e: React.DragEvent) => {
@@ -1100,7 +1099,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     if (placedParts.length === 0) return;
     if (
       window.confirm(
-        "Deseja recolher todas as peças da mesa de volta para o banco?"
+        "Deseja recolher todas as peças da mesa de volta para o banco?",
       )
     ) {
       const allUuids = placedParts.map((p) => p.uuid);
@@ -1113,7 +1112,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       `${-binWidth * 0.05} ${-binHeight * 0.05} ${binWidth * 1.1} ${
         binHeight * 1.1
       }`,
-    [binWidth, binHeight]
+    [binWidth, binHeight],
   );
 
   const btnStyle: React.CSSProperties = {
