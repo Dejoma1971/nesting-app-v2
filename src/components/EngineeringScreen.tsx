@@ -30,10 +30,11 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
 
   // --- NOVO ESTADO PARA PONTOS ABERTOS ---
   const [openPoints, setOpenPoints] = useState<any[]>([]);
-  
+
   // ⬇️ --- INSERIR AQUI (Cria o contador para o reset) --- ⬇️
-  const [viewKey, setViewKey] = useState(0); 
+  const [viewKey, setViewKey] = useState(0);
   // ⬆️ -------------------------------------------------- ⬆️
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // --- [INSERÇÃO 1] ESTADO DE CONFIRMAÇÕES DA SESSÃO ---
   const [sessionApprovals, setSessionApprovals] = useState({
@@ -98,7 +99,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     if (selectedPartId) {
       // Procura o elemento HTML do card pelo ID único
       const element = document.getElementById(`part-card-${selectedPartId}`);
-      
+
       if (element) {
         // Rola suavemente até o elemento ficar no centro da visão
         element.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -109,7 +110,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
 
   // ⬇️ --- INSERIR AQUI (A função que o botão vai chamar) --- ⬇️
   const handleRefreshView = () => {
+    setIsRefreshing(true);
     setViewKey((prev) => prev + 1);
+    setTimeout(() => setIsRefreshing(false), 700);
     console.log("♻️ Interface da Engenharia recarregada.");
   };
   // ⬆️ ------------------------------------------------------ ⬆️
@@ -132,7 +135,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
       alert(
         "Atenção: A abertura é maior que o limite de segurança (1mm).\n\n" +
           "O fechamento automático foi cancelado para evitar riscar a peça incorretamente.\n" +
-          "O alerta visual será removido, mas lembre-se que a geometria continua aberta."
+          "O alerta visual será removido, mas lembre-se que a geometria continua aberta.",
       );
       // NOTA: Não fazemos 'return' aqui. O código segue abaixo para remover o alerta visual (Ignorar).
     } else {
@@ -157,7 +160,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   const executeWithSessionConfirmation = (
     key: keyof typeof sessionApprovals,
     message: string,
-    actionFn: () => void
+    actionFn: () => void,
   ) => {
     if (sessionApprovals[key]) {
       // Já aprovou nesta sessão? Executa direto!
@@ -166,7 +169,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
       // Primeira vez? Pede confirmação.
       if (
         window.confirm(
-          `${message}\n\n(Esta confirmação não será exigida novamente nesta sessão)`
+          `${message}\n\n(Esta confirmação não será exigida novamente nesta sessão)`,
         )
       ) {
         setSessionApprovals((prev) => ({ ...prev, [key]: true }));
@@ -211,7 +214,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   // Toggle Individual (Recebe string)
   const toggleSelection = (id: string) => {
     setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((pid) => pid !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((pid) => pid !== id) : [...prev, id],
     );
   };
 
@@ -233,7 +236,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
       () => {
         handleBulkDelete(selectedIds);
         setSelectedIds([]); // Limpa a seleção
-      }
+      },
     );
   };
 
@@ -241,7 +244,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   const renderEntity = (
     entity: any,
     index: number,
-    blocks?: any
+    blocks?: any,
   ): React.ReactNode => {
     switch (entity.type) {
       case "INSERT": {
@@ -257,7 +260,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           >
             {block.entities &&
               block.entities.map((child: any, i: number) =>
-                renderEntity(child, i, blocks)
+                renderEntity(child, i, blocks),
               )}
           </g>
         );
@@ -538,39 +541,53 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         </div>
 
         <div style={{ display: "flex", gap: "15px", alignItems: "center" }}>
-
-         {/* ⬇️ --- INSERIR O BOTÃO AQUI --- ⬇️ */}
-  <button
-    onClick={handleRefreshView}
-    title="Recarregar visualização (Destravar interface)"
-    style={{
-      background: "transparent",
-      color: theme.text,
-      border: `1px solid ${theme.border}`,
-      padding: "8px 10px",
-      borderRadius: "4px",
-      cursor: "pointer",
-      display: "flex",
-      alignItems: "center",
-      gap: "6px",
-      fontSize: "12px"
-    }}
-  >
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M23 4v6h-6"></path>
-      <path d="M1 20v-6h6"></path>
-      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-    </svg>
-    Atualizar
-  </button>
-  {/* ⬆️ ---------------------------- ⬆️ */} 
+          {/* ⬇️ --- INSERIR O BOTÃO AQUI --- ⬇️ */}
+          <button
+            onClick={handleRefreshView}
+            disabled={isRefreshing}
+            title="Recarregar visualização (Destravar interface)"
+            style={{
+              background: "transparent",
+              color: theme.text,
+              border: `1px solid ${theme.border}`,
+              padding: "8px 10px",
+              borderRadius: "4px",
+              cursor: isRefreshing ? "wait" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              fontSize: "16px",
+            }}
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                // Adicionamos transformOrigin e transformBox
+                transformOrigin: "center",
+                transformBox: "fill-box",
+                transition: "transform 0.7s ease",
+                transform: isRefreshing ? "rotate(360deg)" : "rotate(0deg)",
+              }}
+            >
+              <path d="M23 4v6h-6"></path>
+              <path d="M1 20v-6h6"></path>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+          </button>
 
           <button
             onClick={() =>
               executeWithSessionConfirmation(
                 "resetList",
                 "Tem certeza que deseja limpar toda a lista e começar do zero?",
-                handleReset
+                handleReset,
               )
             }
             style={{
@@ -663,7 +680,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   selectedIds.length > 0
                     ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
                     : "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("pedido", selectedIds) // <--- AQUI ESTÁ O SEGREDO
+                  () => applyToAll("pedido", selectedIds), // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
@@ -690,7 +707,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   selectedIds.length > 0
                     ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
                     : "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("op", selectedIds) // <--- AQUI ESTÁ O SEGREDO
+                  () => applyToAll("op", selectedIds), // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
@@ -719,7 +736,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   selectedIds.length > 0
                     ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
                     : "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("tipo_producao", selectedIds) // <--- AQUI ESTÁ O SEGREDO
+                  () => applyToAll("tipo_producao", selectedIds), // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
@@ -761,7 +778,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   selectedIds.length > 0
                     ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
                     : "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("material", selectedIds) // <--- AQUI ESTÁ O SEGREDO
+                  () => applyToAll("material", selectedIds), // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
@@ -830,7 +847,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   selectedIds.length > 0
                     ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
                     : "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("espessura", selectedIds) // <--- AQUI ESTÁ O SEGREDO
+                  () => applyToAll("espessura", selectedIds), // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
@@ -877,7 +894,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             executeWithSessionConfirmation(
               "convertBlock",
               "Deseja converter todas as geometrias complexas em Blocos/Inserts?",
-              handleConvertAllToBlocks
+              handleConvertAllToBlocks,
             )
           }
           title="Converte todas as peças complexas em blocos únicos"
@@ -920,7 +937,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
 
       {/* --- AQUI É ONDE A MÁGICA ACONTECE --- */}
       <div key={viewKey} style={splitContainer}>
-      {/* ------------------------------------- */}
+        {/* ------------------------------------- */}
 
         <div style={leftPanel}>
           <div
@@ -997,8 +1014,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
 
               return (
                 <div
-                // --- [INSERÇÃO 2] ADICIONE ESTA LINHA AQUI ---
-                  id={`part-card-${part.id}`} 
+                  // --- [INSERÇÃO 2] ADICIONE ESTA LINHA AQUI ---
+                  id={`part-card-${part.id}`}
                   // ---------------------------------------------
                   key={part.id}
                   // ADICIONE ESTA LINHA (Aplica a classe de animação se tiver erro):
@@ -1011,10 +1028,10 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                     borderColor: selectedIds.includes(part.id)
                       ? "#d32f2f" // Vermelho (Selecionado para excluir)
                       : isSelected
-                      ? "#007bff" // Azul (Selecionado clicado)
-                      : part.hasOpenGeometry
-                      ? "#ffc107" // Amarelo (Aviso de Geometria) <--- NOVO
-                      : theme.border, // Padrão
+                        ? "#007bff" // Azul (Selecionado clicado)
+                        : part.hasOpenGeometry
+                          ? "#ffc107" // Amarelo (Aviso de Geometria) <--- NOVO
+                          : theme.border, // Padrão
 
                     background: selectedIds.includes(part.id)
                       ? "rgba(220, 53, 69, 0.08)"
@@ -1151,7 +1168,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                       preserveAspectRatio="xMidYMid meet"
                     >
                       {part.entities.map((ent: any, i: number) =>
-                        renderEntity(ent, i, part.blocks)
+                        renderEntity(ent, i, part.blocks),
                       )}
                     </svg>
                   </div>
@@ -1384,10 +1401,10 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 const rowBackground = isSelected
                   ? theme.selectedRow
                   : isRetrabalho
-                  ? "rgba(220, 53, 69, 0.08)" // Fundo levemente avermelhado
-                  : i % 2 === 0
-                  ? "transparent"
-                  : theme.hoverRow;
+                    ? "rgba(220, 53, 69, 0.08)" // Fundo levemente avermelhado
+                    : i % 2 === 0
+                      ? "transparent"
+                      : theme.hoverRow;
                 // -----------------------------
 
                 const entCount = part.entities.length;
@@ -1395,8 +1412,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   entCount === 1
                     ? "#28a745"
                     : entCount > 10
-                    ? "#ff4d4d"
-                    : theme.label;
+                      ? "#ff4d4d"
+                      : theme.label;
 
                 return (
                   <tr
@@ -1481,7 +1498,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                           handleRowChange(
                             part.id,
                             "tipo_producao",
-                            e.target.value
+                            e.target.value,
                           )
                         }
                       >
@@ -1573,7 +1590,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                           handleRowChange(
                             part.id,
                             "quantity",
-                            Number(e.target.value)
+                            Number(e.target.value),
                           )
                         }
                         style={{
@@ -1785,7 +1802,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               {(() => {
                 const box = calculateBoundingBox(
                   viewingPart.entities,
-                  viewingPart.blocks
+                  viewingPart.blocks,
                 );
                 const w = box.maxX - box.minX || 100;
                 const h = box.maxY - box.minY || 100;
@@ -1806,7 +1823,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                     preserveAspectRatio="xMidYMid meet"
                   >
                     {viewingPart.entities.map((ent: any, i: number) =>
-                      renderEntity(ent, i, viewingPart.blocks)
+                      renderEntity(ent, i, viewingPart.blocks),
                     )}
 
                     {/* ------------------------------------------------------------------ */}

@@ -335,6 +335,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   
 const [viewKey, setViewKey] = useState(0); // Controla o reset visual do Canvas
 
+const [isRefreshing, setIsRefreshing] = useState(false);
+
 
   useEffect(() => {
     if (user && user.token) {
@@ -1320,22 +1322,25 @@ const [viewKey, setViewKey] = useState(0); // Controla o reset visual do Canvas
     clearSavedState,
   ]);
 
-  // ⬇️ --- ADICIONE ESTE BLOCO AQUI --- ⬇️
 const handleRefreshView = useCallback(() => {
-    // 1. Incrementa a chave para forçar o React a recriar o componente Canvas
+    // 1. Liga a animação
+    setIsRefreshing(true); 
+
+    // 2. Incrementa a chave para forçar o React a recriar o componente Canvas
     setViewKey((prev) => prev + 1);
 
-    // 2. Força uma atualização rasa nos estados para garantir sincronia
+    // 3. Força uma atualização rasa nos estados para garantir sincronia
     setNestingResult((prev) => [...prev]);
     
-    // 3. Limpa qualquer menu ou seleção que possa estar travada na tela
+    // 4. Limpa menus travados
     setContextMenu(null);
     setSheetMenu(null);
     
-    // Feedback visual opcional no console
+    // 5. Desliga a animação após 0.7s
+    setTimeout(() => setIsRefreshing(false), 700);
+    
     console.log("♻️ Interface gráfica recarregada (Soft Reset).");
-}, [setNestingResult]);
-// ⬆️ -------------------------------- ⬆️
+  }, [setNestingResult]);
 
   // --- NOVA FUNÇÃO: Navegação Segura para Home ---
   const handleSafeHomeExit = useCallback(() => {
@@ -2609,14 +2614,15 @@ const handleRefreshView = useCallback(() => {
         {/* ⬇️ --- BOTÃO DE REFRESH COM ÍCONE PADRÃO --- ⬇️ */}
 <button
   onClick={handleRefreshView}
+  disabled={isRefreshing}
   title="Recarregar visualização (Destravar interface)"
   style={{
     background: "transparent",
     border: `1px solid ${theme.border}`,
     color: theme.text,
-    padding: "5px 8px", // Ajustei levemente o padding
+    padding: "5px 6px", // Ajustei levemente o padding
     borderRadius: "4px",
-    cursor: "pointer",
+    cursor: isRefreshing ? "wait" : "pointer", // Cursor de espera
     fontSize: "12px",
     display: "flex",
     alignItems: "center",
@@ -2627,22 +2633,29 @@ const handleRefreshView = useCallback(() => {
   onMouseEnter={(e) => e.currentTarget.style.background = theme.hoverRow}
   onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
 >
-  {/* Ícone SVG de Refresh Padrão */}
-  <svg 
-    width="16" 
-    height="16" 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round"
-  >
-    <path d="M23 4v6h-6"></path>
-    <path d="M1 20v-6h6"></path>
-    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-  </svg>  
-</button>
+  {/* Ícone SVG com Rotação */}
+          <svg 
+            width="16" 
+            height="16" 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            stroke="currentColor" 
+            strokeWidth="2" 
+            strokeLinecap="round" 
+            strokeLinejoin="round"
+            style={{
+              // A Mágica da Rotação:
+              transformOrigin: "center", 
+              transformBox: "fill-box",
+              transition: "transform 0.7s ease",
+              transform: isRefreshing ? "rotate(360deg)" : "rotate(0deg)"
+            }}
+          >
+            <path d="M23 4v6h-6"></path>
+            <path d="M1 20v-6h6"></path>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>  
+        </button>
 {/* ⬆️ ------------------------------------------ ⬆️ */}
 
         {/* LÓGICA DOS BOTÕES DE COLISÃO (CORRIGIDA) */}
