@@ -1763,7 +1763,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     alignItems: "center",
     backgroundColor: theme.panelBg,
     flexWrap: "nowrap",
-    overflowX: "auto",
+    overflowX: "hidden",
   };
   const inputStyle: React.CSSProperties = {
     padding: 5,
@@ -2509,13 +2509,20 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           <select
             value={strategy}
             onChange={(e) => setStrategy(e.target.value as any)}
-            style={inputStyle}
+            style={{ ...inputStyle, width: "200px" }}
           >
             <option value="guillotine">✂️ Guilhotina</option>{" "}
             {/* Mudou de "rect" */}
             <option value="true-shape">🧩 Smart Nest</option>
             <option value="true-shape-v2">⚡ Smart Nest V2</option>
-            <option value="wise">🧠 Wise Nest (Preciso)</option>{" "}
+            {/* ALTERAÇÃO AQUI: Adicionado disabled e estilo de cor/opacidade */}
+            <option
+              value="wise"
+              disabled
+              style={{ color: "#999", fontStyle: "italic", opacity: 0.5 }}
+            >
+              🧠 Wise Nest (em Breve)
+            </option>
             {/* <--- INSERIR ESTA LINHA */}
           </select>
         </div>
@@ -2776,7 +2783,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               marginLeft: "10px",
             }}
           >
-            💥 Verificar Colisão
+            💥 Colisão
           </button>
         )}
 
@@ -2868,7 +2875,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             </>
           ) : (
             <>
-              <span>▶</span> Calcular Nesting
+               Calcular Nesting
             </>
           )}
         </button>
