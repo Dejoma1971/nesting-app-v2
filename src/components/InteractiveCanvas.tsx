@@ -108,6 +108,8 @@ const bulgeToArc = (
   return { radius, cx, cy };
 };
 
+// InteractiveCanvas.tsx
+
 const renderEntityFunction = (
   entity: any,
   index: number,
@@ -116,6 +118,8 @@ const renderEntityFunction = (
   color: string = "currentColor",
   onLabelDown?: (e: React.MouseEvent, type: "white" | "pink") => void,
   onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void,
+  // NOVO PARÂMETRO: Permite controlar a espessura (para o fantasma)
+  customStrokeWidth?: number,
 ): React.ReactNode => {
   const handleLabelDown = (e: React.MouseEvent) => {
     if (entity.isLabel && onLabelDown) {
@@ -130,10 +134,28 @@ const renderEntityFunction = (
       onEntityContextMenu(e, entity);
     }
   };
+
+  // --- LÓGICA DE ESPESSURA INTELIGENTE ---
+  let strokeW = customStrokeWidth !== undefined ? customStrokeWidth : 2 * scale;
+
+  // AJUSTE: Limitamos a 2px (o pedido do usuário) para o texto ficar bem fino
+  if (entity.isLabel && strokeW > 1.5 * scale) {
+    strokeW = 1.5 * scale;
+  }
+  // ---------------------------------------
+
+  const commonProps = {
+    fill: "none",
+    stroke: entity.isLabel ? entity.color || color : color,
+    strokeWidth: strokeW,
+    vectorEffect: "non-scaling-stroke", // Garante espessura constante no zoom
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+
   const labelStyle: React.CSSProperties = entity.isLabel
     ? { cursor: "move" }
     : {};
-  const hitAreaWidth = 6 * scale;
 
   switch (entity.type) {
     case "INSERT": {
@@ -155,13 +177,13 @@ const renderEntityFunction = (
               color,
               onLabelDown,
               onEntityContextMenu,
+              customStrokeWidth, // Repassa a espessura para os filhos do bloco
             ),
           )}
         </g>
       );
     }
     case "LINE": {
-      const lineColor = entity.isLabel ? entity.color || color : color;
       return (
         <g
           key={index}
@@ -174,21 +196,8 @@ const renderEntityFunction = (
             y1={entity.vertices[0].y * scale}
             x2={entity.vertices[1].x * scale}
             y2={entity.vertices[1].y * scale}
-            stroke={lineColor}
-            strokeWidth={2 * scale}
-            vectorEffect="non-scaling-stroke"
+            {...commonProps}
           />
-          {entity.isLabel && (
-            <line
-              x1={entity.vertices[0].x * scale}
-              y1={entity.vertices[0].y * scale}
-              x2={entity.vertices[1].x * scale}
-              y2={entity.vertices[1].y * scale}
-              stroke="transparent"
-              strokeWidth={hitAreaWidth}
-              vectorEffect="non-scaling-stroke"
-            />
-          )}
         </g>
       );
     }
@@ -220,10 +229,7 @@ const renderEntityFunction = (
         <path
           key={index}
           d={d}
-          fill="none"
-          stroke={entity.isLabel ? entity.color || color : color}
-          strokeWidth={2 * scale}
-          vectorEffect="non-scaling-stroke"
+          {...commonProps}
           onMouseDown={handleLabelDown}
           onContextMenu={handleContextMenu}
           style={labelStyle}
@@ -237,10 +243,7 @@ const renderEntityFunction = (
           cx={entity.center.x * scale}
           cy={entity.center.y * scale}
           r={entity.radius * scale}
-          fill="none"
-          stroke={entity.isLabel ? entity.color || color : color}
-          strokeWidth={2 * scale}
-          vectorEffect="non-scaling-stroke"
+          {...commonProps}
           onMouseDown={handleLabelDown}
           onContextMenu={handleContextMenu}
           style={labelStyle}
@@ -262,10 +265,7 @@ const renderEntityFunction = (
         <path
           key={index}
           d={d}
-          fill="none"
-          stroke={entity.isLabel ? entity.color || color : color}
-          strokeWidth={2 * scale}
-          vectorEffect="non-scaling-stroke"
+          {...commonProps}
           onMouseDown={handleLabelDown}
           onContextMenu={handleContextMenu}
           style={labelStyle}
@@ -273,6 +273,7 @@ const renderEntityFunction = (
       );
     }
     case "TEXT": {
+      // Texto não precisa de hit test grosso, mantemos padrão
       const textColor = entity.color || color;
       const px = entity.position.x * scale;
       const py = entity.position.y * scale;
@@ -414,6 +415,8 @@ interface PartElementProps {
 
 // ... (código anterior mantido)
 
+// InteractiveCanvas.tsx
+
 const PartElement = React.memo(
   forwardRef<SVGGElement, PartElementProps>(
     (
@@ -435,7 +438,7 @@ const PartElement = React.memo(
     ) => {
       if (!partData) return null;
 
-      // ... (cálculos matemáticos de AABB mantidos iguais) ...
+      // Cálculos da Bounding Box (Apenas para o quadrado de Debug)
       const { occupiedW, occupiedH } = calculateRotatedDimensions(
         partData.width,
         partData.height,
@@ -463,82 +466,81 @@ const PartElement = React.memo(
         : "";
 
       let strokeColor = theme.text === "#e0e0e0" ? "#007bff" : "#007bff";
-      if (isSelected) strokeColor = "#01ff3cff";
+      if (isSelected) strokeColor = "#01ff3cff"; // Verde Neon
       if (isColliding) strokeColor = "#ff0000";
 
-      // Apenas preenche visualmente se houver colisão (feedback de erro)
       const fillColor = isColliding ? "rgba(255, 0, 0, 0.3)" : "none";
 
       return (
         <g ref={ref}>
-          {/* GRUPO PRINCIPAL: Pointer Events NONE para deixar passar cliques nos vazios */}
+          {/* Grupo Container: Pointer Events NONE para o espaço vazio não ser clicável */}
           <g
             style={{
-              opacity: isSelected ? 0.8 : 1,
-              pointerEvents: "none", // <--- A MÁGICA ACONTECE AQUI
+              opacity: isSelected ? 0.9 : 1,
+              pointerEvents: "none",
             }}
           >
-            {/* 1. LAYER DE DEBUG / COLISÃO / SELEÇÃO (Visual apenas) */}
+            {/* DEBUG / COLISÃO BOX */}
             <polygon
               points={pointsStr}
               fill={fillColor}
+              // O stroke do box só aparece se colidir ou debug. Se selecionado, usamos o contorno da peça.
               stroke={isColliding ? "red" : showDebug ? "red" : "none"}
               strokeWidth={1}
               vectorEffect="non-scaling-stroke"
-              style={{ pointerEvents: "none" }} // Garante que o box nunca capture clique
+              style={{ pointerEvents: "none" }}
             />
 
-            {/* 2. LAYER DE MATERIAL (Geometria Real) */}
-            {/* Aqui aplicamos os eventos APENAS nas linhas/curvas reais */}
-            <g
-              transform={finalTransform}
-              // Eventos movidos para este grupo interno
-              onMouseDown={(e) => {
-                // Reativamos pointer-events apenas para captura
-                e.stopPropagation();
-                onMouseDown(e, placed.uuid);
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                onDoubleClick(e, placed.uuid);
-              }}
-              onContextMenu={(e) => {
-                e.stopPropagation();
-                onContextMenu(e, placed.uuid);
-              }}
-              style={{
-                cursor: isSelected ? "move" : "pointer",
-                pointerEvents: "visiblePainted", // Captura clique apenas onde tem tinta (stroke/fill)
-              }}
-            >
-              {/* Adicionamos um "fantasma" transparente grosso atrás das linhas para facilitar o clique */}
-              {partData.entities.map((ent, j) => (
-                <React.Fragment key={`hit-${j}`}>
-                  {/* Fantasma para Hit Test (espessura maior) */}
-                  {renderEntityFunction(
+            <g transform={finalTransform}>
+              {/* --- CAMADA 1: FANTASMA DE HIT TEST (Invisível mas Clicável) --- */}
+              <g
+                // Eventos apenas nesta camada
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  onMouseDown(e, placed.uuid);
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  onDoubleClick(e, placed.uuid);
+                }}
+                onContextMenu={(e) => {
+                  e.stopPropagation();
+                  onContextMenu(e, placed.uuid);
+                }}
+                style={{
+                  cursor: isSelected ? "move" : "pointer",
+                  pointerEvents: "stroke", // <--- IMPORTANTE: Só captura clique no traço
+                }}
+              >
+                {partData.entities.map((ent, j) =>
+                  renderEntityFunction(
                     ent,
                     j,
                     partData.blocks,
                     1,
-                    "transparent",
+                    "transparent", // Cor Transparente
                     undefined,
                     undefined,
-                  )}
-                </React.Fragment>
-              ))}
+                    15, // <--- ESPESSURA GROSSA (15px) para facilitar o clique
+                  ),
+                )}
+              </g>
 
-              {/* Desenho Real (Visível) */}
-              {partData.entities.map((ent, j) =>
-                renderEntityFunction(
-                  ent,
-                  j,
-                  partData.blocks,
-                  1,
-                  strokeColor,
-                  onLabelDown,
-                  onEntityContextMenu,
-                ),
-              )}
+              {/* --- CAMADA 2: VISUAL (Fina e Colorida) --- */}
+              <g style={{ pointerEvents: "none" }}>
+                {partData.entities.map((ent, j) =>
+                  renderEntityFunction(
+                    ent,
+                    j,
+                    partData.blocks,
+                    1,
+                    strokeColor, // Cor Real
+                    onLabelDown,
+                    onEntityContextMenu,
+                    2, // <--- ESPESSURA FINA PADRÃO (2px)
+                  ),
+                )}
+              </g>
             </g>
           </g>
         </g>

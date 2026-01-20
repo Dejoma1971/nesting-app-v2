@@ -908,8 +908,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             fontSize: "12px",
             fontWeight: "bold",
             // --- ALTERAÇÃO AQUI ---
-            marginLeft: "auto",   // Empurra este botão (e o próximo) para a direita
-            marginRight: "10px",  // Espaço entre ele e o botão de Importar
+            marginLeft: "auto", // Empurra este botão (e o próximo) para a direita
+            marginRight: "10px", // Espaço entre ele e o botão de Importar
             // ----------------------
           }}
         >
