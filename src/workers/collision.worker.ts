@@ -295,8 +295,11 @@ const getPartGeometry = (
   const cos = Math.cos(angleRad);
   const sin = Math.sin(angleRad);
 
-  const occupiedW = placed.rotation % 180 !== 0 ? h : w;
-  const occupiedH = placed.rotation % 180 !== 0 ? w : h;
+  // A NOVA LÓGICA (Trigonométrica) deve ser igual à do NestingBoard:
+  const occupiedW = w * Math.abs(cos) + h * Math.abs(sin);
+  const occupiedH = w * Math.abs(sin) + h * Math.abs(cos);
+  
+  // Agora o cálculo do centro no mundo baterá com o visual da mesa
   const worldCenterX = placed.x + occupiedW / 2;
   const worldCenterY = placed.y + occupiedH / 2;
 

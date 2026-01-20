@@ -907,7 +907,10 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             cursor: "pointer",
             fontSize: "12px",
             fontWeight: "bold",
-            marginLeft: "15px",
+            // --- ALTERAÇÃO AQUI ---
+            marginLeft: "auto",   // Empurra este botão (e o próximo) para a direita
+            marginRight: "10px",  // Espaço entre ele e o botão de Importar
+            // ----------------------
           }}
         >
           📦 Insert/Block
@@ -921,7 +924,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             cursor: "pointer",
             fontSize: "12px",
             fontWeight: "bold",
-            marginLeft: "auto",
+            // --- ALTERAÇÃO AQUI ---
+            marginLeft: "0", // Removemos o "auto" daqui
+            // ----------------------
           }}
         >
           Importar Peças

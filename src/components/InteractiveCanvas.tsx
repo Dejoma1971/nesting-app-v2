@@ -11,12 +11,13 @@ import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
 import type { AppTheme } from "../styles/theme";
 import type { CropLine } from "../hooks/useSheetManager";
+import { getOBBCorners } from "../utils/obbUtil";
 
 // --- COLE ISTO LOGO APÓS OS IMPORTS ---
 const calculateRotatedDimensions = (
   w: number,
   h: number,
-  rotationDeg: number
+  rotationDeg: number,
 ) => {
   const rad = rotationDeg * (Math.PI / 180);
   // Calcula o bounding box real trigonométrico
@@ -46,7 +47,7 @@ interface InteractiveCanvasProps {
   onCropLineMove?: (lineId: string, newPosition: number) => void;
   onBackgroundContextMenu?: (
     e: React.MouseEvent,
-    coords: { x: number; y: number }
+    coords: { x: number; y: number },
   ) => void;
 
   // Funções de Manipulação
@@ -57,7 +58,7 @@ interface InteractiveCanvasProps {
     partId: string,
     type: "white" | "pink",
     dx: number,
-    dy: number
+    dy: number,
   ) => void;
   onPartSelect: (partIds: string[], append: boolean) => void;
   onContextMenu: (e: React.MouseEvent, partId: string) => void;
@@ -96,7 +97,7 @@ interface SnapLine {
 const bulgeToArc = (
   p1: { x: number; y: number },
   p2: { x: number; y: number },
-  bulge: number
+  bulge: number,
 ) => {
   const chordDx = p2.x - p1.x;
   const chordDy = p2.y - p1.y;
@@ -114,7 +115,7 @@ const renderEntityFunction = (
   scale = 1,
   color: string = "currentColor",
   onLabelDown?: (e: React.MouseEvent, type: "white" | "pink") => void,
-  onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void
+  onEntityContextMenu?: (e: React.MouseEvent, entity: any) => void,
 ): React.ReactNode => {
   const handleLabelDown = (e: React.MouseEvent) => {
     if (entity.isLabel && onLabelDown) {
@@ -153,8 +154,8 @@ const renderEntityFunction = (
               1,
               color,
               onLabelDown,
-              onEntityContextMenu
-            )
+              onEntityContextMenu,
+            ),
           )}
         </g>
       );
@@ -315,7 +316,7 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
     cy: number,
     r: number,
     startAngle: number,
-    endAngle: number
+    endAngle: number,
   ) => {
     let start = startAngle % (2 * Math.PI);
     if (start < 0) start += 2 * Math.PI;
@@ -346,7 +347,7 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
           traverse(
             b.entities,
             (ent.position?.x || 0) + ox,
-            (ent.position?.y || 0) + oy
+            (ent.position?.y || 0) + oy,
           );
         else update((ent.position?.x || 0) + ox, (ent.position?.y || 0) + oy);
       } else if (ent.vertices) {
@@ -373,16 +374,16 @@ const calculateBoundingBox = (entities: any[], blocksData: any) => {
             ent.center.y + oy,
             ent.radius,
             ent.startAngle,
-            ent.endAngle
+            ent.endAngle,
           );
         else {
           update(
             ent.center.x + ox - ent.radius,
-            ent.center.y + oy - ent.radius
+            ent.center.y + oy - ent.radius,
           );
           update(
             ent.center.x + ox + ent.radius,
-            ent.center.y + oy + ent.radius
+            ent.center.y + oy + ent.radius,
           );
         }
       }
@@ -411,6 +412,8 @@ interface PartElementProps {
   globalScale: number;
 }
 
+// ... (código anterior mantido)
+
 const PartElement = React.memo(
   forwardRef<SVGGElement, PartElementProps>(
     (
@@ -425,18 +428,31 @@ const PartElement = React.memo(
         onEntityContextMenu,
         partData,
         showDebug,
-        strategy,
         transformData,
         theme,
       },
-      ref
+      ref,
     ) => {
       if (!partData) return null;
+
+      // ... (cálculos matemáticos de AABB mantidos iguais) ...
       const { occupiedW, occupiedH } = calculateRotatedDimensions(
         partData.width,
         partData.height,
-        placed.rotation
+        placed.rotation,
       );
+      const cx = placed.x + occupiedW / 2;
+      const cy = placed.y + occupiedH / 2;
+      const ox = cx - partData.width / 2;
+      const oy = cy - partData.height / 2;
+      const corners = getOBBCorners(
+        ox,
+        oy,
+        partData.width,
+        partData.height,
+        placed.rotation,
+      );
+      const pointsStr = corners.map((p) => `${p.x},${p.y}`).join(" ");
 
       const finalTransform = transformData
         ? `translate(${placed.x + transformData.occupiedW / 2}, ${
@@ -450,44 +466,68 @@ const PartElement = React.memo(
       if (isSelected) strokeColor = "#01ff3cff";
       if (isColliding) strokeColor = "#ff0000";
 
-      const fillColor = isColliding ? "rgba(255, 0, 0, 0.3)" : "transparent";
+      // Apenas preenche visualmente se houver colisão (feedback de erro)
+      const fillColor = isColliding ? "rgba(255, 0, 0, 0.3)" : "none";
 
       return (
         <g ref={ref}>
+          {/* GRUPO PRINCIPAL: Pointer Events NONE para deixar passar cliques nos vazios */}
           <g
-            onMouseDown={(e) => onMouseDown(e, placed.uuid)}
-            onDoubleClick={(e) => onDoubleClick(e, placed.uuid)}
-            onContextMenu={(e) => onContextMenu(e, placed.uuid)}
             style={{
-              cursor:
-                strategy === "guillotine"
-                  ? "default"
-                  : isSelected
-                  ? "move"
-                  : "pointer",
               opacity: isSelected ? 0.8 : 1,
+              pointerEvents: "none", // <--- A MÁGICA ACONTECE AQUI
             }}
           >
-            <rect
-              x={placed.x}
-              y={placed.y}
-              width={occupiedW}
-              height={occupiedH}
+            {/* 1. LAYER DE DEBUG / COLISÃO / SELEÇÃO (Visual apenas) */}
+            <polygon
+              points={pointsStr}
               fill={fillColor}
-              stroke={
-                isColliding
-                  ? "red"
-                  : isSelected
-                  ? "#01ff3cff"
-                  : showDebug
-                  ? "red"
-                  : "none"
-              }
+              stroke={isColliding ? "red" : showDebug ? "red" : "none"}
               strokeWidth={1}
               vectorEffect="non-scaling-stroke"
-              pointerEvents="all"
+              style={{ pointerEvents: "none" }} // Garante que o box nunca capture clique
             />
-            <g transform={finalTransform} style={{ pointerEvents: "none" }}>
+
+            {/* 2. LAYER DE MATERIAL (Geometria Real) */}
+            {/* Aqui aplicamos os eventos APENAS nas linhas/curvas reais */}
+            <g
+              transform={finalTransform}
+              // Eventos movidos para este grupo interno
+              onMouseDown={(e) => {
+                // Reativamos pointer-events apenas para captura
+                e.stopPropagation();
+                onMouseDown(e, placed.uuid);
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                onDoubleClick(e, placed.uuid);
+              }}
+              onContextMenu={(e) => {
+                e.stopPropagation();
+                onContextMenu(e, placed.uuid);
+              }}
+              style={{
+                cursor: isSelected ? "move" : "pointer",
+                pointerEvents: "visiblePainted", // Captura clique apenas onde tem tinta (stroke/fill)
+              }}
+            >
+              {/* Adicionamos um "fantasma" transparente grosso atrás das linhas para facilitar o clique */}
+              {partData.entities.map((ent, j) => (
+                <React.Fragment key={`hit-${j}`}>
+                  {/* Fantasma para Hit Test (espessura maior) */}
+                  {renderEntityFunction(
+                    ent,
+                    j,
+                    partData.blocks,
+                    1,
+                    "transparent",
+                    undefined,
+                    undefined,
+                  )}
+                </React.Fragment>
+              ))}
+
+              {/* Desenho Real (Visível) */}
               {partData.entities.map((ent, j) =>
                 renderEntityFunction(
                   ent,
@@ -496,15 +536,15 @@ const PartElement = React.memo(
                   1,
                   strokeColor,
                   onLabelDown,
-                  onEntityContextMenu
-                )
+                  onEntityContextMenu,
+                ),
               )}
             </g>
           </g>
         </g>
       );
-    }
-  )
+    },
+  ),
 );
 PartElement.displayName = "PartElement";
 
@@ -553,7 +593,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   } | null>(null);
 
   const [boundingBoxCache, setBoundingBoxCache] = useState<BoundingBoxCache>(
-    {}
+    {},
   );
   const [snapLines, setSnapLines] = useState<SnapLine[]>([]);
 
@@ -591,10 +631,10 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       if (panGroupRef.current)
         panGroupRef.current.setAttribute(
           "transform",
-          `translate(${newT.x}, ${newT.y}) scale(${newT.k})`
+          `translate(${newT.x}, ${newT.y}) scale(${newT.k})`,
         );
     },
-    []
+    [],
   );
 
   useEffect(() => {
@@ -612,7 +652,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         point.x = e.clientX;
         point.y = e.clientY;
         const svgPoint = point.matrixTransform(
-          svgElement.getScreenCTM()?.inverse()
+          svgElement.getScreenCTM()?.inverse(),
         );
         mouseX = svgPoint.x;
         mouseY = svgPoint.y;
@@ -638,7 +678,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
 
   const resetZoom = useCallback(
     () => updateTransform({ x: 0, y: 0, k: 1 }),
-    [updateTransform]
+    [updateTransform],
   );
   const handleMouseDownContainer = useCallback(() => {}, []);
   const handleDoubleClickContainer = useCallback(
@@ -646,7 +686,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       e.preventDefault();
       onPartSelect([], false);
     },
-    [onPartSelect]
+    [onPartSelect],
   );
 
   const partTransforms = useMemo(() => {
@@ -678,7 +718,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       const { occupiedW, occupiedH } = calculateRotatedDimensions(
         part.width,
         part.height,
-        placed.rotation
+        placed.rotation,
       );
 
       transforms[placed.uuid] = {
@@ -708,7 +748,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         onPartSelect([uuid], false);
       }
     },
-    [selectedPartIds, onPartSelect]
+    [selectedPartIds, onPartSelect],
   );
 
   const handleMouseDownPart = useCallback(
@@ -731,7 +771,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         };
       }
     },
-    [strategy, selectedPartIds, getSVGPoint]
+    [strategy, selectedPartIds, getSVGPoint],
   );
 
   const handleLabelDown = useCallback(
@@ -748,7 +788,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         initialY: 0,
       };
     },
-    [getSVGPoint]
+    [getSVGPoint],
   );
 
   const handleLineDown = useCallback(
@@ -756,7 +796,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       e: React.MouseEvent,
       lineId: string,
       type: "horizontal" | "vertical",
-      position: number
+      position: number,
     ) => {
       e.stopPropagation();
       e.preventDefault();
@@ -772,7 +812,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         initialY: 0,
       };
     },
-    [getSVGPoint]
+    [getSVGPoint],
   );
 
   const calculateSnap = useCallback(
@@ -920,7 +960,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       });
       return { snapedDx: deltaX + snapDx, snapedDy: deltaY + snapDy, guides };
     },
-    [placedParts, partTransforms, binWidth, binHeight]
+    [placedParts, partTransforms, binWidth, binHeight],
   );
 
   useEffect(() => {
@@ -975,7 +1015,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
 
           const { snapedDx, snapedDy, guides } = calculateSnap(
             deltaX,
-            machineDeltaY
+            machineDeltaY,
           );
 
           setSnapLines(guides);
@@ -1066,7 +1106,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       const visualY = (svgPos.y - transform.y) / transform.k;
       onCanvasDrop(partId, visualX, binHeight - visualY);
     },
-    [getSVGPoint, transform, binHeight, onCanvasDrop]
+    [getSVGPoint, transform, binHeight, onCanvasDrop],
   );
 
   const handleNativeDragOver = useCallback((e: React.DragEvent) => {
@@ -1078,7 +1118,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     if (placedParts.length === 0) return;
     if (
       window.confirm(
-        "Deseja recolher todas as peças da mesa de volta para o banco?"
+        "Deseja recolher todas as peças da mesa de volta para o banco?",
       )
     ) {
       const allUuids = placedParts.map((p) => p.uuid);
@@ -1091,7 +1131,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       `${-binWidth * 0.05} ${-binHeight * 0.05} ${binWidth * 1.1} ${
         binHeight * 1.1
       }`,
-    [binWidth, binHeight]
+    [binWidth, binHeight],
   );
 
   const btnStyle: React.CSSProperties = {

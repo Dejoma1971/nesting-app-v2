@@ -55,8 +55,8 @@ const getTransformedPolygon = (part: ImportedPart, placed: PlacedPart): Point[] 
     const cos = Math.cos(angleRad);
     const sin = Math.sin(angleRad);
 
-    const occupiedW = placed.rotation % 180 !== 0 ? h : w;
-    const occupiedH = placed.rotation % 180 !== 0 ? w : h;
+    const occupiedW = w * Math.abs(cos) + h * Math.abs(sin);
+    const occupiedH = w * Math.abs(sin) + h * Math.abs(cos);
     
     const worldCenterX = placed.x + occupiedW / 2;
     const worldCenterY = placed.y + occupiedH / 2;
