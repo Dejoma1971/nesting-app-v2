@@ -412,6 +412,8 @@ interface PartElementProps {
   globalScale: number;
 }
 
+// ... (código anterior mantido)
+
 const PartElement = React.memo(
   forwardRef<SVGGElement, PartElementProps>(
     (
@@ -426,30 +428,23 @@ const PartElement = React.memo(
         onEntityContextMenu,
         partData,
         showDebug,
-        strategy,
         transformData,
         theme,
       },
       ref,
     ) => {
       if (!partData) return null;
-      // 1. Mantemos o cálculo do AABB apenas para achar o CENTRO da peça
+
+      // ... (cálculos matemáticos de AABB mantidos iguais) ...
       const { occupiedW, occupiedH } = calculateRotatedDimensions(
         partData.width,
         partData.height,
         placed.rotation,
       );
-
-      // 2. Calculamos o Centro Geométrico da peça com base no AABB atual
-      // (placed.x e placed.y atualmente representam o canto do AABB)
       const cx = placed.x + occupiedW / 2;
       const cy = placed.y + occupiedH / 2;
-
-      // 3. Calculamos a origem (Top-Left) que a peça teria se NÃO estivesse rotacionada
       const ox = cx - partData.width / 2;
       const oy = cy - partData.height / 2;
-
-      // 4. Usamos nossa nova função matemática para pegar os 4 cantos rotacionados
       const corners = getOBBCorners(
         ox,
         oy,
@@ -457,8 +452,6 @@ const PartElement = React.memo(
         partData.height,
         placed.rotation,
       );
-
-      // 5. Transformamos os cantos em uma string para o SVG <polygon>
       const pointsStr = corners.map((p) => `${p.x},${p.y}`).join(" ");
 
       const finalTransform = transformData
@@ -473,42 +466,68 @@ const PartElement = React.memo(
       if (isSelected) strokeColor = "#01ff3cff";
       if (isColliding) strokeColor = "#ff0000";
 
-      const fillColor = isColliding ? "rgba(255, 0, 0, 0.3)" : "transparent";
+      // Apenas preenche visualmente se houver colisão (feedback de erro)
+      const fillColor = isColliding ? "rgba(255, 0, 0, 0.3)" : "none";
 
       return (
         <g ref={ref}>
+          {/* GRUPO PRINCIPAL: Pointer Events NONE para deixar passar cliques nos vazios */}
           <g
-            onMouseDown={(e) => onMouseDown(e, placed.uuid)}
-            onDoubleClick={(e) => onDoubleClick(e, placed.uuid)}
-            onContextMenu={(e) => onContextMenu(e, placed.uuid)}
             style={{
-              cursor:
-                strategy === "guillotine"
-                  ? "default"
-                  : isSelected
-                    ? "move"
-                    : "pointer",
               opacity: isSelected ? 0.8 : 1,
+              pointerEvents: "none", // <--- A MÁGICA ACONTECE AQUI
             }}
           >
-            {/* SUBSTITUA O <rect> ANTIGO POR ISTO: */}
+            {/* 1. LAYER DE DEBUG / COLISÃO / SELEÇÃO (Visual apenas) */}
             <polygon
               points={pointsStr}
               fill={fillColor}
-              stroke={
-                isColliding
-                  ? "red"
-                  : isSelected
-                    ? "#01ff3cff"
-                    : showDebug
-                      ? "red"
-                      : "none"
-              }
+              stroke={isColliding ? "red" : showDebug ? "red" : "none"}
               strokeWidth={1}
               vectorEffect="non-scaling-stroke"
-              pointerEvents="all" // Garante que o clique funcione na área rotacionada
+              style={{ pointerEvents: "none" }} // Garante que o box nunca capture clique
             />
-            <g transform={finalTransform} style={{ pointerEvents: "none" }}>
+
+            {/* 2. LAYER DE MATERIAL (Geometria Real) */}
+            {/* Aqui aplicamos os eventos APENAS nas linhas/curvas reais */}
+            <g
+              transform={finalTransform}
+              // Eventos movidos para este grupo interno
+              onMouseDown={(e) => {
+                // Reativamos pointer-events apenas para captura
+                e.stopPropagation();
+                onMouseDown(e, placed.uuid);
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                onDoubleClick(e, placed.uuid);
+              }}
+              onContextMenu={(e) => {
+                e.stopPropagation();
+                onContextMenu(e, placed.uuid);
+              }}
+              style={{
+                cursor: isSelected ? "move" : "pointer",
+                pointerEvents: "visiblePainted", // Captura clique apenas onde tem tinta (stroke/fill)
+              }}
+            >
+              {/* Adicionamos um "fantasma" transparente grosso atrás das linhas para facilitar o clique */}
+              {partData.entities.map((ent, j) => (
+                <React.Fragment key={`hit-${j}`}>
+                  {/* Fantasma para Hit Test (espessura maior) */}
+                  {renderEntityFunction(
+                    ent,
+                    j,
+                    partData.blocks,
+                    1,
+                    "transparent",
+                    undefined,
+                    undefined,
+                  )}
+                </React.Fragment>
+              ))}
+
+              {/* Desenho Real (Visível) */}
               {partData.entities.map((ent, j) =>
                 renderEntityFunction(
                   ent,
