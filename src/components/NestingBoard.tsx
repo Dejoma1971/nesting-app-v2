@@ -63,6 +63,20 @@ const stringToColor = (str: string) => {
   return "#" + "00000".substring(0, 6 - c.length) + c;
 };
 
+// Adicione no topo do NestingBoard.tsx, junto com as outras funções auxiliares
+const calculateRotatedDimensions = (
+  width: number,
+  height: number,
+  rotationDeg: number,
+) => {
+  const rad = rotationDeg * (Math.PI / 180);
+  const occupiedW =
+    width * Math.abs(Math.cos(rad)) + height * Math.abs(Math.sin(rad));
+  const occupiedH =
+    width * Math.abs(Math.sin(rad)) + height * Math.abs(Math.cos(rad));
+  return { width: occupiedW, height: occupiedH };
+};
+
 // --- MATEMÁTICA DE ARCOS E BOUNDING BOX ---
 const bulgeToArc = (p1: any, p2: any, bulge: number) => {
   const chordDx = p2.x - p1.x;
@@ -456,7 +470,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const nestingWorkerRef = useRef<Worker | null>(null);
   const wiseNestingWorkerRef = useRef<Worker | null>(null);
   const smartNestNewWorkerRef = useRef<Worker | null>(null);
-  
+
   // --- NOVO: Estados para o Checklist de Pedidos ---
   const [availableOrders, setAvailableOrders] = useState<string[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
@@ -1188,7 +1202,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       }, 50);
     } else if (strategy === "wise") {
       // --- 3. MOTOR WISE NEST (Melhor Aproveitamento / Furos) ---
-      if (wiseNestingWorkerRef.current) wiseNestingWorkerRef.current.terminate();
+      if (wiseNestingWorkerRef.current)
+        wiseNestingWorkerRef.current.terminate();
       wiseNestingWorkerRef.current = new WiseNestingWorker();
 
       wiseNestingWorkerRef.current.onmessage = (e) => {
@@ -1201,7 +1216,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         setTotalBins(result.totalBins || 1);
         setIsComputing(false);
 
-        if (result.placed.length === 0) alert("Nenhuma peça coube no Wise Nest!");
+        if (result.placed.length === 0)
+          alert("Nenhuma peça coube no Wise Nest!");
       };
 
       wiseNestingWorkerRef.current.postMessage({
@@ -1213,68 +1229,67 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         binHeight: binSize.height,
         rotationStep: 5,
       });
-
     } else if (strategy === "true-shape-v2") {
-       // --- 4. MOTOR SMART NEST V2 (First Fit / Preencher) ---
-       // <--- AQUI ENTRA A LÓGICA DO NOVO MOTOR SELECIONADO NO DROPDOWN
-       if (smartNestNewWorkerRef.current) smartNestNewWorkerRef.current.terminate();
-       smartNestNewWorkerRef.current = new SmartNestNewWorker();
+      // --- 4. MOTOR SMART NEST V2 (First Fit / Preencher) ---
+      // <--- AQUI ENTRA A LÓGICA DO NOVO MOTOR SELECIONADO NO DROPDOWN
+      if (smartNestNewWorkerRef.current)
+        smartNestNewWorkerRef.current.terminate();
+      smartNestNewWorkerRef.current = new SmartNestNewWorker();
 
-       smartNestNewWorkerRef.current.onmessage = (e) => {
-          const result = e.data;
-          const duration = (Date.now() - startTime) / 1000;
-          setCalculationTime(duration);
-          
-          resetNestingResult(result.placed);
-          setFailedCount(result.failed.length);
-          setTotalBins(result.totalBins || 1);
-          setIsComputing(false);
+      smartNestNewWorkerRef.current.onmessage = (e) => {
+        const result = e.data;
+        const duration = (Date.now() - startTime) / 1000;
+        setCalculationTime(duration);
 
-          if (result.placed.length === 0) alert("Nenhuma peça coube (Motor V2)!");
-       };
+        resetNestingResult(result.placed);
+        setFailedCount(result.failed.length);
+        setTotalBins(result.totalBins || 1);
+        setIsComputing(false);
 
-       smartNestNewWorkerRef.current.postMessage({
-          parts: JSON.parse(JSON.stringify(partsToNest)),
-          quantities,
-          gap,
-          margin,
-          binWidth: binSize.width,
-          binHeight: binSize.height,
-          strategy: "true-shape", // O worker interno usa a mesma lógica base
-          iterations,
-          rotationStep,
-          direction,
-       });
+        if (result.placed.length === 0) alert("Nenhuma peça coube (Motor V2)!");
+      };
 
+      smartNestNewWorkerRef.current.postMessage({
+        parts: JSON.parse(JSON.stringify(partsToNest)),
+        quantities,
+        gap,
+        margin,
+        binWidth: binSize.width,
+        binHeight: binSize.height,
+        strategy: "true-shape", // O worker interno usa a mesma lógica base
+        iterations,
+        rotationStep,
+        direction,
+      });
     } else {
-       // --- 2. MOTOR SMART NEST PADRÃO (Next Fit / Original) ---
-       // <--- CAI AQUI SE strategy === "true-shape"
-       if (nestingWorkerRef.current) nestingWorkerRef.current.terminate();
-       nestingWorkerRef.current = new NestingWorker();
+      // --- 2. MOTOR SMART NEST PADRÃO (Next Fit / Original) ---
+      // <--- CAI AQUI SE strategy === "true-shape"
+      if (nestingWorkerRef.current) nestingWorkerRef.current.terminate();
+      nestingWorkerRef.current = new NestingWorker();
 
-       nestingWorkerRef.current.onmessage = (e) => {
-          const result = e.data;
-          const duration = (Date.now() - startTime) / 1000;
-          setCalculationTime(duration);
-          resetNestingResult(result.placed);
-          setFailedCount(result.failed.length);
-          setTotalBins(result.totalBins || 1);
-          setIsComputing(false);
-          if (result.placed.length === 0) alert("Nenhuma peça coube!");
-       };
+      nestingWorkerRef.current.onmessage = (e) => {
+        const result = e.data;
+        const duration = (Date.now() - startTime) / 1000;
+        setCalculationTime(duration);
+        resetNestingResult(result.placed);
+        setFailedCount(result.failed.length);
+        setTotalBins(result.totalBins || 1);
+        setIsComputing(false);
+        if (result.placed.length === 0) alert("Nenhuma peça coube!");
+      };
 
-       nestingWorkerRef.current.postMessage({
-          parts: JSON.parse(JSON.stringify(partsToNest)),
-          quantities,
-          gap,
-          margin,
-          binWidth: binSize.width,
-          binHeight: binSize.height,
-          strategy,
-          iterations,
-          rotationStep, 
-          direction,
-       });
+      nestingWorkerRef.current.postMessage({
+        parts: JSON.parse(JSON.stringify(partsToNest)),
+        quantities,
+        gap,
+        margin,
+        binWidth: binSize.width,
+        binHeight: binSize.height,
+        strategy,
+        iterations,
+        rotationStep,
+        direction,
+      });
     }
   }, [
     displayedParts,
@@ -1494,8 +1509,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     (angle: number) => {
       if (selectedPartIds.length === 0) return;
 
-      // 1. VERIFICAÇÃO PRÉVIA: Checa se há peças travadas na seleção atual
-      // Precisamos cruzar os dados: ID da Tela (UUID) -> ID da Peça -> Dados da Peça (isRotationLocked)
+      // 1. Verificação de travas (mantida)
       const hasLockedParts = selectedPartIds.some((uuid) => {
         const placedPart = nestingResult.find((p) => p.uuid === uuid);
         if (!placedPart) return false;
@@ -1503,32 +1517,60 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         return originalPart?.isRotationLocked === true;
       });
 
-      // 2. SE HOUVER PEÇAS TRAVADAS, AVISA O USUÁRIO
       if (hasLockedParts) {
-        alert(
-          "⚠️ AVISO:\n\nPeça possuí trava de rotação para manter o Sentido do Escovado",
-        );
+        alert("⚠️ AVISO:\n\nPeça possui trava de rotação - Sentido Escovado.");
       }
 
-      // 3. EXECUTA A ROTAÇÃO (Apenas nas peças que NÃO estão travadas)
       setNestingResult((prev) =>
         prev.map((placed) => {
           if (selectedPartIds.includes(placed.uuid)) {
             const originalPart = parts.find((p) => p.id === placed.partId);
 
-            // Bloqueio efetivo: Se tiver travada, retorna sem alterar
-            if (originalPart?.isRotationLocked) {
+            // Se não achou a peça ou está travada, retorna sem mexer
+            if (!originalPart || originalPart.isRotationLocked) {
               return placed;
             }
 
-            // Se livre, rotaciona normalmente
-            return { ...placed, rotation: (placed.rotation + angle) % 360 };
+            // --- LÓGICA DE COMPENSAÇÃO DE PIVÔ ---
+
+            // A. Calcula as dimensões ATUAIS da Bounding Box
+            const currentDims = calculateRotatedDimensions(
+              originalPart.width,
+              originalPart.height,
+              placed.rotation,
+            );
+
+            // B. Encontra o CENTRO REAL da peça na mesa
+            const centerX = placed.x + currentDims.width / 2;
+            const centerY = placed.y + currentDims.height / 2;
+
+            // C. Calcula a NOVA rotação
+            const newRotation = (placed.rotation + angle) % 360;
+
+            // D. Calcula as NOVAS dimensões da Bounding Box
+            const newDims = calculateRotatedDimensions(
+              originalPart.width,
+              originalPart.height,
+              newRotation,
+            );
+
+            // E. Recalcula X e Y para manter o CENTRO fixo
+            // Novo X = Centro Antigo - Metade da Nova Largura
+            const newX = centerX - newDims.width / 2;
+            const newY = centerY - newDims.height / 2;
+
+            return {
+              ...placed,
+              rotation: newRotation,
+              x: newX,
+              y: newY,
+            };
           }
           return placed;
         }),
       );
     },
-    [selectedPartIds, setNestingResult, parts, nestingResult], // <--- Adicione 'nestingResult' nas dependências
+    [selectedPartIds, nestingResult, parts, setNestingResult], // Dependências atualizadas
   );
 
   const handleContextMove = useCallback(
@@ -2476,7 +2518,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             <option value="wise">🧠 Wise Nest (Preciso)</option>{" "}
             {/* <--- INSERIR ESTA LINHA */}
           </select>
-        </div>       
+        </div>
         <div
           style={{
             display: "flex",
@@ -3330,7 +3372,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
                       {part.isRotationLocked && (
                         <div
-                          title="Rotação Travada (Sentido do Fio)"
+                          title="Rotação Travada - Sentido Escovado"
                           style={{
                             position: "absolute",
                             top: 35, // Coloquei 35 para ficar logo abaixo do checkbox

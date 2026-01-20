@@ -377,9 +377,15 @@ export const generateDxfContent = (
     const flatCut = flatAll.filter((e) => !e.isLabel);
     const dims = calculateTrueCenter(flatCut);
 
-    const occupiedW = placed.rotation % 180 !== 0 ? dims.height : dims.width;
-    const occupiedH = placed.rotation % 180 !== 0 ? dims.width : dims.height;
+    // --- CORREÇÃO AQUI ---
+    // Precisamos de Math.PI para converter a rotação da peça
+    const radForDim = (placed.rotation * Math.PI) / 180;
+    
+    // Substituir a lógica simplificada pelo cálculo trigonométrico
+    const occupiedW = dims.width * Math.abs(Math.cos(radForDim)) + dims.height * Math.abs(Math.sin(radForDim));
+    const occupiedH = dims.width * Math.abs(Math.sin(radForDim)) + dims.height * Math.abs(Math.cos(radForDim));
 
+    // Agora o centro calculado baterá com o offset que aplicamos no visual
     const centerX = placed.x + occupiedW / 2;
     const centerY = placed.y + occupiedH / 2;
 
