@@ -2509,7 +2509,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           <select
             value={strategy}
             onChange={(e) => setStrategy(e.target.value as any)}
-            style={{ ...inputStyle, width: "200px" }}
+            style={{ ...inputStyle, width: "180px" }}
           >
             <option value="guillotine">✂️ Guilhotina</option>{" "}
             {/* Mudou de "rect" */}
@@ -2832,7 +2832,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             background: isComputing ? theme.panelBg : "#28a745",
             color: isComputing ? theme.text : "white",
             border: isComputing ? `1px solid ${theme.border}` : "none",
-            padding: "8px 15px",
+            padding: "8px 12px",
             cursor: isComputing ? "wait" : "pointer",
             borderRadius: "4px",
             fontWeight: "bold",
@@ -2874,9 +2874,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               <span>Processando...</span> {/* SEM OS SEGUNDOS AQUI */}
             </>
           ) : (
-            <>
-               Calcular Nesting
-            </>
+            <>Calcular Nesting</>
           )}
         </button>
       </div>
