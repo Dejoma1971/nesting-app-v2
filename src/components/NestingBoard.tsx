@@ -39,6 +39,7 @@ import { useNestingAutoSave } from "../hooks/useNestingAutoSave";
 import { useProductionRegister } from "../hooks/useProductionRegister"; // <--- GARANTA ESTA LINHA
 import { useNestingFileManager } from "../hooks/useNestingFileManager";
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
+import { calculatePartNetArea } from "../utils/areaCalculator";
 
 interface Size {
   width: number;
@@ -819,63 +820,58 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     [nestingResult, currentBinIndex],
   );
 
-  const currentEfficiencies = useMemo(() => {
+ const currentEfficiencies = useMemo(() => {
+    // 1. Pega TODAS as peças que o motor de nesting colocou nesta chapa
     const partsInSheet = nestingResult.filter(
       (p) => p.binId === currentBinIndex,
     );
+    
     if (partsInSheet.length === 0) return { real: "0,0", effective: "0,0" };
 
-    const validParts = partsInSheet.filter((placed) => {
-      if (collidingPartIds.includes(placed.uuid)) return false;
-
+    // 2. SOMA A ÁREA (Corrigido: Conta todas as peças, mesmo colidindo)
+    const usedNetArea = partsInSheet.reduce((acc, placed) => {
       const original = displayedParts.find((dp) => dp.id === placed.partId);
-      if (!original) return false;
-
-      const isRotated = Math.abs(placed.rotation) % 180 !== 0;
-      const currentW = isRotated ? original.height : original.width;
-      const currentH = isRotated ? original.width : original.height;
-
-      return (
-        placed.x >= 0 &&
-        placed.y >= 0 &&
-        placed.x + currentW <= binSize.width + 0.1 &&
-        placed.y + currentH <= binSize.height + 0.1
-      );
-    });
-
-    if (validParts.length === 0) return { real: "0,0", effective: "0,0" };
-
-    const usedNetArea = validParts.reduce((acc, placed) => {
-      const original = displayedParts.find((dp) => dp.id === placed.partId);
-      return acc + (original ? original.netArea || original.grossArea : 0);
+      
+      // Se a peça existe, soma sua área real (netArea).
+      // Se netArea não foi calculada, usa grossArea.
+      if (original) {
+        return acc + (original.netArea || original.grossArea || 0);
+      }
+      return acc;
     }, 0);
 
     const totalBinArea = binSize.width * binSize.height;
 
+    // 3. CALCULA DENSIDADE (Até onde a chapa foi usada no eixo Y)
     let maxUsedY = 0;
-    validParts.forEach((placed) => {
-      const original = displayedParts.find((dp) => dp.id === placed.partId);
-      if (original) {
-        const isRotated = Math.abs(placed.rotation) % 180 !== 0;
-        const visualHeight = isRotated ? original.width : original.height;
-        const topY = placed.y + visualHeight;
-        if (topY > maxUsedY) maxUsedY = topY;
-      }
+    partsInSheet.forEach((placed) => {
+        const original = displayedParts.find((dp) => dp.id === placed.partId);
+        if (original) {
+            // Verifica rotação para saber a altura visual correta
+            const isRotated = Math.abs(placed.rotation) % 180 !== 0;
+            const visualHeight = isRotated ? original.width : original.height;
+            
+            const bottomY = placed.y + visualHeight;
+            if (bottomY > maxUsedY) maxUsedY = bottomY;
+        }
     });
-    const effectiveBinArea = binSize.width * Math.max(maxUsedY, 1);
+    
+    // Evita divisão por zero se maxUsedY for 0
+    const effectiveHeight = Math.max(maxUsedY, 1);
+    const effectiveBinArea = binSize.width * effectiveHeight;
 
     return {
+      // Porcentagem da chapa total
       real: ((usedNetArea / totalBinArea) * 100).toFixed(1).replace(".", ","),
-      effective: ((usedNetArea / effectiveBinArea) * 100)
-        .toFixed(1)
-        .replace(".", ","),
+      // Porcentagem da área utilizada (Densidade)
+      effective: ((usedNetArea / effectiveBinArea) * 100).toFixed(1).replace(".", ","),
     };
   }, [
     nestingResult,
     currentBinIndex,
     displayedParts,
-    binSize,
-    collidingPartIds,
+    binSize
+    // Note que removemos 'collidingPartIds' das dependências para não filtrar peças com erro
   ]);
 
   const activeSelectedPartIds = useMemo(() => {
@@ -1463,7 +1459,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           width: Number(item.width),
           height: Number(item.height),
           grossArea: Number(item.grossArea),
-          netArea: Number(item.grossArea),
+          // Tenta calcular a área real. Se der 0 (erro ou geometria vazia), usa a grossArea como reserva.
+          netArea: calculatePartNetArea(item.entities) || Number(item.grossArea),
           quantity: Number(item.quantity) || 1,
           pedido: item.pedido,
           op: item.op,
