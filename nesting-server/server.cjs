@@ -671,9 +671,143 @@ app.get("/api/subscription/status", authenticateToken, async (req, res) => {
   }
 });
 
-// --- REGISTRAR PRODUÇÃO (Com Histórico e Motor) ---
+// ... (Mantenha os imports e configurações iniciais até a linha 99 do seu arquivo original)
+
+// ==========================================
+// 6. ROTAS DE DASHBOARD (ATUALIZADO)
+// ==========================================
+
+app.get("/api/dashboard/stats", authenticateToken, async (req, res) => {
+  const empresaId = req.user.empresa_id;
+  const { startDate, endDate } = req.query;
+
+  // Filtro de data personalizado (YYYY-MM-DD)
+  // Adicionamos ' 00:00:00' e ' 23:59:59' para pegar o dia todo
+  let dateFilter = "";
+  const params = [empresaId];
+
+  if (startDate && endDate) {
+    dateFilter = "AND h.data_producao BETWEEN ? AND ?";
+    params.push(`${startDate} 00:00:00`, `${endDate} 23:59:59`);
+  } else {
+    // Fallback: Últimos 30 dias se não informar data
+    dateFilter = "AND h.data_producao >= DATE_SUB(NOW(), INTERVAL 30 DAY)";
+  }
+
+  try {
+    const connection = await db.getConnection();
+
+    // 1. KPIs Gerais (Incluindo contagem de Pedidos Únicos)
+    // Precisamos fazer JOIN até pecas_engenharia para ler o campo 'pedido'
+    const kpiQuery = `
+      SELECT 
+        COUNT(DISTINCT h.id) as total_chapas,
+        COALESCE(AVG(h.aproveitamento), 0) as media_aproveitamento,
+        COALESCE(SUM((h.largura_chapa * h.altura_chapa * h.espessura * h.densidade) / 1000000), 0) as peso_total_kg,
+        COALESCE(SUM((h.largura_chapa * h.altura_chapa) / 1000000), 0) as area_total_m2,
+        COUNT(DISTINCT pe.pedido) as total_pedidos_unicos
+      FROM producao_historico h
+      LEFT JOIN producao_itens pi ON h.id = pi.producao_id
+      LEFT JOIN pecas_engenharia pe ON pi.peca_original_id = pe.id
+      WHERE h.empresa_id = ? ${dateFilter}
+    `;
+    
+    // 2. Total de Peças (Unitário)
+    const partesQuery = `
+      SELECT COALESCE(SUM(i.quantidade), 0) as total_pecas
+      FROM producao_itens i
+      JOIN producao_historico h ON i.producao_id = h.id
+      WHERE h.empresa_id = ? ${dateFilter}
+    `;
+
+    // 3. Uso de Chapas por Material e Espessura
+    const matEspQuery = `
+      SELECT 
+        material, 
+        espessura, 
+        COUNT(*) as qtd_chapas
+      FROM producao_historico h
+      WHERE h.empresa_id = ? ${dateFilter}
+      GROUP BY material, espessura
+      ORDER BY material ASC, espessura ASC
+    `;
+
+    // 4. Produção por Usuário (Quem processou?)
+    const userQuery = `
+      SELECT 
+        u.nome, 
+        COUNT(*) as chapas_processadas
+      FROM producao_historico h
+      JOIN usuarios u ON h.usuario_id = u.id
+      WHERE h.empresa_id = ? ${dateFilter}
+      GROUP BY u.nome
+      ORDER BY chapas_processadas DESC
+    `;
+
+    // 5. Lista Detalhada de Pedidos (Para o Modal)
+    const pedidosListQuery = `
+      SELECT DISTINCT 
+        pe.pedido, 
+        COUNT(DISTINCT h.id) as chapas_envolvidas,
+        MAX(h.data_producao) as ultima_producao
+      FROM producao_historico h
+      JOIN producao_itens pi ON h.id = pi.producao_id
+      JOIN pecas_engenharia pe ON pi.peca_original_id = pe.id
+      WHERE h.empresa_id = ? ${dateFilter} AND pe.pedido IS NOT NULL AND pe.pedido != ''
+      GROUP BY pe.pedido
+      ORDER BY ultima_producao DESC
+    `;
+
+    // Execução em Paralelo (Note que reutilizamos 'params' onde o filtro é igual)
+    const [kpiRows] = await connection.query(kpiQuery, params);
+    const [partesRows] = await connection.query(partesQuery, params);
+    const [matEspRows] = await connection.query(matEspQuery, params);
+    const [userRows] = await connection.query(userQuery, params);
+    const [pedidosRows] = await connection.query(pedidosListQuery, params);
+
+    // Gráfico de Evolução (Mantido simples)
+    const chartQuery = `
+      SELECT DATE_FORMAT(data_producao, '%d/%m') as data, COUNT(*) as chapas, AVG(aproveitamento) as eficiencia
+      FROM producao_historico h
+      WHERE h.empresa_id = ? ${dateFilter}
+      GROUP BY DATE(data_producao) ORDER BY data_producao ASC
+    `;
+    const [chartRows] = await connection.query(chartQuery, params);
+
+    connection.release();
+
+    res.json({
+      kpis: {
+        chapas: kpiRows[0].total_chapas,
+        eficiencia: Number(kpiRows[0].media_aproveitamento),
+        peso: Number(kpiRows[0].peso_total_kg),
+        area: Number(kpiRows[0].area_total_m2),
+        pecas: partesRows[0].total_pecas,
+        pedidos: kpiRows[0].total_pedidos_unicos // NOVO
+      },
+      breakdown: {
+        materiais: matEspRows, // NOVO
+        usuarios: userRows,    // NOVO
+        listaPedidos: pedidosRows // NOVO
+      },
+      charts: {
+        evolucao: chartRows
+      }
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Erro ao carregar dashboard" });
+  }
+});
+
+// ==========================================
+// ATUALIZAÇÃO: ROTA DE REGISTRO COM DIMENSÕES
+// ==========================================
 app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
-  const { chapaIndex, aproveitamento, densidade, itens, motor } = req.body;
+  // ADICIONADO: larguraChapa, alturaChapa
+  const { chapaIndex, aproveitamento, densidade, itens, motor, larguraChapa, alturaChapa } = req.body;
+  
   const usuarioId = req.user.id;
   const empresaId = req.user.empresa_id;
 
@@ -685,7 +819,7 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
     await connection.beginTransaction();
 
     let materialReal = "Desconhecido";
-    let espessuraReal = "N/A";
+    let espessuraReal = 0; // Mudado para number para calculo de peso
 
     const [pecaRows] = await connection.query(
       "SELECT material, espessura FROM pecas_engenharia WHERE id = ? AND empresa_id = ?",
@@ -693,26 +827,33 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
     );
     if (pecaRows.length > 0) {
       materialReal = pecaRows[0].material;
-      espessuraReal = pecaRows[0].espessura;
+      // Tenta converter "3mm" ou "1/4" para float, ou mantem string se falhar
+      // Para cálculo de peso, idealmente o front deve mandar a espessura numérica limpa
+      espessuraReal = parseFloat(pecaRows[0].espessura) || 0; 
     }
 
+    // INSERT ATUALIZADO COM LARGURA E ALTURA
     const [result] = await connection.query(
       `INSERT INTO producao_historico 
-       (empresa_id, usuario_id, data_producao, chapa_index, aproveitamento, densidade, material, espessura, motor) 
-       VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?)`,
+       (empresa_id, usuario_id, data_producao, chapa_index, aproveitamento, densidade, material, espessura, motor, largura_chapa, altura_chapa) 
+       VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         empresaId,
         usuarioId,
         chapaIndex,
         aproveitamento,
-        densidade || aproveitamento,
+        densidade || 7.85, // Default aço
         materialReal,
         espessuraReal,
         motor || "Smart Nest",
+        larguraChapa || 0, // NOVO
+        alturaChapa || 0   // NOVO
       ]
     );
 
     const producaoId = result.insertId;
+    
+    // O resto permanece igual...
     const values = itens.map((item) => [
       producaoId,
       item.id,
@@ -740,6 +881,7 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
     });
   } catch (error) {
     await connection.rollback();
+    console.error(error);
     if (error.code === "ER_DUP_ENTRY")
       return res.status(409).json({ error: "Duplicate entry" });
     res.status(500).json({ error: "Erro ao salvar." });
