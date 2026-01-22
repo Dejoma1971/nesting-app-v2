@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { DashboardScreen } from "./components/DashboardScreen";
 import {
   BrowserRouter,
   Routes,
@@ -25,7 +26,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 
 import { SuccessScreen } from "./components/SuccessScreen";
 
-type ScreenType = "home" | "engineering" | "nesting";
+type ScreenType = "home" | "engineering" | "nesting" | "dashboard";
 
 // =================================================================
 // 1. COMPONENTE DO SISTEMA INTERNO (PROTEGIDO)
@@ -95,6 +96,13 @@ function ProtectedApp() {
           onOpenTeam={() => setIsTeamModalOpen(true)}
         />
       )}
+      {currentScreen === "dashboard" && (
+        <DashboardScreen
+          onNavigate={(screen) => setCurrentScreen(screen)}
+          onOpenTeam={() => setIsTeamModalOpen(true)}
+        />
+      )}
+      
       {/* 4. O MODAL FLUTUANTE (Renderiza em cima de tudo se estiver true) */}
       {isTeamModalOpen && (
         <TeamManagementScreen onClose={() => setIsTeamModalOpen(false)} />

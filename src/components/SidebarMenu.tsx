@@ -6,7 +6,7 @@ import { useInstallPrompt } from "../hooks/useInstallPrompt";
 import type { AppTheme } from "../styles/theme";
 
 interface SidebarMenuProps {
-  onNavigate?: (screen: "home" | "engineering" | "nesting") => void;
+  onNavigate?: (screen: "home" | "engineering" | "nesting" | "dashboard") => void;
   onOpenProfile?: () => void;
   onOpenTeam?: () => void;
 }
@@ -462,11 +462,29 @@ export const SidebarMenu: React.FC<SidebarMenuProps> = ({
             />
           )}
 
+          {/* BOTÃO DASHBOARD (ATUALIZADO) */}
           {isAdmin && onNavigate && (
             <MenuButton
               label="Dashboard (Admin)"
-              icon={Icons.Home}
-              onClick={() => handleNavigation(() => onNavigate("home"))}
+              icon={
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="3" y="3" width="7" height="7"></rect>
+                  <rect x="14" y="3" width="7" height="7"></rect>
+                  <rect x="14" y="14" width="7" height="7"></rect>
+                  <rect x="3" y="14" width="7" height="7"></rect>
+                </svg>
+              }
+              // AQUI MUDAMOS PARA "dashboard" 👇
+              onClick={() => handleNavigation(() => onNavigate("dashboard"))}
               theme={theme}
             />
           )}
