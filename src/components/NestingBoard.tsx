@@ -820,59 +820,78 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     [nestingResult, currentBinIndex],
   );
 
- const currentEfficiencies = useMemo(() => {
-    // 1. Pega TODAS as peças que o motor de nesting colocou nesta chapa
+  // --- CÁLCULO DE EFICIÊNCIA, RETALHO E CONSUMO (CORRIGIDO) ---
+  const currentEfficiencies = useMemo(() => {
     const partsInSheet = nestingResult.filter(
       (p) => p.binId === currentBinIndex,
     );
-    
-    if (partsInSheet.length === 0) return { real: "0,0", effective: "0,0" };
 
-    // 2. SOMA A ÁREA (Corrigido: Conta todas as peças, mesmo colidindo)
+    if (partsInSheet.length === 0) {
+      return {
+        real: "0,0",
+        effective: "0,0",
+        consumption: "0,0",
+        // CORREÇÃO AQUI: Adicionado .toFixed(0) para converter number -> string
+        remnantHeight: binSize.height.toFixed(0),
+        remnantArea: ((binSize.width * binSize.height) / 1000000).toFixed(2),
+        isManual: false,
+      };
+    }
+
+    // 1. Soma da Área Líquida das Peças
     const usedNetArea = partsInSheet.reduce((acc, placed) => {
-      const original = displayedParts.find((dp) => dp.id === placed.partId);
-      
-      // Se a peça existe, soma sua área real (netArea).
-      // Se netArea não foi calculada, usa grossArea.
-      if (original) {
-        return acc + (original.netArea || original.grossArea || 0);
-      }
-      return acc;
+      const original = parts.find((p) => p.id === placed.partId);
+      return acc + (original?.netArea || original?.grossArea || 0);
     }, 0);
 
     const totalBinArea = binSize.width * binSize.height;
 
-    // 3. CALCULA DENSIDADE (Até onde a chapa foi usada no eixo Y)
+    // 2. Determina o Limite de Uso (Bounding Box Automático)
     let maxUsedY = 0;
+
     partsInSheet.forEach((placed) => {
-        const original = displayedParts.find((dp) => dp.id === placed.partId);
-        if (original) {
-            // Verifica rotação para saber a altura visual correta
-            const isRotated = Math.abs(placed.rotation) % 180 !== 0;
-            const visualHeight = isRotated ? original.width : original.height;
-            
-            const bottomY = placed.y + visualHeight;
-            if (bottomY > maxUsedY) maxUsedY = bottomY;
-        }
+      const original = parts.find((p) => p.id === placed.partId);
+      if (original) {
+        const dims = calculateRotatedDimensions(
+          original.width,
+          original.height,
+          placed.rotation,
+        );
+        const topY = placed.y + dims.height;
+        if (topY > maxUsedY) maxUsedY = topY;
+      }
     });
-    
-    // Evita divisão por zero se maxUsedY for 0
-    const effectiveHeight = Math.max(maxUsedY, 1);
-    const effectiveBinArea = binSize.width * effectiveHeight;
+
+    // 3. Verifica se existe Linha de Retalho Manual
+    const hLine = cropLines.find((l) => l.type === "horizontal");
+    const vLine = cropLines.find((l) => l.type === "vertical");
+
+    const limitY = hLine ? hLine.position : maxUsedY;
+    const limitX = vLine ? vLine.position : binSize.width;
+
+    const effectiveWidth = limitX;
+    const effectiveHeight = Math.max(limitY, 1);
+
+    // Área Efetiva (Retângulo usado da chapa)
+    const effectiveUsedArea = effectiveWidth * effectiveHeight;
+
+    // 4. Cálculos Finais
+    const realYield = (usedNetArea / totalBinArea) * 100;
+    const effectiveYield = (usedNetArea / effectiveUsedArea) * 100;
+    const consumptionYield = (effectiveUsedArea / totalBinArea) * 100;
+
+    const remnantAreaMM = totalBinArea - effectiveUsedArea;
+    const remnantLinearY = binSize.height - effectiveHeight;
 
     return {
-      // Porcentagem da chapa total
-      real: ((usedNetArea / totalBinArea) * 100).toFixed(1).replace(".", ","),
-      // Porcentagem da área utilizada (Densidade)
-      effective: ((usedNetArea / effectiveBinArea) * 100).toFixed(1).replace(".", ","),
+      real: realYield.toFixed(1).replace(".", ","),
+      effective: Math.min(effectiveYield, 100).toFixed(1).replace(".", ","),
+      consumption: Math.min(consumptionYield, 100).toFixed(1).replace(".", ","),
+      remnantHeight: remnantLinearY.toFixed(0), // Aqui já estava retornando string
+      remnantArea: (remnantAreaMM / 1000000).toFixed(2),
+      isManual: !!(hLine || vLine),
     };
-  }, [
-    nestingResult,
-    currentBinIndex,
-    displayedParts,
-    binSize
-    // Note que removemos 'collidingPartIds' das dependências para não filtrar peças com erro
-  ]);
+  }, [nestingResult, currentBinIndex, parts, binSize, cropLines]);
 
   const activeSelectedPartIds = useMemo(() => {
     const ids = new Set<string>();
@@ -1104,23 +1123,27 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
 
     // 2. ETAPA BANCO DE DADOS (Usa o registerProduction)
+    // ETAPA BANCO DE DADOS
     let bancoSalvoComSucesso = false;
 
     if (user && user.token) {
-      // Chama o hook dedicado ao banco, passando o MOTOR
       const registro = await registerProduction({
         nestingResult,
         currentBinIndex,
         parts: displayedParts,
         user,
-        densidadeNumerica,
         cropLines,
         motor: strategy === "true-shape-v2" ? "true-shape" : strategy,
+
+        // NOVOS PARÂMETROS
+        binWidth: binSize.width,
+        binHeight: binSize.height,
+        metricas: currentEfficiencies, // <--- Passamos o objeto inteiro calculado no useMemo
       });
 
       if (registro.success) {
-        bancoSalvoComSucesso = true; // Marca que deu certo
-        markBinAsSaved(currentBinIndex); // Atualiza visualmente (ícone verde)
+        bancoSalvoComSucesso = true;
+        markBinAsSaved(currentBinIndex);
       } else {
         console.warn("Aviso do banco:", registro.message);
       }
@@ -1460,7 +1483,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           height: Number(item.height),
           grossArea: Number(item.grossArea),
           // Tenta calcular a área real. Se der 0 (erro ou geometria vazia), usa a grossArea como reserva.
-          netArea: calculatePartNetArea(item.entities) || Number(item.grossArea),
+          netArea:
+            calculatePartNetArea(item.entities) || Number(item.grossArea),
           quantity: Number(item.quantity) || 1,
           pedido: item.pedido,
           op: item.op,
@@ -3066,133 +3090,233 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             onCanvasDrop={handleExternalDrop}
           />
 
-          {/* --- BARRA DE RODAPÉ (FOOTER) --- */}
+          {/* --- BARRA DE RODAPÉ (FOOTER) APRIMORADA COM CONSUMO --- */}
           <div
             style={{
-              padding: "1px 10px",
-              display: "flex",
-              justifyContent: "space-between", // Garante esquerda/direita
+              padding: "0 15px",
+              display: "grid",
+              gridTemplateColumns: "1fr auto 1fr",
               alignItems: "center",
               borderTop: `1px solid ${theme.border}`,
               background: theme.panelBg,
               zIndex: 5,
               color: theme.text,
-              position: "relative", // Necessário para o centro absoluto funcionar
-              height: "50px", // Altura fixa ajuda na centralização vertical
+              height: "50px",
             }}
           >
-            {/* LADO ESQUERDO: TOTAL DE PEÇAS */}
-            <span
-              style={{ opacity: 0.9, fontSize: "12px", fontWeight: "bold" }}
-            >
-              Total: {currentPlacedParts.length} de {displayedParts.length}{" "}
-              Peças
-            </span>
-
-            {/* CENTRO: EFICIÊNCIA E DENSIDADE (Limpo) */}
-            <div
-              style={{
-                position: "absolute",
-                left: "50%",
-                top: "50%",
-                transform: "translate(-50%, -50%)", // Centraliza exato X e Y
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                whiteSpace: "nowrap",
-              }}
-            >
+            {/* ESQUERDA: Contagem */}
+            <div style={{ display: "flex", gap: "15px", alignItems: "center" }}>
               <span
-                style={{
-                  fontSize: "14px",
-                  fontWeight: "bold",
-                  color: theme.text,
-                }}
+                style={{ opacity: 0.9, fontSize: "12px", fontWeight: "bold" }}
               >
-                Aprov. Real:{" "}
-                <span
-                  style={{
-                    color:
-                      Number(currentEfficiencies.real.replace(",", ".")) > 70
-                        ? "#28a745"
-                        : theme.text,
-                  }}
-                >
-                  {currentEfficiencies.real}%
-                </span>
+                Total: {currentPlacedParts.length} / {displayedParts.length}{" "}
+                Peças
               </span>
-
-              {/* DENSIDADE (Sempre visível se calculado, ou condicional se preferir) */}
-              {calculationTime !== null && (
-                <span
-                  style={{
-                    fontSize: "11px",
-                    color: theme.label,
-                    marginTop: "-2px",
-                  }}
-                >
-                  Densidade:{" "}
-                  <span style={{ color: "#007bff" }}>
-                    {currentEfficiencies.effective}%
-                  </span>
-                </span>
-              )}
             </div>
 
-            {/* LADO DIREITO: TEMPO + STATUS */}
-            <div style={{ display: "flex", gap: "15px", alignItems: "center" }}>
-              {/* 1. TEMPO DE CÁLCULO (Agora aqui na direita) */}
-              {calculationTime !== null && (
+            {/* CENTRO: MÉTRICAS DE EFICIÊNCIA */}
+            <div
+              style={{
+                display: "flex",
+                gap: "15px",
+                alignItems: "center",
+                background: theme.canvasBg,
+                padding: "4px 15px",
+                borderRadius: "20px",
+                border: `1px solid ${theme.border}`,
+                boxShadow: "inset 0 1px 3px rgba(0,0,0,0.1)",
+              }}
+            >
+              {/* 1. REAL (CUSTO) */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  lineHeight: 1,
+                }}
+              >
                 <span
                   style={{
-                    fontSize: "12px",
+                    fontSize: "10px",
                     color: theme.label,
-                    borderRight: `1px solid ${theme.border}`, // Separador visual
-                    paddingRight: "15px",
-                    height: "20px",
-                    display: "flex",
-                    alignItems: "center",
+                    textTransform: "uppercase",
                   }}
                 >
-                  ⏱️{" "}
-                  <strong style={{ color: theme.text, marginLeft: "5px" }}>
-                    {calculationTime.toFixed(2)}s
-                  </strong>
+                  Aprov. Global
+                </span>
+                <span style={{ fontSize: "14px", fontWeight: "bold" }}>
+                  {currentEfficiencies.real}%
+                </span>
+              </div>
+
+              <div
+                style={{
+                  width: "1px",
+                  height: "20px",
+                  background: theme.border,
+                }}
+              ></div>
+
+              {/* 2. CONSUMO (NOVO) */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  lineHeight: 1,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: "10px",
+                    color: theme.label,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Consumo Chapa
+                </span>
+                <span
+                  title="Porcentagem da chapa que foi utilizada (inclui peças e sucata interna). Quanto mais próximo do Global, melhor."
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: "bold",
+                    color: theme.text,
+                  }}
+                >
+                  {currentEfficiencies.consumption}%
+                </span>
+              </div>
+
+              <div
+                style={{
+                  width: "1px",
+                  height: "20px",
+                  background: theme.border,
+                }}
+              ></div>
+
+              {/* 3. EFETIVO (DENSIDADE) */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  lineHeight: 1,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: "10px",
+                    color: theme.label,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Densidade {currentEfficiencies.isManual && "(Manual)"}
+                </span>
+                <span
+                  title={
+                    currentEfficiencies.isManual
+                      ? "Calculado com base na Linha de Corte definida"
+                      : "Calculado pelo topo das peças"
+                  }
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: "bold",
+                    color: currentEfficiencies.isManual ? "#6f42c1" : "#007bff",
+                  }}
+                >
+                  {currentEfficiencies.effective}%
+                </span>
+              </div>
+
+              <div
+                style={{
+                  width: "1px",
+                  height: "20px",
+                  background: theme.border,
+                }}
+              ></div>
+
+              {/* 4. SOBRA (RETALHO) */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  lineHeight: 1,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: "10px",
+                    color: theme.label,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {/* CONDICIONAL AQUI: Se não tem peças, chama de "Mesa de Corte" ou "Área Livre" */}
+                  {currentPlacedParts.length === 0
+                    ? "Mesa de Corte"
+                    : "Retalho Útil"}
+                </span>
+                <span
+                  title={`Sobra linear de chapa: ${currentEfficiencies.remnantHeight}mm`}
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: "bold",
+                    color: "#28a745",
+                  }}
+                >
+                  {currentEfficiencies.remnantHeight}mm{" "}
+                  <span style={{ fontSize: "10px", opacity: 0.7 }}>
+                    ({currentEfficiencies.remnantArea}m²)
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            {/* DIREITA: STATUS E TEMPO */}
+            <div
+              style={{
+                display: "flex",
+                gap: "15px",
+                alignItems: "center",
+                justifyContent: "flex-end",
+              }}
+            >
+              {calculationTime !== null && (
+                <span style={{ fontSize: "12px", color: theme.label }}>
+                  ⏱️ {calculationTime.toFixed(2)}s
                 </span>
               )}
 
-              {/* 2. STATUS DE SALVO */}
               {isCurrentSheetSaved && (
                 <span
                   style={{
                     color: "#28a745",
                     fontWeight: "bold",
-                    fontSize: "13px",
+                    fontSize: "12px",
                     display: "flex",
                     alignItems: "center",
-                    gap: "5px",
+                    gap: "4px",
                   }}
                 >
-                  ✅ <span style={{ fontSize: "11px" }}>SALVO</span>
+                  ✅ SALVO
                 </span>
               )}
 
-              {/* 3. PEÇAS QUE NÃO COUBERAM */}
               {failedCount > 0 && (
                 <span
                   style={{
                     color: "#dc3545",
                     fontWeight: "bold",
                     fontSize: "12px",
-                    background: "rgba(220, 53, 69, 0.1)",
-                    padding: "4px 8px",
+                    background: "rgba(220,53,69,0.1)",
+                    padding: "2px 6px",
                     borderRadius: "4px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "5px",
                   }}
                 >
-                  ⚠️ {failedCount} FALHARAM
+                  ⚠️ {failedCount} FALHAS
                 </span>
               )}
             </div>

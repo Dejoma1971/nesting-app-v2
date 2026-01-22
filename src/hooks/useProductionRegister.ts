@@ -1,33 +1,38 @@
 import { useState, useCallback } from 'react';
-// CORREÇÃO 1: Importação de tipo explícita
 import type { PlacedPart } from '../utils/nestingCore';
 import type { ImportedPart } from '../components/types';
 
-// Removemos a linha "[key: string]: unknown;"
-// Agora ele aceita o objeto User do AuthContext sem reclamar do Index Signature
 interface User {
   token?: string;
   empresa_id?: string;
-  plano?: string; // Adicionei plano pois usamos ele na validação
+  plano?: string;
   id?: string;
+}
+
+// Interface para as métricas calculadas no NestingBoard (currentEfficiencies)
+interface MetricasEficiencia {
+  real: string;        // "59,1"
+  consumption: string; // "85,7"
+  remnantHeight: string; // "1500"
+  remnantArea: string;   // "1.50"
 }
 
 interface RegisterProps {
   nestingResult: PlacedPart[];
   currentBinIndex: number;
   parts: ImportedPart[];
-  cropLines: unknown[]; // Mudado de 'any' para 'unknown' (seguro)
-  user: User;           // Mudado de 'any' para interface User
-  densidadeNumerica: number;
-  motor: "guillotine" | "true-shape" | "wise";
+  cropLines: unknown[]; 
+  user: User;
+  motor: "guillotine" | "true-shape" | "wise" | "true-shape-v2"; // Atualizei os motores
+  binWidth: number;   // Necessário para salvar dimensões
+  binHeight: number;  // Necessário para salvar dimensões
+  metricas: MetricasEficiencia; // <--- NOVO: Recebe os dados do rodapé
 }
 
-// Interface auxiliar para acessar propriedades estendidas da peça (como tipo_producao)
 interface ExtendedPart extends ImportedPart {
   tipo_producao?: string;
 }
 
-// Função auxiliar para gerar Hash SHA-256 (Assinatura Única)
 async function generateSignature(data: string): Promise<string> {
   const encoder = new TextEncoder();
   const dataBuffer = encoder.encode(data);
@@ -45,29 +50,27 @@ export const useProductionRegister = () => {
     currentBinIndex,
     parts,
     user,
-    densidadeNumerica,
-    motor
+    motor,
+    binWidth,
+    binHeight,
+    metricas
   }: RegisterProps) => {
     
-    // 1. Filtrar apenas peças da chapa atual
     const partsInBin = nestingResult.filter(p => p.binId === currentBinIndex);
     if (partsInBin.length === 0) return { success: false, message: "Mesa vazia." };
 
     setIsSaving(true);
 
     try {
-      // 2. Montar Lista de Itens para o Backend
       const itensParaSalvar = partsInBin.map(p => {
         const original = parts.find(op => op.id === p.partId);
         return {
           id: p.partId,
           qtd: 1,
-          // CORREÇÃO 4: Cast seguro para acessar propriedade opcional do banco
           tipo_producao: (original as ExtendedPart)?.tipo_producao || 'NORMAL' 
         };
       });
 
-      // 3. Agrupar quantidades
       const itensAgrupados = Object.values(itensParaSalvar.reduce((acc, item) => {
         if (!acc[item.id]) {
           acc[item.id] = { ...item, qtd: 0 };
@@ -76,25 +79,27 @@ export const useProductionRegister = () => {
         return acc;
       }, {} as Record<string, typeof itensParaSalvar[0]>));
 
-      // CORREÇÃO 3: Variáveis binWidth/binHeight removidas pois não eram usadas
+      // Conversão de String "59,1" para Number 59.1
+      const aproveitamentoNum = parseFloat(metricas.real.replace(',', '.')) || 0;
+      const consumoNum = parseFloat(metricas.consumption.replace(',', '.')) || 0;
+      const retalhoLinearNum = parseInt(metricas.remnantHeight) || 0;
+      const areaRetalhoNum = parseFloat(metricas.remnantArea.replace(',', '.')) || 0;
 
-      // 5. GERAR ASSINATURA ÚNICA (IDEMPOTÊNCIA)
       const signaturePayload = JSON.stringify({
         itens: itensAgrupados.map(i => `${i.id}-${i.qtd}`).sort(),
         motor,
         binIndex: currentBinIndex,
-        empresa: user?.empresa_id
+        empresa: user?.empresa_id,
+        // Adicionamos as métricas na assinatura para evitar salvar 2x se os valores mudarem
+        metrics: `${aproveitamentoNum}-${consumoNum}` 
       });
       
       const signature = await generateSignature(signaturePayload);
 
-      // Bloqueio Otimista (Client-side)
       if (signature === lastSavedSignature) {
-        console.log("Produção já registrada (bloqueio client-side).");
         return { success: true, message: "Produção já registrada anteriormente." };
       }
 
-      // 6. Enviar para API
       const response = await fetch('http://localhost:3001/api/producao/registrar', {
         method: 'POST',
         headers: {
@@ -103,8 +108,12 @@ export const useProductionRegister = () => {
         },
         body: JSON.stringify({
           chapaIndex: currentBinIndex,
-          aproveitamento: densidadeNumerica, 
-          densidade: null, 
+          aproveitamento: aproveitamentoNum, // GLOBAL
+          consumo: consumoNum,               // CONSUMO
+          retalhoLinear: retalhoLinearNum,   // SOBRA Y
+          areaRetalho: areaRetalhoNum,       // SOBRA M2
+          larguraChapa: binWidth,
+          alturaChapa: binHeight,
           itens: itensAgrupados,
           motor: motor,
           nestingSignature: signature 
@@ -114,7 +123,6 @@ export const useProductionRegister = () => {
       const data = await response.json();
 
       if (!response.ok) {
-        // Se já existe, consideramos sucesso para não travar o fluxo
         if (data.error && data.error.includes("Duplicate")) {
              setLastSavedSignature(signature);
              return { success: true, message: "Produção já sincronizada." };

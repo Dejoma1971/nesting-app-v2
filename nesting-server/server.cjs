@@ -801,12 +801,21 @@ app.get("/api/dashboard/stats", authenticateToken, async (req, res) => {
   }
 });
 
-// ==========================================
-// ATUALIZAÇÃO: ROTA DE REGISTRO COM DIMENSÕES
-// ==========================================
+// [server.cjs] - Atualização da rota /api/producao/registrar
+
 app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
-  // ADICIONADO: larguraChapa, alturaChapa
-  const { chapaIndex, aproveitamento, densidade, itens, motor, larguraChapa, alturaChapa } = req.body;
+  // RECEBENDO OS NOVOS DADOS DO FRONTEND
+  const { 
+    chapaIndex, 
+    aproveitamento, // Este será o Global (Real)
+    consumo,        // NOVO: Consumo %
+    retalhoLinear,  // NOVO: mm
+    areaRetalho,    // NOVO: m²
+    itens, 
+    motor, 
+    larguraChapa, 
+    alturaChapa 
+  } = req.body;
   
   const usuarioId = req.user.id;
   const empresaId = req.user.empresa_id;
@@ -819,7 +828,7 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
     await connection.beginTransaction();
 
     let materialReal = "Desconhecido";
-    let espessuraReal = 0; // Mudado para number para calculo de peso
+    let espessuraReal = 0;
 
     const [pecaRows] = await connection.query(
       "SELECT material, espessura FROM pecas_engenharia WHERE id = ? AND empresa_id = ?",
@@ -827,40 +836,41 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
     );
     if (pecaRows.length > 0) {
       materialReal = pecaRows[0].material;
-      // Tenta converter "3mm" ou "1/4" para float, ou mantem string se falhar
-      // Para cálculo de peso, idealmente o front deve mandar a espessura numérica limpa
       espessuraReal = parseFloat(pecaRows[0].espessura) || 0; 
     }
 
-    // INSERT ATUALIZADO COM LARGURA E ALTURA
+    // INSERT ATUALIZADO COM OS NOVOS CAMPOS
     const [result] = await connection.query(
       `INSERT INTO producao_historico 
-       (empresa_id, usuario_id, data_producao, chapa_index, aproveitamento, densidade, material, espessura, motor, largura_chapa, altura_chapa) 
-       VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (empresa_id, usuario_id, data_producao, chapa_index, aproveitamento, densidade, material, espessura, motor, largura_chapa, altura_chapa, consumo_chapa, retalho_linear, area_retalho) 
+       VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         empresaId,
         usuarioId,
         chapaIndex,
-        aproveitamento,
-        densidade || 7.85, // Default aço
+        aproveitamento, // Global
+        7.85,           // Densidade do MATERIAL (Aço), não do arranjo
         materialReal,
         espessuraReal,
         motor || "Smart Nest",
-        larguraChapa || 0, // NOVO
-        alturaChapa || 0   // NOVO
+        larguraChapa || 0,
+        alturaChapa || 0,
+        consumo || 0,        // NOVO
+        retalhoLinear || 0,  // NOVO
+        areaRetalho || 0     // NOVO
       ]
     );
-
+    
+    // ... O restante do código (INSERT producao_itens, UPDATE status, commit) permanece igual ...
     const producaoId = result.insertId;
     
-    // O resto permanece igual...
     const values = itens.map((item) => [
       producaoId,
       item.id,
       item.quantidade || item.qtd,
       item.tipo_producao || "NORMAL",
     ]);
-
+    
     await connection.query(
       `INSERT INTO producao_itens (producao_id, peca_original_id, quantidade, tipo_producao) VALUES ?`,
       [values]
@@ -880,6 +890,7 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
       detalhes: { material: materialReal, espessura: espessuraReal, motor },
     });
   } catch (error) {
+    // ... (Bloco catch permanece igual) ...
     await connection.rollback();
     console.error(error);
     if (error.code === "ER_DUP_ENTRY")
