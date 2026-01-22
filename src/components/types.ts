@@ -52,6 +52,7 @@ export interface EngineeringScreenProps {
   parts: ImportedPart[];
   setParts: React.Dispatch<React.SetStateAction<ImportedPart[]>>;
   onOpenTeam?: () => void;
+  onNavigate?: (screen: "home" | "engineering" | "nesting" | "dashboard") => void;
   hasOpenGeometry?: boolean;
 }
 

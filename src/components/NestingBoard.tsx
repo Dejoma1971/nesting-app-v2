@@ -50,7 +50,9 @@ interface NestingBoardProps {
   initialParts: ImportedPart[];
   initialSearchQuery?: string;
   onBack?: () => void;
-  onNavigate?: (screen: "home" | "engineering" | "nesting") => void;
+  onNavigate?: (
+    screen: "home" | "engineering" | "nesting" | "dashboard",
+  ) => void;
   onOpenTeam?: () => void; // <--- ADICIONE ESTA LINHA
 }
 
@@ -2487,11 +2489,16 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           ></div>
           <SidebarMenu
             onNavigate={(screen) => {
-              // Mantenha a lógica de navegação que já existe aqui
-              if (screen === "home" && onBack) onBack();
+              // 1. Lógica para Home
+              if (screen === "home" && onBack) {
+                onBack();
+              }
+              // 2. Lógica para Dashboard e outros
+              else if (onNavigate) {
+                onNavigate(screen);
+              }
             }}
             onOpenProfile={() => alert("Perfil em breve")}
-            // ADICIONE ESTA LINHA:
             onOpenTeam={onOpenTeam}
           />
           {/* <button

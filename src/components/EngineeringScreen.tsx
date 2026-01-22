@@ -646,12 +646,17 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           </button>
           <SidebarMenu
             onNavigate={(screen) => {
+              // Se for "home", usa a função de voltar que já existe
               if (screen === "home" && onBack) {
                 onBack();
               }
+              // Se for "dashboard" (ou outra), usa a navegação global
+              // Usamos (props as any) para evitar erro de TypeScript se você não alterou o types.ts ainda
+              else if ((props as any).onNavigate) {
+                (props as any).onNavigate(screen);
+              }
             }}
             onOpenProfile={() => alert("Perfil do Usuário (Em breve)")}
-            // ADICIONE ESTA LINHA AQUI:
             onOpenTeam={onOpenTeam}
           />
         </div>

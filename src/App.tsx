@@ -84,6 +84,7 @@ function ProtectedApp() {
           onBack={goHome}
           onSendToNesting={handleSendToNesting}
           onOpenTeam={() => setIsTeamModalOpen(true)}
+          onNavigate={(screen) => setCurrentScreen(screen)}
         />
       )}
 
@@ -102,7 +103,7 @@ function ProtectedApp() {
           onOpenTeam={() => setIsTeamModalOpen(true)}
         />
       )}
-      
+
       {/* 4. O MODAL FLUTUANTE (Renderiza em cima de tudo se estiver true) */}
       {isTeamModalOpen && (
         <TeamManagementScreen onClose={() => setIsTeamModalOpen(false)} />

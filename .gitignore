@@ -7,8 +7,11 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-#dist
+# Dependências
+node_modules/
+
+# Build (Ignorar a pasta dist para evitar conflitos e lixo)
+dist
 dist-ssr
 *.local
 
@@ -23,9 +26,9 @@ dist-ssr
 *.sln
 *.sw?
 
+# Segurança (Variáveis de ambiente)
 .env
 *.env
-node_modules/
 
 # Ignorar pasta de banco de dados local
 database/
