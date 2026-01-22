@@ -4,18 +4,18 @@ import type { ImportedPart } from "./types";
 
 interface DxfReaderProps {
   preLoadedParts?: ImportedPart[];
-  autoSearchQuery?: string; // <--- NOVO PROP
+  autoSearchQuery?: string;
   onBack: () => void;
-  onNavigate?: (screen: "home" | "engineering" | "nesting") => void;
+  // 👇 ADICIONE "dashboard" NESTA LINHA:
+  onNavigate?: (screen: "home" | "engineering" | "nesting" | "dashboard") => void;
   onOpenTeam?: () => void;
 }
 
-// CORREÇÃO 1: Adicionar 'onNavigate' na desestruturação das props
 export const DxfReader: React.FC<DxfReaderProps> = ({
   preLoadedParts,
   autoSearchQuery,
   onBack,
-  onNavigate, // <--- ADICIONE AQUI
+  onNavigate,
   onOpenTeam,
 }) => {
   return (
@@ -23,7 +23,8 @@ export const DxfReader: React.FC<DxfReaderProps> = ({
       initialParts={preLoadedParts || []}
       initialSearchQuery={autoSearchQuery}
       onBack={onBack}
-      onNavigate={onNavigate} // <--- CORREÇÃO 2: Repassar para o componente filho
+      // 👇 O erro sumirá agora porque os tipos são compatíveis
+      onNavigate={onNavigate} 
       onOpenTeam={onOpenTeam}
     />
   );

@@ -22,7 +22,7 @@ app.use(
         req.rawBody = buf.toString();
       }
     },
-  })
+  }),
 );
 
 // ==========================================
@@ -84,26 +84,32 @@ function authenticateToken(req, res, next) {
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
       console.log("🚫 AUTH FALHOU NA ROTA:", req.originalUrl);
-      
+
       // DIAGNÓSTICO PRECISO
-      if (err.name === 'TokenExpiredError') {
-        console.log("   Motivo: ⏳ TOKEN EXPIRADO (Expired At: " + err.expiredAt + ")");
+      if (err.name === "TokenExpiredError") {
+        console.log(
+          "   Motivo: ⏳ TOKEN EXPIRADO (Expired At: " + err.expiredAt + ")",
+        );
         // Se expirar 1 segundo após o login, o relógio do servidor está errado.
-      } else if (err.name === 'JsonWebTokenError') {
-        console.log("   Motivo: 🔓 ASSINATURA INVÁLIDA (O JWT_SECRET mudou ou o token veio corrompido)");
-        console.log("   Token recebido (início):", token.substring(0, 15) + "...");
+      } else if (err.name === "JsonWebTokenError") {
+        console.log(
+          "   Motivo: 🔓 ASSINATURA INVÁLIDA (O JWT_SECRET mudou ou o token veio corrompido)",
+        );
+        console.log(
+          "   Token recebido (início):",
+          token.substring(0, 15) + "...",
+        );
       } else {
         console.log("   Motivo: " + err.message);
       }
 
-      return res.sendStatus(403); // 
+      return res.sendStatus(403); //
     }
 
     req.user = user;
     next();
   });
 }
-
 
 // ==========================================================
 // ROTA WEBHOOK DO STRIPE (AUTOMAÇÃO DE PAGAMENTO)
@@ -129,7 +135,7 @@ app.post("/api/webhook", async (req, res) => {
     const amountTotal = session.amount_total; // Centavos
 
     console.log(
-      `💰 Pagamento recebido de: ${userEmail} | Valor: ${amountTotal}`
+      `💰 Pagamento recebido de: ${userEmail} | Valor: ${amountTotal}`,
     );
 
     try {
@@ -146,16 +152,19 @@ app.post("/api/webhook", async (req, res) => {
         const valorExtra = amountTotal - 2490;
         const usersExtras = Math.floor(valorExtra / 1200);
         limiteUsuarios = 1 + usersExtras;
+      } else {
+        // Se for Premium (não corporativo), defina o limite (ex: 500 ou ilimitado também)
+        limitePecas = null;
       }
 
       console.log(
-        `📊 Definindo plano: ${novoPlano} com ${limiteUsuarios} usuários.`
+        `📊 Definindo plano: ${novoPlano} com ${limiteUsuarios} usuários.`,
       );
 
       // 1. Descobre a empresa do usuário
       const [users] = await connection.query(
         "SELECT empresa_id FROM usuarios WHERE email = ?",
-        [userEmail]
+        [userEmail],
       );
 
       if (users.length > 0) {
@@ -167,14 +176,14 @@ app.post("/api/webhook", async (req, res) => {
                 UPDATE empresas 
                 SET plano = ?, subscription_status = 'active', max_users = ? 
                 WHERE id = ?`,
-          [novoPlano, limiteUsuarios, empresaId]
+          [novoPlano, limiteUsuarios, limitePecas, empresaId],
         );
 
         // 3. Atualiza o ADMIN
         await connection.query(
           `
                 UPDATE usuarios SET plano = ? WHERE email = ?`,
-          [novoPlano, userEmail]
+          [novoPlano, userEmail],
         );
         console.log(`✅ Sucesso! Empresa ${empresaId} atualizada.`);
       } else {
@@ -201,7 +210,7 @@ app.post("/api/login", async (req, res) => {
   try {
     const [rows] = await db.query(
       "SELECT id, nome, email, senha_hash, empresa_id, plano, cargo, status FROM usuarios WHERE email = ?",
-      [email]
+      [email],
     );
 
     if (rows.length === 0)
@@ -222,7 +231,7 @@ app.post("/api/login", async (req, res) => {
         cargo: user.cargo,
       },
       JWT_SECRET,
-      { expiresIn: "30d" }
+      { expiresIn: "30d" },
     );
 
     res.json({
@@ -250,7 +259,7 @@ app.get("/api/auth/me", authenticateToken, async (req, res) => {
   try {
     const [rows] = await db.query(
       "SELECT id, nome, email, empresa_id, plano, cargo, status FROM usuarios WHERE id = ?",
-      [userId]
+      [userId],
     );
 
     if (rows.length === 0)
@@ -267,7 +276,7 @@ app.get("/api/auth/me", authenticateToken, async (req, res) => {
         cargo: user.cargo,
       },
       JWT_SECRET,
-      { expiresIn: "30d" }
+      { expiresIn: "30d" },
     );
 
     res.json({
@@ -301,7 +310,7 @@ app.post("/api/register", async (req, res) => {
 
     const [existingUser] = await connection.query(
       "SELECT id FROM usuarios WHERE email = ?",
-      [email]
+      [email],
     );
     if (existingUser.length > 0) {
       await connection.rollback();
@@ -312,7 +321,7 @@ app.post("/api/register", async (req, res) => {
     await connection.query(
       `INSERT INTO empresas (id, nome, plano, subscription_status, max_parts, max_users, trial_start_date)
        VALUES (?, ?, 'free', 'trial', 50, 1, NOW())`,
-      [empresaId, nomeEmpresa]
+      [empresaId, nomeEmpresa],
     );
 
     const salt = await bcrypt.genSalt(10);
@@ -322,7 +331,7 @@ app.post("/api/register", async (req, res) => {
     await connection.query(
       `INSERT INTO usuarios (id, nome, email, senha_hash, plano, status, empresa_id, cargo)
        VALUES (?, ?, ?, ?, 'free', 'ativo', ?, 'admin')`,
-      [usuarioId, nome, email, senhaHash, empresaId]
+      [usuarioId, nome, email, senhaHash, empresaId],
     );
 
     await connection.commit();
@@ -346,7 +355,7 @@ app.get("/api/team", authenticateToken, async (req, res) => {
   try {
     const [rows] = await db.query(
       "SELECT id, nome, email, cargo, status, ultimo_login FROM usuarios WHERE empresa_id = ?",
-      [empresaId]
+      [empresaId],
     );
     res.json(rows);
   } catch (error) {
@@ -375,7 +384,7 @@ app.post("/api/team/add", authenticateToken, async (req, res) => {
 
     const [empRows] = await connection.query(
       "SELECT max_users, plano FROM empresas WHERE id = ?",
-      [empresaId]
+      [empresaId],
     );
     if (empRows.length === 0) throw new Error("Empresa não encontrada");
     const empresa = empRows[0];
@@ -383,7 +392,7 @@ app.post("/api/team/add", authenticateToken, async (req, res) => {
 
     const [countRows] = await connection.query(
       "SELECT COUNT(*) as total FROM usuarios WHERE empresa_id = ?",
-      [empresaId]
+      [empresaId],
     );
     const totalAtual = countRows[0].total;
 
@@ -397,7 +406,7 @@ app.post("/api/team/add", authenticateToken, async (req, res) => {
 
     const [existing] = await connection.query(
       "SELECT id FROM usuarios WHERE email = ?",
-      [email]
+      [email],
     );
     if (existing.length > 0) {
       await connection.rollback();
@@ -411,7 +420,7 @@ app.post("/api/team/add", authenticateToken, async (req, res) => {
     await connection.query(
       `INSERT INTO usuarios (id, nome, email, senha_hash, empresa_id, cargo, status, plano)
        VALUES (?, ?, ?, ?, ?, 'operador', 'ativo', 'dependente')`,
-      [novoId, nome, email, senhaHash, empresaId]
+      [novoId, nome, email, senhaHash, empresaId],
     );
 
     await connection.commit();
@@ -438,7 +447,7 @@ app.delete("/api/team/:id", authenticateToken, async (req, res) => {
   try {
     const [result] = await db.query(
       "DELETE FROM usuarios WHERE id = ? AND empresa_id = ?",
-      [targetId, empresaId]
+      [targetId, empresaId],
     );
 
     if (result.affectedRows === 0) {
@@ -468,7 +477,7 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
   try {
     const [empRows] = await db.query(
       "SELECT trial_start_date, subscription_status, max_parts FROM empresas WHERE id = ?",
-      [empresaId]
+      [empresaId],
     );
     const empresa = empRows[0];
 
@@ -486,7 +495,7 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
     if (empresa.max_parts !== null) {
       const [countRows] = await db.query(
         "SELECT COUNT(*) as total FROM pecas_engenharia WHERE empresa_id = ?",
-        [empresaId]
+        [empresaId],
       );
       const currentTotal = countRows[0].total;
       if (currentTotal + parts.length > empresa.max_parts) {
@@ -555,7 +564,7 @@ app.post(
     } catch (error) {
       res.status(500).json({ error: "Erro ao verificar duplicidade." });
     }
-  }
+  },
 );
 
 // --- BUSCAR PEÇAS ---
@@ -614,7 +623,7 @@ app.get("/api/pedidos/disponiveis", authenticateToken, async (req, res) => {
   try {
     const [rows] = await db.query(
       "SELECT DISTINCT pedido FROM pecas_engenharia WHERE empresa_id = ? AND status = 'AGUARDANDO' AND pedido IS NOT NULL AND pedido != '' ORDER BY pedido DESC",
-      [empresaId]
+      [empresaId],
     );
     res.json(rows.map((r) => r.pedido));
   } catch (error) {
@@ -628,19 +637,19 @@ app.get("/api/subscription/status", authenticateToken, async (req, res) => {
     const empresaId = req.user.empresa_id;
     const [empresaRows] = await db.query(
       "SELECT plano, trial_start_date, subscription_status, subscription_end_date, max_parts, max_users FROM empresas WHERE id = ?",
-      [empresaId]
+      [empresaId],
     );
     const empresa = empresaRows[0];
 
     const [countRows] = await db.query(
       "SELECT COUNT(*) as total FROM pecas_engenharia WHERE empresa_id = ?",
-      [empresaId]
+      [empresaId],
     );
     const partsUsed = countRows[0].total;
 
     const [userCountRows] = await db.query(
       "SELECT COUNT(*) as total FROM usuarios WHERE empresa_id = ?",
-      [empresaId]
+      [empresaId],
     );
     const usersUsed = userCountRows[0].total;
 
@@ -652,7 +661,7 @@ app.get("/api/subscription/status", authenticateToken, async (req, res) => {
       expirationDate.setDate(expirationDate.getDate() + 30);
       daysLeft = Math.max(
         0,
-        Math.ceil((expirationDate - now) / (1000 * 60 * 60 * 24))
+        Math.ceil((expirationDate - now) / (1000 * 60 * 60 * 24)),
       );
     }
 
@@ -711,7 +720,7 @@ app.get("/api/dashboard/stats", authenticateToken, async (req, res) => {
       LEFT JOIN pecas_engenharia pe ON pi.peca_original_id = pe.id
       WHERE h.empresa_id = ? ${dateFilter}
     `;
-    
+
     // 2. Total de Peças (Unitário)
     const partesQuery = `
       SELECT COALESCE(SUM(i.quantidade), 0) as total_pecas
@@ -767,10 +776,15 @@ app.get("/api/dashboard/stats", authenticateToken, async (req, res) => {
 
     // Gráfico de Evolução (Mantido simples)
     const chartQuery = `
-      SELECT DATE_FORMAT(data_producao, '%d/%m') as data, COUNT(*) as chapas, AVG(aproveitamento) as eficiencia
+      SELECT 
+        DATE_FORMAT(data_producao, '%d/%m') as data, 
+        COUNT(*) as chapas, 
+        AVG(aproveitamento) as eficiencia
       FROM producao_historico h
-      WHERE h.empresa_id = ? ${dateFilter}
-      GROUP BY DATE(data_producao) ORDER BY data_producao ASC
+      WHERE h.empresa_id = ?
+      ${dateFilter}
+      GROUP BY DATE_FORMAT(data_producao, '%d/%m') 
+      ORDER BY MIN(data_producao) ASC
     `;
     const [chartRows] = await connection.query(chartQuery, params);
 
@@ -783,18 +797,17 @@ app.get("/api/dashboard/stats", authenticateToken, async (req, res) => {
         peso: Number(kpiRows[0].peso_total_kg),
         area: Number(kpiRows[0].area_total_m2),
         pecas: partesRows[0].total_pecas,
-        pedidos: kpiRows[0].total_pedidos_unicos // NOVO
+        pedidos: kpiRows[0].total_pedidos_unicos, // NOVO
       },
       breakdown: {
         materiais: matEspRows, // NOVO
-        usuarios: userRows,    // NOVO
-        listaPedidos: pedidosRows // NOVO
+        usuarios: userRows, // NOVO
+        listaPedidos: pedidosRows, // NOVO
       },
       charts: {
-        evolucao: chartRows
-      }
+        evolucao: chartRows,
+      },
     });
-
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Erro ao carregar dashboard" });
@@ -805,18 +818,18 @@ app.get("/api/dashboard/stats", authenticateToken, async (req, res) => {
 
 app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
   // RECEBENDO OS NOVOS DADOS DO FRONTEND
-  const { 
-    chapaIndex, 
+  const {
+    chapaIndex,
     aproveitamento, // Este será o Global (Real)
-    consumo,        // NOVO: Consumo %
-    retalhoLinear,  // NOVO: mm
-    areaRetalho,    // NOVO: m²
-    itens, 
-    motor, 
-    larguraChapa, 
-    alturaChapa 
+    consumo, // NOVO: Consumo %
+    retalhoLinear, // NOVO: mm
+    areaRetalho, // NOVO: m²
+    itens,
+    motor,
+    larguraChapa,
+    alturaChapa,
   } = req.body;
-  
+
   const usuarioId = req.user.id;
   const empresaId = req.user.empresa_id;
 
@@ -832,11 +845,11 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
 
     const [pecaRows] = await connection.query(
       "SELECT material, espessura FROM pecas_engenharia WHERE id = ? AND empresa_id = ?",
-      [itens[0].id, empresaId]
+      [itens[0].id, empresaId],
     );
     if (pecaRows.length > 0) {
       materialReal = pecaRows[0].material;
-      espessuraReal = parseFloat(pecaRows[0].espessura) || 0; 
+      espessuraReal = parseFloat(pecaRows[0].espessura) || 0;
     }
 
     // INSERT ATUALIZADO COM OS NOVOS CAMPOS
@@ -849,38 +862,38 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
         usuarioId,
         chapaIndex,
         aproveitamento, // Global
-        7.85,           // Densidade do MATERIAL (Aço), não do arranjo
+        7.85, // Densidade do MATERIAL (Aço), não do arranjo
         materialReal,
         espessuraReal,
         motor || "Smart Nest",
         larguraChapa || 0,
         alturaChapa || 0,
-        consumo || 0,        // NOVO
-        retalhoLinear || 0,  // NOVO
-        areaRetalho || 0     // NOVO
-      ]
+        consumo || 0, // NOVO
+        retalhoLinear || 0, // NOVO
+        areaRetalho || 0, // NOVO
+      ],
     );
-    
+
     // ... O restante do código (INSERT producao_itens, UPDATE status, commit) permanece igual ...
     const producaoId = result.insertId;
-    
+
     const values = itens.map((item) => [
       producaoId,
       item.id,
       item.quantidade || item.qtd,
       item.tipo_producao || "NORMAL",
     ]);
-    
+
     await connection.query(
       `INSERT INTO producao_itens (producao_id, peca_original_id, quantidade, tipo_producao) VALUES ?`,
-      [values]
+      [values],
     );
 
     const idsParaAtualizar = itens.map((i) => i.id);
     if (idsParaAtualizar.length > 0) {
       await connection.query(
         "UPDATE pecas_engenharia SET status = 'EM PRODUÇÃO' WHERE id IN (?) AND empresa_id = ?",
-        [idsParaAtualizar, empresaId]
+        [idsParaAtualizar, empresaId],
       );
     }
 
@@ -902,18 +915,21 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
 });
 
 // ==========================================
-// ROTAS DE MATERIAIS E ESPESSURAS
+// ROTAS DE MATERIAIS (COMPARTILHADO NA EQUIPE)
 // ==========================================
 
-// --- MATERIAIS ---
 app.get("/api/materials", authenticateToken, async (req, res) => {
   try {
+    const empresaId = req.user.empresa_id; // Pega o ID da empresa do token
+
+    // Busca materiais padrão + materiais da EMPRESA do usuário
     const query = `
         SELECT id, nome, densidade, 'padrao' as origem FROM materiais_padrao
         UNION ALL
         SELECT id, nome, densidade, 'custom' as origem FROM materiais_personalizados 
-        WHERE usuario_id = ? ORDER BY nome ASC`;
-    const [results] = await db.query(query, [req.user.id]);
+        WHERE empresa_id = ? ORDER BY nome ASC`;
+
+    const [results] = await db.query(query, [empresaId]);
     res.json(results);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -922,56 +938,82 @@ app.get("/api/materials", authenticateToken, async (req, res) => {
 
 app.post("/api/materials", authenticateToken, async (req, res) => {
   const { name, density } = req.body;
+  const usuarioId = req.user.id;
+  const empresaId = req.user.empresa_id;
+
   if (!name) return res.status(400).json({ error: "Nome obrigatório" });
+
   try {
+    // Insere vinculando à EMPRESA, mas mantemos o usuario_id para saber quem criou (opcional)
     const [result] = await db.query(
-      "INSERT INTO materiais_personalizados (usuario_id, nome, densidade) VALUES (?, ?, ?)",
-      [req.user.id, name, density || 7.85]
+      "INSERT INTO materiais_personalizados (usuario_id, empresa_id, nome, densidade) VALUES (?, ?, ?, ?)",
+      [usuarioId, empresaId, name, density || 7.85],
     );
     res.json({ id: result.insertId, nome: name, densidade: density || 7.85 });
   } catch (err) {
-    res.status(500).json({ error: "Erro ao salvar" });
+    console.error(err);
+    res.status(500).json({ error: "Erro ao salvar material." });
   }
 });
 
 app.put("/api/materials/:id", authenticateToken, async (req, res) => {
   const { name, density } = req.body;
+  const empresaId = req.user.empresa_id;
+
   try {
+    // Atualiza verificando se pertence à EMPRESA (qualquer um da empresa pode editar)
     const [result] = await db.query(
-      "UPDATE materiais_personalizados SET nome = ?, densidade = ? WHERE id = ? AND usuario_id = ?",
-      [name, density || 7.85, req.params.id, req.user.id]
+      "UPDATE materiais_personalizados SET nome = ?, densidade = ? WHERE id = ? AND empresa_id = ?",
+      [name, density || 7.85, req.params.id, empresaId],
     );
+
     if (result.affectedRows === 0)
-      return res.status(404).json({ error: "Não encontrado" });
-    res.json({ message: "Atualizado" });
+      return res
+        .status(404)
+        .json({ error: "Material não encontrado ou sem permissão." });
+
+    res.json({ message: "Atualizado com sucesso" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 app.delete("/api/materials/:id", authenticateToken, async (req, res) => {
+  const empresaId = req.user.empresa_id;
+
   try {
+    // Remove verificando a EMPRESA
     const [result] = await db.query(
-      "DELETE FROM materiais_personalizados WHERE id = ? AND usuario_id = ?",
-      [req.params.id, req.user.id]
+      "DELETE FROM materiais_personalizados WHERE id = ? AND empresa_id = ?",
+      [req.params.id, empresaId],
     );
+
     if (result.affectedRows === 0)
-      return res.status(404).json({ error: "Não encontrado" });
-    res.json({ message: "Removido" });
+      return res
+        .status(404)
+        .json({ error: "Material não encontrado ou sem permissão." });
+
+    res.json({ message: "Material removido" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// --- ESPESSURAS ---
+// ==========================================
+// ROTAS DE ESPESSURAS (COMPARTILHADO NA EQUIPE)
+// ==========================================
+
 app.get("/api/thicknesses", authenticateToken, async (req, res) => {
   try {
+    const empresaId = req.user.empresa_id;
+
     const query = `
         SELECT id, valor, 'padrao' as origem FROM espessuras_padrao
         UNION ALL
         SELECT id, valor, 'custom' as origem FROM espessuras_personalizadas 
-        WHERE usuario_id = ?`;
-    const [results] = await db.query(query, [req.user.id]);
+        WHERE empresa_id = ? ORDER BY valor ASC`; // Ordenar por valor fica melhor visualmente
+
+    const [results] = await db.query(query, [empresaId]);
     res.json(results);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -980,27 +1022,35 @@ app.get("/api/thicknesses", authenticateToken, async (req, res) => {
 
 app.post("/api/thicknesses", authenticateToken, async (req, res) => {
   const { value } = req.body;
+  const usuarioId = req.user.id;
+  const empresaId = req.user.empresa_id;
+
   if (!value) return res.status(400).json({ error: "Valor obrigatório" });
+
   try {
     const [result] = await db.query(
-      "INSERT INTO espessuras_personalizadas (usuario_id, valor) VALUES (?, ?)",
-      [req.user.id, value]
+      "INSERT INTO espessuras_personalizadas (usuario_id, empresa_id, valor) VALUES (?, ?, ?)",
+      [usuarioId, empresaId, value],
     );
     res.json({ id: result.insertId, valor: value });
   } catch (err) {
-    res.status(500).json({ error: "Erro ao salvar" });
+    res.status(500).json({ error: "Erro ao salvar espessura" });
   }
 });
 
 app.put("/api/thicknesses/:id", authenticateToken, async (req, res) => {
   const { value } = req.body;
+  const empresaId = req.user.empresa_id;
+
   try {
     const [result] = await db.query(
-      "UPDATE espessuras_personalizadas SET valor = ? WHERE id = ? AND usuario_id = ?",
-      [value, req.params.id, req.user.id]
+      "UPDATE espessuras_personalizadas SET valor = ? WHERE id = ? AND empresa_id = ?",
+      [value, req.params.id, empresaId],
     );
+
     if (result.affectedRows === 0)
       return res.status(404).json({ error: "Não encontrado" });
+
     res.json({ message: "Atualizado" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1008,13 +1058,17 @@ app.put("/api/thicknesses/:id", authenticateToken, async (req, res) => {
 });
 
 app.delete("/api/thicknesses/:id", authenticateToken, async (req, res) => {
+  const empresaId = req.user.empresa_id;
+
   try {
     const [result] = await db.query(
-      "DELETE FROM espessuras_personalizadas WHERE id = ? AND usuario_id = ?",
-      [req.params.id, req.user.id]
+      "DELETE FROM espessuras_personalizadas WHERE id = ? AND empresa_id = ?",
+      [req.params.id, empresaId],
     );
+
     if (result.affectedRows === 0)
       return res.status(404).json({ error: "Não encontrado" });
+
     res.json({ message: "Removido" });
   } catch (err) {
     res.status(500).json({ error: err.message });
