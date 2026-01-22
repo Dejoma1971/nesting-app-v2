@@ -152,6 +152,9 @@ app.post("/api/webhook", async (req, res) => {
         const valorExtra = amountTotal - 2490;
         const usersExtras = Math.floor(valorExtra / 1200);
         limiteUsuarios = 1 + usersExtras;
+      } else {
+        // Se for Premium (não corporativo), defina o limite (ex: 500 ou ilimitado também)
+        limitePecas = null;
       }
 
       console.log(
@@ -173,7 +176,7 @@ app.post("/api/webhook", async (req, res) => {
                 UPDATE empresas 
                 SET plano = ?, subscription_status = 'active', max_users = ? 
                 WHERE id = ?`,
-          [novoPlano, limiteUsuarios, empresaId],
+          [novoPlano, limiteUsuarios, limitePecas, empresaId],
         );
 
         // 3. Atualiza o ADMIN
