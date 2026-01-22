@@ -3,7 +3,7 @@ import { SidebarMenu } from "../components/SidebarMenu";
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
 import { useTheme } from "../context/ThemeContext";
 
-type ScreenType = "home" | "engineering" | "nesting";
+type ScreenType = "home" | "engineering" | "nesting" | "dashboard";
 
 interface HomeProps {
   onNavigate: (screen: ScreenType) => void;
@@ -76,7 +76,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
         <div style={{ position: "absolute", top: 20, right: 20, zIndex: 1000 }}>
           <SidebarMenu
             onNavigate={onNavigate}
-            onOpenProfile={() => alert("Perfil do Usuário (Em breve)")}            
+            onOpenProfile={() => alert("Perfil do Usuário (Em breve)")}
             // ADICIONE ESTA LINHA:
             onOpenTeam={() => setIsTeamModalOpen(true)}
           />
@@ -237,7 +237,6 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       {isTeamModalOpen && (
         <TeamManagementScreen onClose={() => setIsTeamModalOpen(false)} />
       )}
-
     </div>
   );
 };

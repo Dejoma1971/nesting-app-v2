@@ -902,18 +902,21 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
 });
 
 // ==========================================
-// ROTAS DE MATERIAIS E ESPESSURAS
+// ROTAS DE MATERIAIS (COMPARTILHADO NA EQUIPE)
 // ==========================================
 
-// --- MATERIAIS ---
 app.get("/api/materials", authenticateToken, async (req, res) => {
   try {
+    const empresaId = req.user.empresa_id; // Pega o ID da empresa do token
+
+    // Busca materiais padrão + materiais da EMPRESA do usuário
     const query = `
         SELECT id, nome, densidade, 'padrao' as origem FROM materiais_padrao
         UNION ALL
         SELECT id, nome, densidade, 'custom' as origem FROM materiais_personalizados 
-        WHERE usuario_id = ? ORDER BY nome ASC`;
-    const [results] = await db.query(query, [req.user.id]);
+        WHERE empresa_id = ? ORDER BY nome ASC`;
+        
+    const [results] = await db.query(query, [empresaId]);
     res.json(results);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -922,56 +925,78 @@ app.get("/api/materials", authenticateToken, async (req, res) => {
 
 app.post("/api/materials", authenticateToken, async (req, res) => {
   const { name, density } = req.body;
+  const usuarioId = req.user.id;
+  const empresaId = req.user.empresa_id;
+
   if (!name) return res.status(400).json({ error: "Nome obrigatório" });
+
   try {
+    // Insere vinculando à EMPRESA, mas mantemos o usuario_id para saber quem criou (opcional)
     const [result] = await db.query(
-      "INSERT INTO materiais_personalizados (usuario_id, nome, densidade) VALUES (?, ?, ?)",
-      [req.user.id, name, density || 7.85]
+      "INSERT INTO materiais_personalizados (usuario_id, empresa_id, nome, densidade) VALUES (?, ?, ?, ?)",
+      [usuarioId, empresaId, name, density || 7.85]
     );
     res.json({ id: result.insertId, nome: name, densidade: density || 7.85 });
   } catch (err) {
-    res.status(500).json({ error: "Erro ao salvar" });
+    console.error(err);
+    res.status(500).json({ error: "Erro ao salvar material." });
   }
 });
 
 app.put("/api/materials/:id", authenticateToken, async (req, res) => {
   const { name, density } = req.body;
+  const empresaId = req.user.empresa_id;
+
   try {
+    // Atualiza verificando se pertence à EMPRESA (qualquer um da empresa pode editar)
     const [result] = await db.query(
-      "UPDATE materiais_personalizados SET nome = ?, densidade = ? WHERE id = ? AND usuario_id = ?",
-      [name, density || 7.85, req.params.id, req.user.id]
+      "UPDATE materiais_personalizados SET nome = ?, densidade = ? WHERE id = ? AND empresa_id = ?",
+      [name, density || 7.85, req.params.id, empresaId]
     );
+    
     if (result.affectedRows === 0)
-      return res.status(404).json({ error: "Não encontrado" });
-    res.json({ message: "Atualizado" });
+      return res.status(404).json({ error: "Material não encontrado ou sem permissão." });
+      
+    res.json({ message: "Atualizado com sucesso" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 app.delete("/api/materials/:id", authenticateToken, async (req, res) => {
+  const empresaId = req.user.empresa_id;
+  
   try {
+    // Remove verificando a EMPRESA
     const [result] = await db.query(
-      "DELETE FROM materiais_personalizados WHERE id = ? AND usuario_id = ?",
-      [req.params.id, req.user.id]
+      "DELETE FROM materiais_personalizados WHERE id = ? AND empresa_id = ?",
+      [req.params.id, empresaId]
     );
+    
     if (result.affectedRows === 0)
-      return res.status(404).json({ error: "Não encontrado" });
-    res.json({ message: "Removido" });
+      return res.status(404).json({ error: "Material não encontrado ou sem permissão." });
+      
+    res.json({ message: "Material removido" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// --- ESPESSURAS ---
+// ==========================================
+// ROTAS DE ESPESSURAS (COMPARTILHADO NA EQUIPE)
+// ==========================================
+
 app.get("/api/thicknesses", authenticateToken, async (req, res) => {
   try {
+    const empresaId = req.user.empresa_id;
+
     const query = `
         SELECT id, valor, 'padrao' as origem FROM espessuras_padrao
         UNION ALL
         SELECT id, valor, 'custom' as origem FROM espessuras_personalizadas 
-        WHERE usuario_id = ?`;
-    const [results] = await db.query(query, [req.user.id]);
+        WHERE empresa_id = ? ORDER BY valor ASC`; // Ordenar por valor fica melhor visualmente
+        
+    const [results] = await db.query(query, [empresaId]);
     res.json(results);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -980,27 +1005,35 @@ app.get("/api/thicknesses", authenticateToken, async (req, res) => {
 
 app.post("/api/thicknesses", authenticateToken, async (req, res) => {
   const { value } = req.body;
+  const usuarioId = req.user.id;
+  const empresaId = req.user.empresa_id;
+
   if (!value) return res.status(400).json({ error: "Valor obrigatório" });
+
   try {
     const [result] = await db.query(
-      "INSERT INTO espessuras_personalizadas (usuario_id, valor) VALUES (?, ?)",
-      [req.user.id, value]
+      "INSERT INTO espessuras_personalizadas (usuario_id, empresa_id, valor) VALUES (?, ?, ?)",
+      [usuarioId, empresaId, value]
     );
     res.json({ id: result.insertId, valor: value });
   } catch (err) {
-    res.status(500).json({ error: "Erro ao salvar" });
+    res.status(500).json({ error: "Erro ao salvar espessura" });
   }
 });
 
 app.put("/api/thicknesses/:id", authenticateToken, async (req, res) => {
   const { value } = req.body;
+  const empresaId = req.user.empresa_id;
+
   try {
     const [result] = await db.query(
-      "UPDATE espessuras_personalizadas SET valor = ? WHERE id = ? AND usuario_id = ?",
-      [value, req.params.id, req.user.id]
+      "UPDATE espessuras_personalizadas SET valor = ? WHERE id = ? AND empresa_id = ?",
+      [value, req.params.id, empresaId]
     );
+    
     if (result.affectedRows === 0)
       return res.status(404).json({ error: "Não encontrado" });
+      
     res.json({ message: "Atualizado" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1008,13 +1041,17 @@ app.put("/api/thicknesses/:id", authenticateToken, async (req, res) => {
 });
 
 app.delete("/api/thicknesses/:id", authenticateToken, async (req, res) => {
+  const empresaId = req.user.empresa_id;
+
   try {
     const [result] = await db.query(
-      "DELETE FROM espessuras_personalizadas WHERE id = ? AND usuario_id = ?",
-      [req.params.id, req.user.id]
+      "DELETE FROM espessuras_personalizadas WHERE id = ? AND empresa_id = ?",
+      [req.params.id, empresaId]
     );
+    
     if (result.affectedRows === 0)
       return res.status(404).json({ error: "Não encontrado" });
+      
     res.json({ message: "Removido" });
   } catch (err) {
     res.status(500).json({ error: err.message });
