@@ -6,7 +6,7 @@ import type {
 } from "../components/labels/LabelTypes";
 
 // Configurações Padrão
-const DEFAULT_FONT_SIZE_WHITE = 20; // mm (Identificação Visual - Maior)
+const DEFAULT_FONT_SIZE_WHITE = 38; // mm (Identificação Visual - Maior)
 const DEFAULT_FONT_SIZE_PINK = 6; // mm (Gravação Técnica - Menor)
 
 // --- AJUSTE DE POSIÇÃO PADRÃO (Para evitar sobreposição) ---
@@ -48,12 +48,12 @@ export const useLabelManager = (parts: ImportedPart[]) => {
 
           nextState[part.id] = {
             white: {
-              active: false, // Começa desligado
+              active: false,
               text: defaultText,
               rotation: 0,
-              fontSize: DEFAULT_FONT_SIZE_WHITE,
+              fontSize: DEFAULT_FONT_SIZE_WHITE, // Usa 35
               offsetX: 0,
-              offsetY: DEFAULT_OFFSET_WHITE_Y, // <--- APLICA O DESLOCAMENTO
+              offsetY: DEFAULT_OFFSET_WHITE_Y,
             },
             pink: {
               active: false,
@@ -61,11 +61,23 @@ export const useLabelManager = (parts: ImportedPart[]) => {
               rotation: 0,
               fontSize: DEFAULT_FONT_SIZE_PINK,
               offsetX: 0,
-              offsetY: DEFAULT_OFFSET_PINK_Y, // <--- APLICA O DESLOCAMENTO
+              offsetY: DEFAULT_OFFSET_PINK_Y,
             },
           };
           hasChanges = true;
         }
+        // --- [CORREÇÃO FORÇADA] Atualiza peças antigas de 20 para 35 ---
+        else if (nextState[part.id].white.fontSize === 20) {
+          nextState[part.id] = {
+            ...nextState[part.id],
+            white: {
+              ...nextState[part.id].white,
+              fontSize: DEFAULT_FONT_SIZE_WHITE, // Atualiza para 35
+            },
+          };
+          hasChanges = true;
+        }
+        // ---------------------------------------------------------------
       });
 
       return hasChanges ? nextState : prev;
@@ -102,7 +114,7 @@ export const useLabelManager = (parts: ImportedPart[]) => {
         return next;
       });
     },
-    [globalWhiteEnabled, globalPinkEnabled]
+    [globalWhiteEnabled, globalPinkEnabled],
   );
 
   // 3. Ação: Toggle Individual (Click na Miniatura)
@@ -124,7 +136,7 @@ export const useLabelManager = (parts: ImportedPart[]) => {
         };
       });
     },
-    []
+    [],
   );
 
   // 4. Ação: Atualização Fina (Menu de Contexto: Rotação, Tamanho, Texto)
@@ -146,7 +158,7 @@ export const useLabelManager = (parts: ImportedPart[]) => {
         };
       });
     },
-    []
+    [],
   );
 
   return {
