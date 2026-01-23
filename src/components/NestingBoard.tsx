@@ -1390,25 +1390,35 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     clearSavedState,
   ]);
 
-  const handleRefreshView = useCallback(() => {
-    // 1. Liga a animação
-    setIsRefreshing(true);
+  // ⬇️ --- SUBSTITUIR ESTA FUNÇÃO INTEIRA --- ⬇️
+  const handleRefreshView = useCallback(
+    (e: React.MouseEvent) => {
+      // 1. HARD RESET (Shift + Click) - Limpeza de Cache
+      if (e.shiftKey) {
+        if (
+          window.confirm(
+            "⚠️ LIMPEZA DE CACHE (Shift detectado):\n\nIsso apagará o salvamento automático e reiniciará a mesa do zero. Continuar?",
+          )
+        ) {
+          clearSavedState(); // Limpa o localStorage (Cache)
+          handleClearTable(); // Limpa a memória RAM (React State)
+        }
+        return;
+      }
 
-    // 2. Incrementa a chave para forçar o React a recriar o componente Canvas
-    setViewKey((prev) => prev + 1);
+      // 2. SOFT RESET (Click Normal) - Destravar Interface
+      setIsRefreshing(true);
+      setViewKey((prev) => prev + 1);
+      setNestingResult((prev) => [...prev]); // Força re-render
+      setContextMenu(null);
+      setSheetMenu(null);
 
-    // 3. Força uma atualização rasa nos estados para garantir sincronia
-    setNestingResult((prev) => [...prev]);
-
-    // 4. Limpa menus travados
-    setContextMenu(null);
-    setSheetMenu(null);
-
-    // 5. Desliga a animação após 0.7s
-    setTimeout(() => setIsRefreshing(false), 700);
-
-    console.log("♻️ Interface gráfica recarregada (Soft Reset).");
-  }, [setNestingResult]);
+      setTimeout(() => setIsRefreshing(false), 700);
+      console.log("♻️ Interface gráfica recarregada (Soft Reset).");
+    },
+    [setNestingResult, clearSavedState, handleClearTable],
+  );
+  // ⬆️ -------------------------------------- ⬆️
 
   // --- NOVA FUNÇÃO: Navegação Segura para Home ---
   const handleSafeHomeExit = useCallback(() => {

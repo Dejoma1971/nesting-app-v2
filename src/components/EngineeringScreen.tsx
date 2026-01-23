@@ -82,6 +82,21 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
 
   const { parts, onBack, onOpenTeam } = props as any;
 
+  // ⬇️ --- [INSERÇÃO CIRÚRGICA] PREENCHIMENTO AUTOMÁTICO DO AUTOR --- ⬇️
+  React.useEffect(() => {
+    // Se o usuário está logado (tem nome) e o campo autor está vazio...
+    if (
+      user &&
+      user.name &&
+      (!batchDefaults.autor || batchDefaults.autor === "")
+    ) {
+      console.log("👤 Definindo autor automático:", user.name);
+      handleDefaultChange("autor", user.name);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+  // ⬆️ --------------------------------------------------------------- ⬆️
+
   // --- NOVO: EFEITO PARA DETECTAR GEOMETRIA ABERTA NO MODAL ---
   // CORREÇÃO: Removemos 'props.' e usamos as variáveis locais 'parts' e 'viewingPartId'
   React.useEffect(() => {
@@ -109,14 +124,26 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   }, [selectedPartId]);
   // -----------------------------------------------------------------
 
-  // ⬇️ --- INSERIR AQUI (A função que o botão vai chamar) --- ⬇️
-  const handleRefreshView = () => {
+  // ⬇️ --- SUBSTITUIR ESTA FUNÇÃO INTEIRA --- ⬇️
+  const handleRefreshView = (e: React.MouseEvent) => {
+    // 1. HARD RESET (Shift + Click)
+    if (e.shiftKey) {
+      const confirmHard = window.confirm(
+        "⚠️ HARD RESET (Shift detectado):\n\nDeseja limpar completamente a lista de peças e reiniciar a tela?",
+      );
+      if (confirmHard) {
+        handleReset(); // Chama a função que já limpa tudo
+      }
+      return;
+    }
+
+    // 2. SOFT RESET (Click Normal - Apenas Visual)
     setIsRefreshing(true);
     setViewKey((prev) => prev + 1);
     setTimeout(() => setIsRefreshing(false), 700);
-    console.log("♻️ Interface da Engenharia recarregada.");
+    console.log("♻️ Interface da Engenharia recarregada (Visual).");
   };
-  // ⬆️ ------------------------------------------------------ ⬆️
+  // ⬆️ -------------------------------------- ⬆️
 
   // --- NOVO: FUNÇÃO PARA CORRIGIR ---
   // ... dentro do EngineeringScreen.tsx
