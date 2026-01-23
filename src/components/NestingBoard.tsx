@@ -40,6 +40,8 @@ import { useProductionRegister } from "../hooks/useProductionRegister"; // <--- 
 import { useNestingFileManager } from "../hooks/useNestingFileManager";
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
 import { calculatePartNetArea } from "../utils/areaCalculator";
+// Adicione junto com os outros imports
+import { rotatePartsGroup } from "../utils/transformUtils";
 
 interface Size {
   width: number;
@@ -1540,11 +1542,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
   };
 
-  const handleContextRotate = useCallback(
+ const handleContextRotate = useCallback(
     (angle: number) => {
       if (selectedPartIds.length === 0) return;
 
-      // 1. Verificação de travas (mantida)
+      // 1. Verificação de travas (Apenas aviso visual, a lógica real está no utilitário)
       const hasLockedParts = selectedPartIds.some((uuid) => {
         const placedPart = nestingResult.find((p) => p.uuid === uuid);
         if (!placedPart) return false;
@@ -1553,59 +1555,22 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       });
 
       if (hasLockedParts) {
-        alert("⚠️ AVISO:\n\nPeça possui trava de rotação - Sentido Escovado.");
+        // Opcional: Pode remover este alert se ficar muito intrusivo, 
+        // pois a função rotatePartsGroup já ignora silenciosamente as travadas.
+        alert("⚠️ Algumas peças possuem trava de rotação e não serão movidas.");
       }
 
-      setNestingResult((prev) =>
-        prev.map((placed) => {
-          if (selectedPartIds.includes(placed.uuid)) {
-            const originalPart = parts.find((p) => p.id === placed.partId);
-
-            // Se não achou a peça ou está travada, retorna sem mexer
-            if (!originalPart || originalPart.isRotationLocked) {
-              return placed;
-            }
-
-            // --- LÓGICA DE COMPENSAÇÃO DE PIVÔ ---
-
-            // A. Calcula as dimensões ATUAIS da Bounding Box
-            const currentDims = calculateRotatedDimensions(
-              originalPart.width,
-              originalPart.height,
-              placed.rotation,
-            );
-
-            // B. Encontra o CENTRO REAL da peça na mesa
-            const centerX = placed.x + currentDims.width / 2;
-            const centerY = placed.y + currentDims.height / 2;
-
-            // C. Calcula a NOVA rotação
-            const newRotation = (placed.rotation + angle) % 360;
-
-            // D. Calcula as NOVAS dimensões da Bounding Box
-            const newDims = calculateRotatedDimensions(
-              originalPart.width,
-              originalPart.height,
-              newRotation,
-            );
-
-            // E. Recalcula X e Y para manter o CENTRO fixo
-            // Novo X = Centro Antigo - Metade da Nova Largura
-            const newX = centerX - newDims.width / 2;
-            const newY = centerY - newDims.height / 2;
-
-            return {
-              ...placed,
-              rotation: newRotation,
-              x: newX,
-              y: newY,
-            };
-          }
-          return placed;
-        }),
+      // 2. Chama a função utilitária para calcular a rotação em GRUPO
+      const newResult = rotatePartsGroup(
+        nestingResult,
+        selectedPartIds,
+        parts,
+        angle
       );
+
+      setNestingResult(newResult);
     },
-    [selectedPartIds, nestingResult, parts, setNestingResult], // Dependências atualizadas
+    [selectedPartIds, nestingResult, parts, setNestingResult]
   );
 
   const handleContextMove = useCallback(
