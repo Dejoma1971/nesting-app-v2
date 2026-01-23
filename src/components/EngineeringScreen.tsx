@@ -21,7 +21,7 @@ const PRODUCTION_TYPES = [
   { label: "Erro de Processo", value: "RETRABALHO_PROCESSO" },
   { label: "Erro de Projeto", value: "ERRO_ENGENHARIA" },
   { label: "Erro Comercial", value: "ERRO_COMERCIAL" },
-  { label: "Correção Cadastro", value: "EDITAR_CADASTRO" },
+  { label: "Correção Qtde", value: "EDITAR_CADASTRO" },
 ];
 
 export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
@@ -229,6 +229,38 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     }
   };
 
+  // --- [INSERÇÃO CIRÚRGICA 1] Lógica de Shift + Click ---
+
+  // Guarda qual foi o último índice clicado (sem Shift)
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(
+    null,
+  );
+
+  const handleSmartSelection = (
+    id: string,
+    index: number,
+    event: React.MouseEvent,
+  ) => {
+    // Se Shift estiver pressionado E já houver um último item clicado
+    if (event.shiftKey && lastSelectedIndex !== null) {
+      const start = Math.min(lastSelectedIndex, index);
+      const end = Math.max(lastSelectedIndex, index);
+
+      // Pega todos os IDs no intervalo entre o último clique e o atual
+      const idsInRange = parts
+        .slice(start, end + 1)
+        .map((p: ImportedPart) => p.id);
+
+      // Adiciona à seleção existente (usando Set para evitar duplicatas)
+      setSelectedIds((prev) => Array.from(new Set([...prev, ...idsInRange])));
+    } else {
+      // Comportamento normal (sem Shift): Alterna e memoriza este índice
+      toggleSelection(id);
+      setLastSelectedIndex(index);
+    }
+  };
+  // -----------------------------------------------------
+
   // Executa a exclusão (ALTERADO)
   const executeBulkDelete = () => {
     executeWithSessionConfirmation(
@@ -426,7 +458,15 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     color: theme.label,
     fontSize: "12px",
     whiteSpace: "nowrap",
+    // --- [INSERÇÃO] Fixar Cabeçalho da Tabela ---
+    position: "sticky",
+    top: "36px", // Deslocamento para ficar logo abaixo da barra "CADASTRO TÉCNICO"
+    zIndex: 9, // Garante que fique acima das linhas da tabela
+    background: theme.panelBg, // Cor de fundo opaca (importante!)
+    boxShadow: `0 1px 0 ${theme.border}`, // Garante a linha da borda visível
+    // --------------------------------------------
   };
+
   const tableCellStyle: React.CSSProperties = {
     padding: "5px 8px",
     borderBottom: `1px solid ${theme.border}`,
@@ -1059,8 +1099,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   {/* CHECKBOX INDIVIDUAL */}
                   <div
                     onClick={(e) => {
-                      e.stopPropagation(); // Não seleciona o card (azul)
-                      toggleSelection(part.id);
+                      e.stopPropagation();
+                      // MUDANÇA: Passamos o ID, o Index (idx) e o Evento (e)
+                      handleSmartSelection(part.id, idx, e);
                     }}
                     style={{
                       position: "absolute",
@@ -1440,8 +1481,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                     <td
                       style={{ ...tableCellStyle, textAlign: "center" }}
                       onClick={(e) => {
-                        e.stopPropagation(); // Evita selecionar a linha (azul) ao clicar no checkbox
-                        toggleSelection(part.id);
+                        e.stopPropagation();
+                        // MUDANÇA: Passamos o ID, o Index (i) e o Evento (e)
+                        handleSmartSelection(part.id, i, e);
                       }}
                     >
                       <input
