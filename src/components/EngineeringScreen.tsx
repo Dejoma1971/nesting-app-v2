@@ -21,6 +21,7 @@ const PRODUCTION_TYPES = [
   { label: "Erro de Processo", value: "RETRABALHO_PROCESSO" },
   { label: "Erro de Projeto", value: "ERRO_ENGENHARIA" },
   { label: "Erro Comercial", value: "ERRO_COMERCIAL" },
+  { label: "Correção Cadastro", value: "EDITAR_CADASTRO" },
 ];
 
 export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
@@ -731,7 +732,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         {/* --- INSERÇÃO: TIPO DE PRODUÇÃO (BATCH) --- */}
         <div style={inputGroupStyle}>
           <label style={labelStyle}>
-            TIPO PODUÇÃO{" "}
+            TIPO PRODUÇÃO{" "}
             <button
               style={applyButtonStyle}
               // ALTERAÇÃO NO ONCLICK: Passamos 'selectedIds' como segundo parâmetro

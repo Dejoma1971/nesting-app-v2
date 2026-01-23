@@ -499,7 +499,11 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
       );
       const currentTotal = countRows[0].total;
       if (currentTotal + parts.length > empresa.max_parts) {
-        return res.status(403).json({ error: "CAPACIDADE ATINGIDA!" });
+        // Use 409 (Conflict) ou 429 (Too Many Requests) para NÃO deslogar o usuário
+        return res.status(409).json({
+          error: "CAPACIDADE ATINGIDA!",
+          message: `Seu plano permite ${empresa.max_parts} peças. Você já tem ${currentTotal}.`,
+        });
       }
     }
 
