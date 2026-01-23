@@ -42,6 +42,7 @@ import { TeamManagementScreen } from "../components/TeamManagementScreen";
 import { calculatePartNetArea } from "../utils/areaCalculator";
 // Adicione junto com os outros imports
 import { rotatePartsGroup } from "../utils/transformUtils";
+import { calculateSmartLabel } from "../utils/labelUtils";
 
 interface Size {
   width: number;
@@ -758,33 +759,76 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       const defaultText = part.pedido || part.op || "";
 
       // Função auxiliar que decide qual texto usar e gera o vetor
+      // Adicione o import no topo do arquivo se não houver:
+      // import { calculateSmartLabel } from "../utils/labelUtils";
+
       const addLabelVector = (
         config: LabelConfig,
         color: string,
         type: "white" | "pink",
       ) => {
-        // 2. LÓGICA DE PRIORIDADE:
-        // Usa o texto editado (config.text). Se estiver vazio, usa o padrão (defaultText).
+        // Texto: Configurado ou Padrão
         const textToRender = config.text ? config.text : defaultText;
 
-        // Só desenha se estiver ativo e tiver algum texto para mostrar
         if (config.active && textToRender) {
-          const posX = bounds.cx + config.offsetX;
-          const posY = bounds.cy + config.offsetY;
+          const isCircular = part.entities.some((e) => e.type === "CIRCLE");
 
-          // Gera as linhas vetoriais (Agora suporta A-Z e símbolos, sem limpar caracteres)
+          // 1. Define o tamanho da fonte (Editado pelo usuário ou Padrão do Tipo)
+          // Se o usuário nunca editou, config.fontSize pode ser undefined/0, então assumimos o padrão.
+          const baseSize = config.fontSize || (type === "pink" ? 6 : 38);
+
+          // 2. Calcula a Posição Inteligente (Sugestão)
+          const { smartRotation, suggestedFontSize, smartX, smartY } =
+            calculateSmartLabel(
+              part.width,
+              part.height,
+              textToRender,
+              type,
+              isCircular,
+              baseSize,
+              5,
+            );
+
+          // 3. Sistema de Prioridades: Manual vs Automático
+
+          // Detecta se o usuário já moveu a etiqueta manualmente
+          // (Assumimos que etiquetas ROSA na posição 0,0 estão no estado "virgem")
+          const userHasMoved = config.offsetX !== 0 || config.offsetY !== 0;
+
+          // Detecta se o usuário girou manualmente
+          const userHasRotated = config.rotation !== 0;
+
+          // -- APLICAÇÃO FINAL --
+
+          // Posição: Se moveu, usa a do usuário. Se não, usa a Smart (Canto).
+          const finalOffsetX = userHasMoved ? config.offsetX : smartX;
+          const finalOffsetY = userHasMoved ? config.offsetY : smartY;
+
+          // Rotação: Soma a rotação manual com a inteligente
+          // Ex: Smart é 90º. Usuário adicionou 45º. Final = 135º.
+          const finalRotation =
+            (config.rotation + (userHasRotated ? 0 : smartRotation)) % 360;
+
+          // Tamanho: Prioriza o config do usuário se existir, senão usa o sugerido
+          const finalFontSize = config.fontSize || suggestedFontSize;
+
+          // -- GERAÇÃO DOS VETORES --
+          const posX = bounds.cx + finalOffsetX;
+          const posY = bounds.cy + finalOffsetY;
+
           const vectorLines = textToVectorLines(
-            textToRender, // <--- Passamos o texto direto, sem filtrar caracteres
+            textToRender,
             posX,
             posY,
-            config.fontSize,
+            finalFontSize,
             color,
           );
 
           const rotatedLines = vectorLines.map((line: any) => {
-            if (config.rotation === 0) return line;
+            if (finalRotation === 0) return line;
+
             const rotatePoint = (x: number, y: number) => {
-              const rad = (config.rotation * Math.PI) / 180;
+              const rad = (finalRotation * Math.PI) / 180;
               const dx = x - posX;
               const dy = y - posY;
               return {
@@ -1542,7 +1586,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
   };
 
- const handleContextRotate = useCallback(
+  const handleContextRotate = useCallback(
     (angle: number) => {
       if (selectedPartIds.length === 0) return;
 
@@ -1555,7 +1599,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       });
 
       if (hasLockedParts) {
-        // Opcional: Pode remover este alert se ficar muito intrusivo, 
+        // Opcional: Pode remover este alert se ficar muito intrusivo,
         // pois a função rotatePartsGroup já ignora silenciosamente as travadas.
         alert("⚠️ Algumas peças possuem trava de rotação e não serão movidas.");
       }
@@ -1565,12 +1609,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         nestingResult,
         selectedPartIds,
         parts,
-        angle
+        angle,
       );
 
       setNestingResult(newResult);
     },
-    [selectedPartIds, nestingResult, parts, setNestingResult]
+    [selectedPartIds, nestingResult, parts, setNestingResult],
   );
 
   const handleContextMove = useCallback(

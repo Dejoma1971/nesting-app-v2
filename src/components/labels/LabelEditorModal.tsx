@@ -1,8 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useState, useRef, useEffect, useMemo } from "react";
-import type { ImportedPart } from "../types";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useMemo,
+  useCallback,
+} from "react";
+import type { ImportedPart } from "../../components/types";
 import type { LabelConfig, PartLabelState } from "./LabelTypes";
 import { textToVectorLines } from "../../utils/vectorFont";
+import { calculateSmartLabel, type LabelType } from "../../utils/labelUtils"; // <--- CORREÇÃO 1: 'type LabelType'
 
 interface ThemeProps {
   bg: string;
@@ -26,7 +33,7 @@ interface LabelEditorModalProps {
 const bulgeToArc = (
   p1: { x: number; y: number },
   p2: { x: number; y: number },
-  bulge: number
+  bulge: number,
 ) => {
   const chordDx = p2.x - p1.x;
   const chordDy = p2.y - p1.y;
@@ -55,7 +62,7 @@ const getBounds = (entities: any[], blocks: any = {}) => {
     cy: number,
     r: number,
     startAngle: number,
-    endAngle: number
+    endAngle: number,
   ) => {
     let start = startAngle % (2 * Math.PI);
     if (start < 0) start += 2 * Math.PI;
@@ -87,7 +94,7 @@ const getBounds = (entities: any[], blocks: any = {}) => {
           traverse(
             block.entities,
             ox + (ent.position?.x || 0),
-            oy + (ent.position?.y || 0)
+            oy + (ent.position?.y || 0),
           );
         else if (ent.position) update(ox + ent.position.x, oy + ent.position.y);
       } else if (ent.vertices) {
@@ -114,16 +121,16 @@ const getBounds = (entities: any[], blocks: any = {}) => {
             oy + ent.center.y,
             ent.radius,
             ent.startAngle,
-            ent.endAngle
+            ent.endAngle,
           );
         else {
           update(
             ox + ent.center.x - ent.radius,
-            oy + ent.center.y - ent.radius
+            oy + ent.center.y - ent.radius,
           );
           update(
             ox + ent.center.x + ent.radius,
-            oy + ent.center.y + ent.radius
+            oy + ent.center.y + ent.radius,
           );
         }
       }
@@ -162,7 +169,6 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<"white" | "pink">("white");
 
-  // Controle de arrastar LABEL vs PAN (Mover Câmera)
   const [interactionMode, setInteractionMode] = useState<
     "none" | "dragLabel" | "pan"
   >("none");
@@ -176,33 +182,67 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
   });
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // --- NOVO: REF PARA O INTERVALO DE ROTAÇÃO CONTÍNUA ---
   const rotationIntervalRef = useRef<number | null>(null);
 
   const bounds = useMemo(() => getBounds(part.entities, part.blocks), [part]);
 
-  // --- ESTADO DO VIEWBOX (ZOOM E PAN) ---
-  const [viewBox, setViewBox] = useState({ x: 0, y: 0, w: 100, h: 100 });
-
-  // Inicializa o ViewBox na primeira carga
-  useEffect(() => {
+  // --- CORREÇÃO 2: Inicialização Lazy do ViewBox ---
+  // Substitui o useEffect para evitar renderização em cascata
+  const [viewBox, setViewBox] = useState(() => {
     const margin = Math.max(bounds.width, bounds.height) * 0.25;
     const width = bounds.width + margin * 2;
     const height = bounds.height + margin * 2;
-    // Centraliza no zero
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setViewBox({
+    return {
       x: -width / 2,
       y: -height / 2,
       w: width,
       h: height,
-    });
-  }, [bounds]);
+    };
+  });
 
-  // --- LÓGICA DE ZOOM (RODA DO MOUSE) ---
+  // --- CORREÇÃO 3: useCallback para dependências ---
+  const getVisualProps = useCallback(
+    (type: LabelType) => {
+      const config = labelState[type];
+      const text = config.text || part.pedido || part.op || "";
+      const isCircular = part.entities.some((e) => e.type === "CIRCLE");
+      const baseSize = config.fontSize || (type === "pink" ? 6 : 38);
+
+      const { smartX, smartY, smartRotation, suggestedFontSize } =
+        calculateSmartLabel(
+          bounds.width,
+          bounds.height,
+          text,
+          type,
+          isCircular,
+          baseSize,
+          5,
+        );
+
+      const userHasMoved = config.offsetX !== 0 || config.offsetY !== 0;
+      const userHasRotated = config.rotation !== 0;
+
+      const visualX = userHasMoved ? config.offsetX : smartX;
+      const visualY = userHasMoved ? config.offsetY : smartY;
+      const visualRotation =
+        (config.rotation + (userHasRotated ? 0 : smartRotation)) % 360;
+      const visualFontSize = config.fontSize || suggestedFontSize;
+
+      return {
+        x: visualX,
+        y: visualY,
+        rotation: visualRotation,
+        fontSize: visualFontSize,
+        text,
+      };
+    },
+    [labelState, part, bounds], // Dependências corretas
+  );
+
+  // --- LÓGICA DE ZOOM ---
   const handleWheel = (e: React.WheelEvent) => {
     e.stopPropagation();
-    e.preventDefault(); // Impede scroll da página
+    e.preventDefault();
 
     const zoomSpeed = 0.1;
     const direction = e.deltaY > 0 ? 1 : -1;
@@ -233,25 +273,26 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
 
   // --- HANDLERS DE MOUSE ---
 
-  // 1. Clicar no TEXTO -> Inicia arrastar texto
   const handleLabelMouseDown = (
     e: React.MouseEvent,
-    type: "white" | "pink"
+    type: "white" | "pink",
   ) => {
     if (type !== activeTab) setActiveTab(type);
     e.preventDefault();
     e.stopPropagation();
     setInteractionMode("dragLabel");
+
+    const visualProps = getVisualProps(type);
+
     dragRef.current = {
       startX: e.clientX,
       startY: e.clientY,
-      initialOffsetX: labelState[type].offsetX,
-      initialOffsetY: labelState[type].offsetY,
+      initialOffsetX: visualProps.x,
+      initialOffsetY: visualProps.y,
       initialViewBox: { x: 0, y: 0 },
     };
   };
 
-  // 2. Clicar no FUNDO -> Inicia Pan (Mover câmera)
   const handleBackgroundMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     setInteractionMode("pan");
@@ -264,51 +305,40 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
     };
   };
 
-  // 3. Movimento Global (CORREÇÃO DE ESCALA APLICADA AQUI)
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (interactionMode === "none" || !svgRef.current) return;
 
       const rect = svgRef.current.getBoundingClientRect();
-
-      // --- CORREÇÃO DE ESCALA START ---
-      // Calculamos as proporções (Aspect Ratio) da tela e do desenho
       const screenRatio = rect.width / rect.height;
       const viewRatio = viewBox.w / viewBox.h;
-
       let scale;
 
-      // Lógica do 'meet': quem limita o tamanho?
       if (screenRatio > viewRatio) {
-        // A tela é mais larga que o desenho (sobram barras laterais). A Altura manda.
         scale = viewBox.h / rect.height;
       } else {
-        // A tela é mais alta que o desenho (sobram barras topo/baixo). A Largura manda.
         scale = viewBox.w / rect.width;
       }
-      // --- CORREÇÃO DE ESCALA END ---
 
       const deltaPixelX = e.clientX - dragRef.current.startX;
       const deltaPixelY = e.clientY - dragRef.current.startY;
 
       if (interactionMode === "dragLabel") {
-        // Arrastando Texto
-        const dx = deltaPixelX * scale; // Usa a escala corrigida
-        const dy = -(deltaPixelY * scale); // Y invertido e escala corrigida
+        const dx = deltaPixelX * scale;
+        const dy = -(deltaPixelY * scale);
 
         onUpdate(activeTab, {
           offsetX: dragRef.current.initialOffsetX + dx,
           offsetY: dragRef.current.initialOffsetY + dy,
         });
       } else if (interactionMode === "pan") {
-        // Pan na Câmera
-        const dx = deltaPixelX * scale; // Usa a escala corrigida
-        const dy = deltaPixelY * scale; // Usa a escala corrigida
+        const dx = deltaPixelX * scale;
+        const dy = deltaPixelY * scale;
 
         setViewBox((prev) => ({
           ...prev,
           x: dragRef.current.initialViewBox.x - dx,
-          y: dragRef.current.initialViewBox.y - dy, // Nota: Pan move a câmera, então -dy visualmente sobe a view
+          y: dragRef.current.initialViewBox.y - dy,
         }));
       }
     };
@@ -329,7 +359,7 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
   const renderEntityRecursive = (
     ent: any,
     idx: number,
-    blocks: any
+    blocks: any,
   ): React.ReactNode => {
     const stroke = theme.text;
     const opacity = 0.5;
@@ -345,7 +375,7 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
           }) rotate(${ent.rotation || 0}) scale(${ent.scale?.x || 1})`}
         >
           {block.entities.map((child: any, i: number) =>
-            renderEntityRecursive(child, i, blocks)
+            renderEntityRecursive(child, i, blocks),
           )}
         </g>
       );
@@ -419,33 +449,36 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
 
   const renderVectorLabel = (type: "white" | "pink") => {
     const config = labelState[type];
-    if (!config.active || !config.text) return null;
+    if (!config.active) return null;
+
+    const visual = getVisualProps(type);
+
     const color = type === "white" ? "#FFFFFF" : "#FF00FF";
     const displayColor =
       type === "white" && theme.bg === "#ffffff" ? "#333" : color;
 
-    const posX = bounds.cx + config.offsetX;
-    const posY = bounds.cy + config.offsetY;
+    const posX = bounds.cx + visual.x;
+    const posY = bounds.cy + visual.y;
 
     const lines = textToVectorLines(
-      config.text,
+      visual.text,
       0,
       0,
-      config.fontSize,
-      displayColor
+      visual.fontSize,
+      displayColor,
     );
 
     return (
       <g
-        transform={`translate(${posX}, ${posY}) rotate(${config.rotation})`}
+        transform={`translate(${posX}, ${posY}) rotate(${visual.rotation})`}
         style={{ cursor: "move" }}
         onMouseDown={(e) => handleLabelMouseDown(e, type)}
       >
         <rect
-          x={-config.text.length * config.fontSize * 0.3}
-          y={-config.fontSize / 2}
-          width={config.text.length * config.fontSize * 0.6}
-          height={config.fontSize}
+          x={-visual.text.length * visual.fontSize * 0.3}
+          y={-visual.fontSize / 2}
+          width={visual.text.length * visual.fontSize * 0.6}
+          height={visual.fontSize}
           fill="transparent"
           stroke={activeTab === type ? "#007bff" : "transparent"}
           strokeDasharray="4"
@@ -467,26 +500,26 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
     );
   };
 
-  // CORREÇÃO DA LÓGICA DE INTERVALO COM REF:
-  // Precisamos rastrear o ângulo atual em uma Ref para que o intervalo veja o valor atualizado sem recriar o timer.
-  const currentRotationRef = useRef(labelState[activeTab].rotation);
+  const currentRotationRef = useRef(0);
   useEffect(() => {
-    currentRotationRef.current = labelState[activeTab].rotation;
-  }, [labelState, activeTab]);
+    const visual = getVisualProps(activeTab);
+    currentRotationRef.current = visual.rotation;
+  }, [getVisualProps, activeTab]); // <--- Dependência corrigida (getVisualProps é estável)
 
   const handleMouseDownRotate = (delta: number) => {
-    // Aplica o primeiro
-    let newRot = (currentRotationRef.current + delta + 360) % 360;
+    // --- CORREÇÃO 4: Prefer Const ---
+    const startRot = currentRotationRef.current;
+
+    let newRot = (startRot + delta + 360) % 360;
+
     onUpdate(activeTab, { rotation: newRot });
 
-    // Limpa anterior se houver
     if (rotationIntervalRef.current) clearInterval(rotationIntervalRef.current);
 
-    // Inicia loop
     rotationIntervalRef.current = window.setInterval(() => {
-      newRot = (currentRotationRef.current + delta + 360) % 360;
+      newRot = (newRot + delta + 360) % 360;
       onUpdate(activeTab, { rotation: newRot });
-    }, 50); // 50ms = 20 quadros por segundo aprox
+    }, 50);
   };
 
   const stopRotation = () => {
@@ -498,8 +531,10 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
 
   const renderControls = () => {
     const config = labelState[activeTab];
+
     const update = (changes: Partial<LabelConfig>) =>
       onUpdate(activeTab, changes);
+
     const btnStyle: React.CSSProperties = {
       padding: "5px 10px",
       flex: 1,
@@ -510,17 +545,25 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
       borderRadius: 4,
     };
 
-    // NOVO: Estilo Específico para Botões Quadrados (D-PAD)
-    // Isso garante que Cima/Baixo/Esq/Dir tenham exatamente o mesmo tamanho visual
     const arrowBtnStyle: React.CSSProperties = {
       ...btnStyle,
-      padding: 0, // Remove padding lateral que alargava o botão
-      width: "100%", // Ocupa toda a célula do grid
-      height: "32px", // Altura fixa igual à largura da coluna (definida no grid abaixo)
+      padding: 0,
+      width: "100%",
+      height: "32px",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      fontSize: "14px", // Tamanho da seta ajustado
+      fontSize: "14px",
+    };
+
+    const visualProps = getVisualProps(activeTab);
+
+    const handleNudge = (dx: number, dy: number) => {
+      const currentVisual = getVisualProps(activeTab);
+      onUpdate(activeTab, {
+        offsetX: currentVisual.x + dx,
+        offsetY: currentVisual.y + dy,
+      });
     };
 
     return (
@@ -550,7 +593,7 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
             </label>
             <input
               type="number"
-              value={config.fontSize}
+              value={config.fontSize || visualProps.fontSize}
               onChange={(e) => update({ fontSize: Number(e.target.value) })}
               style={{
                 width: "90%",
@@ -566,18 +609,15 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
             <label style={{ display: "block", fontSize: 12, marginBottom: 5 }}>
               Rotação:
             </label>
-            {/* --- GRUPO DE ROTAÇÃO REFORMULADO --- */}
             <div style={{ display: "flex", gap: 5, width: "100%" }}>
-              {/* 1. Botão Anti-Horário (Ajuste Fino) */}
               <button
-                onMouseDown={() => handleMouseDownRotate(1)} // +1 grau (Trigonométrico/Anti-horário é positivo em SVG padrão, mas aqui o usuário espera esquerda)
-                // OBS: Normalmente seta curva para esquerda é anti-horário.
+                onMouseDown={() => handleMouseDownRotate(1)}
                 onMouseUp={stopRotation}
                 onMouseLeave={stopRotation}
-                title="Segure para girar (Ajuste Fino)"
+                title="Segure para girar"
                 style={{
                   ...btnStyle,
-                  flex: "0 0 40px", // Largura fixa
+                  flex: "0 0 40px",
                   marginTop: 1,
                   fontSize: "16px",
                   padding: 0,
@@ -589,26 +629,24 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
                 ↺
               </button>
 
-              {/* 2. Botão Original 90 graus (Mantido no centro) */}
               <button
                 onClick={() =>
-                  update({ rotation: (config.rotation + 90) % 360 })
+                  update({ rotation: (visualProps.rotation + 90) % 360 })
                 }
                 style={{ ...btnStyle, marginTop: 1, fontSize: "13px" }}
                 title="Girar 90 graus"
               >
-                {Math.round(config.rotation)}°
+                {Math.round(visualProps.rotation)}°
               </button>
 
-              {/* 3. Botão Horário (Ajuste Fino) */}
               <button
-                onMouseDown={() => handleMouseDownRotate(-1)} // -1 grau
+                onMouseDown={() => handleMouseDownRotate(-1)}
                 onMouseUp={stopRotation}
                 onMouseLeave={stopRotation}
-                title="Segure para girar (Ajuste Fino)"
+                title="Segure para girar"
                 style={{
                   ...btnStyle,
-                  flex: "0 0 40px", // Largura fixa
+                  flex: "0 0 40px",
                   marginTop: 1,
                   fontSize: "16px",
                   padding: 0,
@@ -622,7 +660,6 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
             </div>
           </div>
         </div>
-        {/* --- POSIÇÃO FINA (GRID CORRIGIDO) --- */}
         <div>
           <label
             style={{
@@ -637,31 +674,21 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
           <div
             style={{
               display: "grid",
-              // ALTERADO: Colunas de 32px para botões quadrados (32x32)
               gridTemplateColumns: "32px 32px 32px",
               gap: 5,
               justifyContent: "center",
             }}
           >
-            {/* Linha 1 */}
             <div></div>
-            <button
-              style={arrowBtnStyle}
-              onClick={() => update({ offsetY: config.offsetY + 1 })}
-            >
+            <button style={arrowBtnStyle} onClick={() => handleNudge(0, 1)}>
               ▲
             </button>
             <div></div>
 
-            {/* Linha 2 */}
-            <button
-              style={arrowBtnStyle}
-              onClick={() => update({ offsetX: config.offsetX - 1 })}
-            >
+            <button style={arrowBtnStyle} onClick={() => handleNudge(-1, 0)}>
               ◄
             </button>
 
-            {/* Ícone Centralizado */}
             <div
               style={{
                 display: "flex",
@@ -673,19 +700,12 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
               ✥
             </div>
 
-            <button
-              style={arrowBtnStyle}
-              onClick={() => update({ offsetX: config.offsetX + 1 })}
-            >
+            <button style={arrowBtnStyle} onClick={() => handleNudge(1, 0)}>
               ►
             </button>
 
-            {/* Linha 3 */}
             <div></div>
-            <button
-              style={arrowBtnStyle}
-              onClick={() => update({ offsetY: config.offsetY - 1 })}
-            >
+            <button style={arrowBtnStyle} onClick={() => handleNudge(0, -1)}>
               ▼
             </button>
             <div></div>
@@ -797,7 +817,7 @@ export const LabelEditorModal: React.FC<LabelEditorModalProps> = ({
               transform={`scale(1, -1) translate(${-bounds.cx}, ${-bounds.cy})`}
             >
               {part.entities.map((ent: any, i: number) =>
-                renderEntityRecursive(ent, i, part.blocks)
+                renderEntityRecursive(ent, i, part.blocks),
               )}
               {renderVectorLabel("white")}
               {renderVectorLabel("pink")}
