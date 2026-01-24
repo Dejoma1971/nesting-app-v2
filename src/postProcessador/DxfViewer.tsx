@@ -1,10 +1,18 @@
 import React, { useRef, useEffect, useMemo } from "react";
 import DxfParser from "dxf-parser";
-import { explodeDXFGeometry } from "../utils/dxfExploder"; // Usando o seu exploder robusto
+import { explodeDXFGeometry } from "../utils/dxfExploder";
 import { calculateBoundingBox } from "../utils/geometryCore";
+
+// Exportando a interface corretamente para o outro arquivo
+export interface DxfLayer {
+  name: string;
+  color: string;
+  aci: number;
+}
 
 interface DxfViewerProps {
   dxfContent: string | null;
+  onLayersDetected?: (layers: DxfLayer[]) => void;
 }
 
 interface Point {
@@ -24,10 +32,20 @@ interface RenderEntity {
   closed?: boolean;
 }
 
-export const DxfViewer: React.FC<DxfViewerProps> = ({ dxfContent }) => {
+// Interface para evitar o erro de 'any' do ESLint nas tabelas do parser
+interface IDxfLayerTable {
+  [key: string]: {
+    name: string;
+    color: number;
+  };
+}
+
+export const DxfViewer: React.FC<DxfViewerProps> = ({
+  dxfContent,
+  onLayersDetected,
+}) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // 1. PROCESSAMENTO: Usa o que você já tem no dxfExploder
   const processed = useMemo(() => {
     if (!dxfContent) return null;
     try {
@@ -35,7 +53,29 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({ dxfContent }) => {
       const dxf = parser.parseSync(dxfContent);
       if (!dxf) return null;
 
-      // O explodeDXFGeometry já resolve blocos, splines e elipses
+      // Dentro do useMemo do DxfViewer.tsx
+      if (onLayersDetected && dxf.tables?.layer?.layers) {
+        const layersTable = dxf.tables.layer.layers as IDxfLayerTable;
+        const layers: DxfLayer[] = Object.values(layersTable).map((l) => {
+          let hex = "#ffffff"; // Branco padrão (Layer 0)
+
+          // Forçar cores baseadas no padrão que você quer:
+          if (l.color === 3 || l.name === "1")
+            hex = "#00ff00"; // Verde Vibrante
+          else if (l.color === 6 || l.name === "2")
+            hex = "#ff00ff"; // Magenta Vibrante
+          else if (l.color === 7 || l.name === "0") hex = "#ffffff"; // Branco
+
+          return {
+            name: l.name,
+            aci: l.color,
+            color: hex,
+          };
+        });
+
+        // Envia a lista para o PostProcessorScreen
+        onLayersDetected(layers);
+      }
       const entities = explodeDXFGeometry(dxf.entities, dxf.blocks || {});
       const box = calculateBoundingBox(entities, dxf.blocks || {});
 
@@ -52,9 +92,8 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({ dxfContent }) => {
       console.error("Erro ao processar DXF:", e);
       return null;
     }
-  }, [dxfContent]);
+  }, [dxfContent, onLayersDetected]);
 
-  // 2. RENDERIZAÇÃO: Apenas desenha os pontos
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !processed) return;
@@ -73,7 +112,7 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({ dxfContent }) => {
     canvas.style.height = `${h}px`;
     ctx.scale(dpr, dpr);
 
-    ctx.fillStyle = "#000"; // Fundo preto padrão CAD
+    ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, w, h);
 
     const pad = 40;
@@ -81,17 +120,14 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({ dxfContent }) => {
       (w - pad) / processed.box.w,
       (h - pad) / processed.box.h,
     );
-
-    // Centralização
     const offX = (w - processed.box.w * scale) / 2 - processed.box.x * scale;
     const offY = (h - processed.box.h * scale) / 2 - processed.box.y * scale;
 
     const tx = (x: number) => x * scale + offX;
-    const ty = (y: number) => h - (y * scale + offY); // Inverte Y para CAD
+    const ty = (y: number) => h - (y * scale + offY);
 
     processed.entities.forEach((ent) => {
       ctx.beginPath();
-      // Cores do seu padrão LAYER_CONFIG
       ctx.strokeStyle =
         ent.layer === "1" || ent.layer === "CORTE"
           ? "#0f0"
@@ -100,16 +136,13 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({ dxfContent }) => {
             : "#fff";
       ctx.lineWidth = 1;
 
-      // Se o exploder funcionou, quase tudo virou vértices
       if (ent.vertices && ent.vertices.length > 0) {
         ctx.moveTo(tx(ent.vertices[0].x), ty(ent.vertices[0].y));
         for (let i = 1; i < ent.vertices.length; i++) {
           ctx.lineTo(tx(ent.vertices[i].x), ty(ent.vertices[i].y));
         }
         if (ent.closed) ctx.closePath();
-      }
-      // Arcos e círculos que não precisaram ser explodidos (escala uniforme)
-      else if (ent.type === "CIRCLE" && ent.center && ent.radius) {
+      } else if (ent.type === "CIRCLE" && ent.center && ent.radius) {
         ctx.arc(
           tx(ent.center.x),
           ty(ent.center.y),
@@ -118,7 +151,6 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({ dxfContent }) => {
           Math.PI * 2,
         );
       } else if (ent.type === "ARC" && ent.center && ent.radius) {
-        // O Canvas usa radianos, o exploder já normalizou os ângulos
         const s = ent.startAngle || 0;
         const e = ent.endAngle || 0;
         ctx.arc(

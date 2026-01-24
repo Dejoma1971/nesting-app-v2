@@ -23,6 +23,7 @@ import { GiLaserburn } from "react-icons/gi";
 // 2. IMPORTAÇÃO DAS UTILIDADES (Verifique se os caminhos estão corretos)
 import { selectDxfFile } from "./utils/fileSystem";
 import { DxfViewer } from "./DxfViewer";
+import type { DxfLayer } from "./DxfViewer";
 
 // --- DEFINIÇÃO DE TIPOS ---
 type TabType = "file" | "home" | "draw" | "nest" | "cnc" | "view";
@@ -61,6 +62,7 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
 }) => {
   // 1. ESTADOS (HOOKS)
   const [activeTab, setActiveTab] = useState<TabType>("file");
+  const [detectedLayers, setDetectedLayers] = useState<DxfLayer[]>([]); // Novo estado
   const [selectedLayer, setSelectedLayer] = useState<number>(0);
   const [dxfString, setDxfString] = useState<string | null>(null);
 
@@ -227,7 +229,10 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
               // SE TIVER ARQUIVO CARREGADO:
               <div style={{ width: "100%", height: "100%" }}>
                 {/* CORREÇÃO: Remova width={...} e height={...} */}
-                <DxfViewer dxfContent={dxfString} />
+                <DxfViewer
+                  dxfContent={dxfString}
+                  onLayersDetected={setDetectedLayers}
+                />
               </div>
             ) : (
               // SE NÃO TIVER ARQUIVO:
@@ -266,15 +271,33 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
               <FaLayerGroup /> Layers
             </div>
             <div style={styles.layerList}>
-              <LayerRow
-                id={0}
-                color="#00ff00"
-                name="Corte"
-                active={selectedLayer === 0}
-                onClick={() => setSelectedLayer(0)}
-                speed="100"
-                pwr="100%"
-              />
+              {/* RENDERIZAÇÃO DINÂMICA DOS LAYERS */}
+              {detectedLayers.length > 0 ? (
+                detectedLayers.map((layer, idx) => (
+                  <LayerRow
+                    key={layer.name}
+                    id={idx}
+                    // Aqui passamos a cor detectada no DXF para o quadradinho do painel
+                    color={layer.color}
+                    // Tradução amigável do nome para o usuário
+                    name={
+                      layer.name === "0"
+                        ? "Mesa / Labels"
+                        : layer.name === "1"
+                          ? "Corte"
+                          : "Gravação"
+                    }
+                    active={selectedLayer === idx}
+                    onClick={() => setSelectedLayer(idx)}
+                    speed={layer.aci === 3 ? "100" : "300"}
+                    pwr="100%"
+                  />
+                ))
+              ) : (
+                <div style={{ padding: 10, fontSize: "0.8rem", color: "#666" }}>
+                  Nenhum layer detectado
+                </div>
+              )}
             </div>
           </div>
 
@@ -368,19 +391,22 @@ const LayerRow: React.FC<LayerRowProps> = ({
     style={{
       ...styles.layerRow,
       backgroundColor: active ? "#3e3e42" : "transparent",
+      cursor: "pointer"
     }}
   >
+    {/* QUADRADINHO DE COR - AQUI ESTÁ A CORREÇÃO */}
     <div
       style={{
-        width: 12,
-        height: 12,
-        backgroundColor: color,
-        marginRight: 8,
-        border: "1px solid #fff",
+        width: 14,
+        height: 14,
+        backgroundColor: color || "#fff", // Usa a cor detectada ou branco se falhar
+        marginRight: 10,
+        border: "1px solid #555",
+        borderRadius: "2px"
       }}
     />
-    <div style={{ flex: 1 }}>{name}</div>
-    <div style={{ fontSize: "0.75rem", color: "#aaa" }}>
+    <div style={{ flex: 1, fontSize: "0.85rem" }}>{name}</div>
+    <div style={{ fontSize: "0.7rem", color: "#888", marginLeft: 8 }}>
       V:{speed} / P:{pwr}
     </div>
   </div>
