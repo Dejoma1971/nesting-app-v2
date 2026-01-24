@@ -1,37 +1,30 @@
 import React, { useState } from "react";
+// 1. IMPORTAÇÃO DOS ÍCONES
 import {
-  // Ícones Gerais e de Navegação
   FaArrowLeft,
   FaArrowUp,
   FaArrowDown,
   FaArrowRight,
   FaArrowLeft as FaArrowLeftDir,
-  FaSearchPlus,
-  FaSearchMinus,
-  FaHandPaper,
-  FaVectorSquare,
   FaLayerGroup,
-
-  // Ícones Específicos da Aba FILE
-  FaFolderOpen, // Open
-  FaSave, // Save
-  FaFileExport, // Save As / Export
-  FaFileImport, // Import
-  FaClipboardList, // Report
-  FaDatabase, // Backup Params
-
-  // Ícones de Controle CNC
+  FaFolderOpen,
+  FaSave,
+  FaFileExport,
   FaPlay,
   FaStop,
   FaPause,
+  FaFileImport,
+  FaClipboardList,
+  FaDatabase,
 } from "react-icons/fa";
-
-import { MdOutlineGridOn, MdBorderOuter } from "react-icons/md";
+import { MdOutlineGridOn } from "react-icons/md";
 import { GiLaserburn } from "react-icons/gi";
 
-// --- DEFINIÇÃO DE TIPOS E INTERFACES ---
+// 2. IMPORTAÇÃO DAS UTILIDADES (Verifique se os caminhos estão corretos)
+import { selectDxfFile } from "./utils/fileSystem";
+import { DxfViewer } from "./DxfViewer";
 
-// Define quais abas são permitidas
+// --- DEFINIÇÃO DE TIPOS ---
 type TabType = "file" | "home" | "draw" | "nest" | "cnc" | "view";
 
 interface PostProcessorProps {
@@ -47,7 +40,6 @@ interface RibbonButtonProps {
   danger?: boolean;
   disabled?: boolean;
 }
-
 interface LayerRowProps {
   id: number;
   color: string;
@@ -57,26 +49,54 @@ interface LayerRowProps {
   speed: string | number;
   pwr: string | number;
 }
-
 interface JogButtonProps {
   icon: React.ReactNode;
 }
 
+// ============================================================================
+// COMPONENTE PRINCIPAL
+// ============================================================================
 export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
   onBack,
 }) => {
-  // Inicializa na aba 'file' conforme planejado
+  // 1. ESTADOS (HOOKS)
   const [activeTab, setActiveTab] = useState<TabType>("file");
   const [selectedLayer, setSelectedLayer] = useState<number>(0);
+  const [dxfString, setDxfString] = useState<string | null>(null);
 
-  // Função Placeholder para os botões ainda sem implementação
+  // 2. FUNÇÕES AUXILIARES (DEVEM ESTAR AQUI, ANTES DO RETURN)
   const handleNotImplemented = (feature: string) => {
     console.log(`Funcionalidade [${feature}] será implementada em breve.`);
   };
 
+  const handleOpenFile = async () => {
+    console.log("Iniciando abertura de arquivo...");
+    try {
+      const file = await selectDxfFile();
+      if (file) {
+        console.log(`Arquivo selecionado: ${file.name}`);
+        const reader = new FileReader();
+
+        reader.onload = (e) => {
+          const content = e.target?.result as string;
+          console.log("Conteúdo lido. Atualizando estado...");
+          setDxfString(content); // <--- Aqui atualizamos o estado
+        };
+
+        reader.onerror = (err) => console.error("Erro na leitura:", err);
+        reader.readAsText(file);
+      } else {
+        console.log("Nenhum arquivo selecionado.");
+      }
+    } catch (err) {
+      console.error("Erro fatal ao abrir arquivo:", err);
+    }
+  };
+
+  // 3. RENDERIZAÇÃO (JSX)
   return (
     <div style={styles.container}>
-      {/* 1. TOP BAR */}
+      {/* BARRA DE TÍTULO */}
       <div style={styles.titleBar}>
         <div style={styles.titleText}>
           <GiLaserburn style={{ marginRight: 8, color: "#fd7e14" }} />
@@ -87,9 +107,9 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
         </div>
       </div>
 
-      {/* 2. RIBBON MENU */}
+      {/* RIBBON MENU */}
       <div style={styles.ribbonContainer}>
-        {/* Lista de Abas */}
+        {/* ABAS */}
         <div style={styles.ribbonTabs}>
           {["File", "Home", "Draw", "Nest", "CNC", "View"].map((tab) => (
             <button
@@ -107,86 +127,74 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
           ))}
         </div>
 
-        {/* Área de Ferramentas (Toolbar) - Conteúdo Dinâmico */}
+        {/* TOOLBAR */}
         <div style={styles.ribbonToolbar}>
-          {/* === CONTEÚDO DA ABA FILE === */}
+          {/* CONTEÚDO DA ABA FILE */}
           {activeTab === "file" && (
-            <>
-              {/* Grupo 1: Arquivo Básico */}
-              <div style={styles.toolGroup}>
-                <RibbonButton
-                  icon={<FaFolderOpen />}
-                  label="Open"
-                  onClick={() => handleNotImplemented("Open")}
-                />
-                <RibbonButton
-                  icon={<FaSave />}
-                  label="Save"
-                  onClick={() => handleNotImplemented("Save")}
-                />
-                <RibbonButton
-                  icon={<FaFileExport />}
-                  label="Save as"
-                  onClick={() => handleNotImplemented("Save as")}
-                />
-                <div style={styles.separator} />
-              </div>
-
-              {/* Grupo 2: Importação e Dados */}
-              <div style={styles.toolGroup}>
-                <RibbonButton
-                  icon={<FaFileImport />}
-                  label="Import"
-                  onClick={() => handleNotImplemented("Import")}
-                />
-                <RibbonButton
-                  icon={<FaClipboardList />}
-                  label="Report"
-                  onClick={() => handleNotImplemented("Report")}
-                />
-                <div style={styles.separator} />
-              </div>
-
-              {/* Grupo 3: Sistema */}
-              <div style={styles.toolGroup}>
-                <RibbonButton
-                  icon={<FaDatabase />}
-                  label="Backup Params"
-                  onClick={() => handleNotImplemented("Backup Params")}
-                />
-                <div style={styles.separator} />
-              </div>
-
-              {/* Grupo 4: Navegação (Sair) */}
-              <div style={styles.toolGroup}>
-                <RibbonButton
-                  icon={<FaArrowLeft />}
-                  label="Exit CAM"
-                  onClick={onBack}
-                  danger
-                />
-              </div>
-            </>
-          )}
-
-          {/* === CONTEÚDO DA ABA HOME (Exemplo mantido para não ficar vazio se clicar) === */}
-          {activeTab === "home" && (
             <div style={styles.toolGroup}>
-              <RibbonButton icon={<FaSearchPlus />} label="Zoom In" />
-              <RibbonButton icon={<FaSearchMinus />} label="Zoom Out" />
-              <RibbonButton icon={<FaHandPaper />} label="Pan" />
+              <RibbonButton
+                icon={<FaFolderOpen />}
+                label="Open"
+                onClick={handleOpenFile}
+              />
+              <RibbonButton
+                icon={<FaSave />}
+                label="Save"
+                onClick={() => handleNotImplemented("Save")}
+              />
+              <RibbonButton
+                icon={<FaFileExport />}
+                label="Save as"
+                onClick={() => handleNotImplemented("Save as")}
+              />
+              {/* 👇 COLE ESTES DOIS GRUPOS NOVOS AQUI: */}
+
+              {/* Grupo 2: Importação e Relatórios */}
+              <RibbonButton
+                icon={<FaFileImport />}
+                label="Import"
+                onClick={() => handleNotImplemented("Import")}
+              />
+              <RibbonButton
+                icon={<FaClipboardList />}
+                label="Report"
+                onClick={() => handleNotImplemented("Report")}
+              />
               <div style={styles.separator} />
-              <RibbonButton icon={<FaVectorSquare />} label="Simulate" />
+
+              {/* Grupo 3: Backup/Sistema */}
+              <RibbonButton
+                icon={<FaDatabase />}
+                label="Backup"
+                onClick={() => handleNotImplemented("Backup Params")}
+              />
+              <div style={styles.separator} />
             </div>
           )}
+
+          {/* BOTÃO DE SAÍDA (SEMPRE VISÍVEL OU NA ABA FILE) */}
+          <div
+            style={{
+              marginLeft: "auto",
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            <RibbonButton
+              icon={<FaArrowLeft />}
+              label="Exit CAM"
+              onClick={onBack}
+              danger
+            />
+          </div>
         </div>
       </div>
 
-      {/* 3. ÁREA PRINCIPAL */}
+      {/* ÁREA PRINCIPAL */}
       <div style={styles.mainArea}>
-        {/* ESQUERDA: VIEWPORT */}
+        {/* VIEWPORT (ESQUERDA) */}
         <div style={styles.viewportContainer}>
-          {/* Réguas Falsas */}
+          {/* Réguas */}
           <div style={styles.rulerTop}>
             {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90].map((n) => (
               <span
@@ -213,76 +221,65 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
             ))}
           </div>
 
-          {/* CANVAS */}
+          {/* CANVAS AREA */}
           <div style={styles.canvasArea}>
-            <div style={styles.gridBackground}></div>
-
-            <div
-              style={{
-                position: "absolute",
-                color: "#444",
-                userSelect: "none",
-                pointerEvents: "none",
-              }}
-            >
-              <MdOutlineGridOn
-                size={48}
-                style={{ opacity: 0.2, margin: "0 auto", display: "block" }}
-              />
-              <p>Área de Corte: 3000mm x 1500mm</p>
-            </div>
+            {dxfString ? (
+              // SE TIVER ARQUIVO CARREGADO:
+              <div style={{ width: "100%", height: "100%" }}>
+                {/* CORREÇÃO: Remova width={...} e height={...} */}
+                <DxfViewer dxfContent={dxfString} />
+              </div>
+            ) : (
+              // SE NÃO TIVER ARQUIVO:
+              <>
+                <div style={styles.gridBackground}></div>
+                <div
+                  style={{
+                    position: "absolute",
+                    color: "#444",
+                    userSelect: "none",
+                    pointerEvents: "none",
+                  }}
+                >
+                  <MdOutlineGridOn
+                    size={48}
+                    style={{ opacity: 0.2, margin: "0 auto", display: "block" }}
+                  />
+                  <p>Área de Corte: 3000mm x 1500mm</p>
+                </div>
+              </>
+            )}
           </div>
 
-          {/* Status Bar */}
+          {/* STATUS BAR */}
           <div style={styles.viewportStatus}>
-            <span>Ready</span>
+            <span>{dxfString ? "DXF Loaded" : "Ready"}</span>
             <span>Scale: 1.0</span>
             <span>Grid: 10mm</span>
           </div>
         </div>
 
-        {/* DIREITA: PAINEL DE CONTROLE */}
+        {/* PAINEL DIREITO */}
         <div style={styles.rightPanel}>
-          {/* Painel de Layers */}
           <div style={styles.panelSection}>
             <div style={styles.panelHeader}>
-              <FaLayerGroup /> Layers / Parâmetros
+              <FaLayerGroup /> Layers
             </div>
             <div style={styles.layerList}>
               <LayerRow
                 id={0}
                 color="#00ff00"
-                name="Corte (Ext)"
+                name="Corte"
                 active={selectedLayer === 0}
                 onClick={() => setSelectedLayer(0)}
                 speed="100"
                 pwr="100%"
               />
-              <LayerRow
-                id={1}
-                color="#ff00ff"
-                name="Gravação"
-                active={selectedLayer === 1}
-                onClick={() => setSelectedLayer(1)}
-                speed="300"
-                pwr="20%"
-              />
-              <LayerRow
-                id={2}
-                color="#ffff00"
-                name="Marcação"
-                active={selectedLayer === 2}
-                onClick={() => setSelectedLayer(2)}
-                speed="500"
-                pwr="10%"
-              />
             </div>
           </div>
 
-          {/* Painel de Console CNC */}
           <div style={{ ...styles.panelSection, flex: 1 }}>
-            <div style={styles.panelHeader}>Console (JOG)</div>
-
+            <div style={styles.panelHeader}>Console</div>
             <div style={styles.jogControl}>
               <div style={styles.jogRow}>
                 <JogButton icon={<FaArrowUp />} />
@@ -310,36 +307,6 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
                 </button>
               </div>
             </div>
-
-            <div style={styles.paramsInputs}>
-              <label style={styles.inputLabel}>Velocidade (mm/s)</label>
-              <input
-                type="number"
-                defaultValue={500}
-                style={styles.inputField}
-              />
-            </div>
-
-            {/* Botão de Exportação Rápida */}
-            <div style={{ marginTop: "auto", paddingTop: 10 }}>
-              <button
-                style={{
-                  width: "100%",
-                  padding: 10,
-                  backgroundColor: "#007acc",
-                  color: "white",
-                  border: "none",
-                  borderRadius: 4,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 5,
-                }}
-              >
-                <MdBorderOuter /> Gerar G-Code
-              </button>
-            </div>
           </div>
         </div>
       </div>
@@ -347,7 +314,9 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
   );
 };
 
-// --- COMPONENTES AUXILIARES ---
+// ============================================================================
+// COMPONENTES AUXILIARES E ESTILOS
+// ============================================================================
 
 const RibbonButton: React.FC<RibbonButtonProps> = ({
   icon,
@@ -357,31 +326,27 @@ const RibbonButton: React.FC<RibbonButtonProps> = ({
   danger,
   disabled,
 }) => {
-  // Adicionamos um estado local para controlar o Hover
   const [isHovered, setIsHovered] = React.useState(false);
-
-  // Lógica de cor: Laranja se estiver com mouse em cima OU se tiver a prop highlight fixa
   const iconColor = danger
     ? isHovered
       ? "#ff6666"
       : "#ff4d4d"
     : isHovered || highlight
       ? "#fd7e14"
-      : "#e0e0e0"; // #e0e0e0 é o branco/cinza padrão
-
+      : "#e0e0e0";
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      onMouseEnter={() => setIsHovered(true)} // Ativa cor ao entrar
-      onMouseLeave={() => setIsHovered(false)} // Desativa cor ao sair
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       style={{
         ...styles.ribbonBtn,
         color: disabled ? "#666" : iconColor,
         opacity: disabled ? 0.5 : 1,
         cursor: disabled ? "not-allowed" : "pointer",
-        transform: isHovered && !disabled ? "scale(1.05)" : "scale(1)", // Efeito sutil de zoom
-        transition: "all 0.2s ease", // Suaviza a troca de cor
+        transform: isHovered && !disabled ? "scale(1.05)" : "scale(1)",
+        transition: "all 0.2s ease",
       }}
     >
       <div style={{ fontSize: "1.2rem", marginBottom: 4 }}>{icon}</div>
@@ -425,7 +390,6 @@ const JogButton: React.FC<JogButtonProps> = ({ icon }) => (
   <button style={styles.jogBtn}>{icon}</button>
 );
 
-// --- ESTILOS CSS-IN-JS ---
 const styles: Record<string, React.CSSProperties> = {
   container: {
     display: "flex",
@@ -447,6 +411,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderBottom: "1px solid #3e3e42",
   },
   titleText: { display: "flex", alignItems: "center", fontWeight: 600 },
+  windowControls: { display: "flex" },
   coordDisplay: { fontFamily: "monospace", color: "#fd7e14" },
   ribbonContainer: {
     height: "110px",
