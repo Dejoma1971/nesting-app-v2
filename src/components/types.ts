@@ -52,9 +52,12 @@ export interface EngineeringScreenProps {
   parts: ImportedPart[];
   setParts: React.Dispatch<React.SetStateAction<ImportedPart[]>>;
   onOpenTeam?: () => void;
-  onNavigate?: (screen: "home" | "engineering" | "nesting" | "dashboard") => void;
+  onNavigate?: (screen: "home" | "engineering" | "nesting" | "dashboard" | "postprocessor") => void;
   hasOpenGeometry?: boolean;
 }
+
+// ADICIONE ESTA LINHA LOGO ABAIXO DA INTERFACE ACIMA:
+export type ScreenType = "home" | "engineering" | "nesting" | "dashboard" | "postprocessor";
 
 export interface CustomMaterial {
   id: number;
@@ -65,4 +68,12 @@ export interface CustomMaterial {
 export interface CustomThickness {
   id: number;
   valor: string;     // Vindo do banco (antes era value)
+}
+
+// ADICIONE ESTA INTERFACE NO FINAL DO ARQUIVO:
+export interface PostProcessorScreenProps {
+  onBack: () => void;
+  onNavigate: (screen: ScreenType) => void;
+  nestingResult?: any[]; 
+  binSize?: { width: number; height: number };
 }

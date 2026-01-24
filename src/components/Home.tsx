@@ -1,9 +1,15 @@
 import React, { useState } from "react";
+import { GiLaserburn } from "react-icons/gi";
 import { SidebarMenu } from "../components/SidebarMenu";
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
 import { useTheme } from "../context/ThemeContext";
 
-type ScreenType = "home" | "engineering" | "nesting" | "dashboard";
+type ScreenType =
+  | "home"
+  | "engineering"
+  | "nesting"
+  | "dashboard"
+  | "postprocessor";
 
 interface HomeProps {
   onNavigate: (screen: ScreenType) => void;
@@ -23,6 +29,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
     cardHover: isDarkMode ? "#383838" : "#fafafa",
     accentEng: "#007bff", // Azul para Engenharia
     accentNest: "#28a745", // Verde para Produção
+    accentCam: "#fd7e14", // Laranja Fogo para CAM (Novo)
     shadow: isDarkMode
       ? "0 4px 6px rgba(0,0,0,0.3)"
       : "0 4px 6px rgba(0,0,0,0.1)",
@@ -38,14 +45,18 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
     color: theme.text,
     fontFamily: "Segoe UI, Roboto, Helvetica, Arial, sans-serif",
     transition: "0.3s",
+    overflowY: "auto", // Garante scroll se a tela for pequena
   };
 
   const cardsContainerStyle: React.CSSProperties = {
     display: "flex",
-    gap: "40px",
+    gap: "30px",
     marginTop: "50px",
     flexWrap: "wrap",
     justifyContent: "center",
+    alignItems: "stretch", // Garante altura igual
+    maxWidth: "1200px", // Limite para não espalhar demais
+    padding: "20px",
   };
 
   const cardStyle = (accentColor: string): React.CSSProperties => ({
@@ -66,7 +77,9 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
   });
 
   // Estado local para hover (apenas visual)
-  const [hoveredCard, setHoveredCard] = useState<"eng" | "nest" | null>(null);
+  const [hoveredCard, setHoveredCard] = useState<"eng" | "nest" | "cam" | null>(
+    null,
+  );
 
   return (
     <div style={containerStyle}>
@@ -84,7 +97,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       </div>
 
       <div
-        style={{ textAlign: "center", maxWidth: "600px", padding: "0 20px" }}
+        style={{ textAlign: "center", maxWidth: "800px", padding: "0 20px" }}
       >
         <h1
           style={{
@@ -218,7 +231,53 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
               color: theme.accentNest,
             }}
           >
-            Ir para Produção →
+            Gerar Nesting →
+          </span>
+        </div>
+
+        {/* --- CARD 3: PÓS-PROCESSADOR (NOVO) --- */}
+        <div
+          style={{
+            ...cardStyle(theme.accentCam),
+            transform: hoveredCard === "cam" ? "translateY(-5px)" : "none",
+            background: hoveredCard === "cam" ? theme.cardHover : theme.cardBg,
+          }}
+          onMouseEnter={() => setHoveredCard("cam")}
+          onMouseLeave={() => setHoveredCard(null)}
+          onClick={() => onNavigate("postprocessor")}
+        >
+          <div
+            style={{
+              width: "80px",
+              height: "80px",
+              background: "rgba(253, 126, 20, 0.1)", // Laranja suave
+              borderRadius: "50%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: "20px",
+              color: theme.accentCam,
+            }}
+          >
+            {/* Substitua a linha antiga por esta: */}
+            <GiLaserburn size={48} color={theme.accentCam} />
+          </div>
+          <h2 style={{ margin: "0 0 10px 0", color: theme.accentCam }}>
+            Pós-Processador
+          </h2>
+          <p style={{ fontSize: "0.9rem", opacity: 0.8, lineHeight: "1.5" }}>
+            Configuração de parâmetros de corte e exportação G-Code.
+          </p>
+          <span
+            style={{
+              marginTop: "auto",
+              paddingTop: "20px",
+              fontSize: "0.85rem",
+              fontWeight: "bold",
+              color: theme.accentCam,
+            }}
+          >
+            Gerar Código →
           </span>
         </div>
       </div>

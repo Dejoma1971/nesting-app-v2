@@ -16,6 +16,7 @@ import { LoginScreen } from "./components/LoginScreen";
 import { RegisterScreen } from "./components/RegisterScreen";
 import { LandingPage } from "./components/LandingPage"; // <--- Novo
 import { TeamManagementScreen } from "./components/TeamManagementScreen"; // <--- 1. IMPORTE O MODAL
+import { PostProcessorScreen } from "./postProcessador/PostProcessorScreen";
 
 // Tipos
 import type { ImportedPart } from "./components/types";
@@ -26,7 +27,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 
 import { SuccessScreen } from "./components/SuccessScreen";
 
-type ScreenType = "home" | "engineering" | "nesting" | "dashboard";
+type ScreenType = "home" | "engineering" | "nesting" | "dashboard" | "postprocessor";
 
 // =================================================================
 // 1. COMPONENTE DO SISTEMA INTERNO (PROTEGIDO)
@@ -101,6 +102,14 @@ function ProtectedApp() {
         <DashboardScreen
           onNavigate={(screen) => setCurrentScreen(screen)}
           onOpenTeam={() => setIsTeamModalOpen(true)}
+        />
+      )}
+
+      {/* --- ADICIONE ESTE BLOCO AQUI --- */}
+{/* AQUI ESTÁ A MUDANÇA: O componente real agora é chamado */}
+      {currentScreen === "postprocessor" && (
+        <PostProcessorScreen 
+          onBack={() => setCurrentScreen("home")} 
         />
       )}
 
