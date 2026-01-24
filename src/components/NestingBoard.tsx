@@ -19,6 +19,7 @@ import { PartFilter, type FilterState } from "./PartFilter";
 import NestingWorker from "../workers/nesting.worker?worker";
 import WiseNestingWorker from "../workers/wiseNesting.worker?worker";
 import SmartNestNewWorker from "../workers/smartNestNew.worker?worker";
+import SmartNestV3Worker from "../workers/smartNestV3.worker?worker";
 import { useTheme } from "../context/ThemeContext";
 import { useLabelManager } from "../hooks/useLabelManager";
 import { GlobalLabelPanel, ThumbnailFlags } from "./labels/LabelControls";
@@ -447,7 +448,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const [gap, setGap] = useState(5);
   const [margin, setMargin] = useState(5);
   const [strategy, setStrategy] = useState<
-    "guillotine" | "true-shape" | "true-shape-v2" | "wise"
+    "guillotine" | "true-shape" | "true-shape-v2" | "true-shape-v3" | "wise"
   >("true-shape-v2");
   const [direction, setDirection] = useState<
     "auto" | "vertical" | "horizontal"
@@ -478,6 +479,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const nestingWorkerRef = useRef<Worker | null>(null);
   const wiseNestingWorkerRef = useRef<Worker | null>(null);
   const smartNestNewWorkerRef = useRef<Worker | null>(null);
+  const smartNestV3WorkerRef = useRef<Worker | null>(null);
 
   // --- NOVO: Estados para o Checklist de Pedidos ---
   const [availableOrders, setAvailableOrders] = useState<string[]>([]);
@@ -689,7 +691,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         cropLines,
         gap,
         margin,
-        strategy: strategy === "true-shape-v2" ? "true-shape" : strategy,
+        strategy: (strategy === "true-shape-v2" || strategy === "true-shape-v3") ? "true-shape" : strategy,
         direction,
         labelStates,
         disabledNestingIds,
@@ -1181,7 +1183,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         parts: displayedParts,
         user,
         cropLines,
-        motor: strategy === "true-shape-v2" ? "true-shape" : strategy,
+       motor: (strategy === "true-shape-v2" || strategy === "true-shape-v3") ? "true-shape" : strategy,
 
         // NOVOS PARÂMETROS
         binWidth: binSize.width,
@@ -1298,6 +1300,37 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         binHeight: binSize.height,
         rotationStep: 5,
       });
+    } else if (strategy === "true-shape-v3") {
+      // --- 5. MOTOR SMART NEST V3 (Memória + Furos) ---
+      // <--- NOVA LÓGICA AQUI
+      if (smartNestV3WorkerRef.current)
+        smartNestV3WorkerRef.current.terminate();
+      smartNestV3WorkerRef.current = new SmartNestV3Worker();
+
+      smartNestV3WorkerRef.current.onmessage = (e) => {
+        const result = e.data;
+        const duration = (Date.now() - startTime) / 1000;
+        setCalculationTime(duration);
+
+        resetNestingResult(result.placed);
+        setFailedCount(result.failed.length);
+        setTotalBins(result.totalBins || 1);
+        setIsComputing(false);
+
+        if (result.placed.length === 0) alert("Nenhuma peça coube (Motor V3)!");
+      };
+
+      smartNestV3WorkerRef.current.postMessage({
+        parts: JSON.parse(JSON.stringify(partsToNest)),
+        quantities,
+        gap,
+        margin,
+        binWidth: binSize.width,
+        binHeight: binSize.height,
+        iterations,
+        rotationStep,
+        targetEfficiency: 96 // Meta agressiva para o V3
+      });  
     } else if (strategy === "true-shape-v2") {
       // --- 4. MOTOR SMART NEST V2 (First Fit / Preencher) ---
       // <--- AQUI ENTRA A LÓGICA DO NOVO MOTOR SELECIONADO NO DROPDOWN
@@ -2564,6 +2597,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             {/* Mudou de "rect" */}
             <option value="true-shape">🧩 Smart Nest</option>
             <option value="true-shape-v2">⚡ Smart Nest V2</option>
+            {/* ADICIONE ESTA OPÇÃO: */}
+            <option value="true-shape-v3" style={{ fontWeight: 'bold', color: '#007bff' }}>
+              🚀 Smart Nest V3 (Furos)
+            </option>
             {/* ALTERAÇÃO AQUI: Adicionado disabled e estilo de cor/opacidade */}
             <option
               value="wise"
@@ -3097,7 +3134,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             binHeight={binSize.height}
             margin={margin}
             showDebug={showDebug}
-            strategy={strategy === "true-shape-v2" ? "true-shape" : strategy}
+            strategy={(strategy === "true-shape-v2" || strategy === "true-shape-v3") ? "true-shape" : strategy}
             theme={theme}
             selectedPartIds={selectedPartIds}
             collidingPartIds={collidingPartIds}
