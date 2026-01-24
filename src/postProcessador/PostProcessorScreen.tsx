@@ -1,23 +1,32 @@
 import React, { useState } from "react";
 import {
-  FaSave,
+  // Ícones Gerais e de Navegação
   FaArrowLeft,
-  FaPlay,
-  FaStop,
-  FaPause,
-  FaSearchPlus,
-  FaSearchMinus,
-  FaHandPaper,
-  FaVectorSquare,
   FaArrowUp,
   FaArrowDown,
   FaArrowRight,
   FaArrowLeft as FaArrowLeftDir,
-  FaCog,
+  FaSearchPlus,
+  FaSearchMinus,
+  FaHandPaper,
+  FaVectorSquare,
   FaLayerGroup,
-  FaRulerCombined,
+
+  // Ícones Específicos da Aba FILE
+  FaFolderOpen, // Open
+  FaSave, // Save
+  FaFileExport, // Save As / Export
+  FaFileImport, // Import
+  FaClipboardList, // Report
+  FaDatabase, // Backup Params
+
+  // Ícones de Controle CNC
+  FaPlay,
+  FaStop,
+  FaPause,
 } from "react-icons/fa";
-import { MdBorderOuter, MdOutlineGridOn } from "react-icons/md";
+
+import { MdOutlineGridOn, MdBorderOuter } from "react-icons/md";
 import { GiLaserburn } from "react-icons/gi";
 
 // --- DEFINIÇÃO DE TIPOS E INTERFACES ---
@@ -27,18 +36,16 @@ type TabType = "file" | "home" | "draw" | "nest" | "cnc" | "view";
 
 interface PostProcessorProps {
   onBack: () => void;
-  // Substituímos any[] por um tipo genérico de objeto para evitar o erro,
-  // ou você pode importar a interface PlacedPart se quiser ser mais específico.
   nestingResult?: Record<string, unknown>[];
 }
 
-// Interfaces para os componentes auxiliares (Botões e Linhas)
 interface RibbonButtonProps {
   icon: React.ReactNode;
   label: string;
   onClick?: () => void;
   highlight?: boolean;
   danger?: boolean;
+  disabled?: boolean;
 }
 
 interface LayerRowProps {
@@ -48,7 +55,7 @@ interface LayerRowProps {
   active: boolean;
   onClick: () => void;
   speed: string | number;
-  pwr: string | number; // Agora será usado
+  pwr: string | number;
 }
 
 interface JogButtonProps {
@@ -58,9 +65,14 @@ interface JogButtonProps {
 export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
   onBack,
 }) => {
-  // Tipagem explícita do estado para evitar erros de string genérica
-  const [activeTab, setActiveTab] = useState<TabType>("home");
+  // Inicializa na aba 'file' conforme planejado
+  const [activeTab, setActiveTab] = useState<TabType>("file");
   const [selectedLayer, setSelectedLayer] = useState<number>(0);
+
+  // Função Placeholder para os botões ainda sem implementação
+  const handleNotImplemented = (feature: string) => {
+    console.log(`Funcionalidade [${feature}] será implementada em breve.`);
+  };
 
   return (
     <div style={styles.container}>
@@ -71,18 +83,17 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
           AutoNest CAM Processor - [Sem Título.lxd]
         </div>
         <div style={styles.windowControls}>
-          <span style={styles.coordDisplay}>X: 1250.00 Y: 500.00</span>
+          <span style={styles.coordDisplay}>X: 0.00 Y: 0.00</span>
         </div>
       </div>
 
       {/* 2. RIBBON MENU */}
       <div style={styles.ribbonContainer}>
-        {/* Abas */}
+        {/* Lista de Abas */}
         <div style={styles.ribbonTabs}>
           {["File", "Home", "Draw", "Nest", "CNC", "View"].map((tab) => (
             <button
               key={tab}
-              // Cast seguro para o tipo TabType
               onClick={() => setActiveTab(tab.toLowerCase() as TabType)}
               style={{
                 ...styles.ribbonTab,
@@ -96,44 +107,78 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
           ))}
         </div>
 
-        {/* Ferramentas da Aba (Toolbar) */}
+        {/* Área de Ferramentas (Toolbar) - Conteúdo Dinâmico */}
         <div style={styles.ribbonToolbar}>
-          {/* Grupo: Arquivo */}
-          <div style={styles.toolGroup}>
-            <RibbonButton
-              icon={<FaArrowLeft />}
-              label="Sair"
-              onClick={onBack}
-              danger
-            />
-            <RibbonButton icon={<FaSave />} label="Salvar" />
-            <div style={styles.separator} />
-          </div>
+          {/* === CONTEÚDO DA ABA FILE === */}
+          {activeTab === "file" && (
+            <>
+              {/* Grupo 1: Arquivo Básico */}
+              <div style={styles.toolGroup}>
+                <RibbonButton
+                  icon={<FaFolderOpen />}
+                  label="Open"
+                  onClick={() => handleNotImplemented("Open")}
+                />
+                <RibbonButton
+                  icon={<FaSave />}
+                  label="Save"
+                  onClick={() => handleNotImplemented("Save")}
+                />
+                <RibbonButton
+                  icon={<FaFileExport />}
+                  label="Save as"
+                  onClick={() => handleNotImplemented("Save as")}
+                />
+                <div style={styles.separator} />
+              </div>
 
-          {/* Grupo: Visualização */}
-          <div style={styles.toolGroup}>
-            <RibbonButton icon={<FaSearchPlus />} label="Zoom In" />
-            <RibbonButton icon={<FaSearchMinus />} label="Zoom Out" />
-            <RibbonButton icon={<FaHandPaper />} label="Pan" />
-            <div style={styles.separator} />
-          </div>
+              {/* Grupo 2: Importação e Dados */}
+              <div style={styles.toolGroup}>
+                <RibbonButton
+                  icon={<FaFileImport />}
+                  label="Import"
+                  onClick={() => handleNotImplemented("Import")}
+                />
+                <RibbonButton
+                  icon={<FaClipboardList />}
+                  label="Report"
+                  onClick={() => handleNotImplemented("Report")}
+                />
+                <div style={styles.separator} />
+              </div>
 
-          {/* Grupo: Processamento */}
-          <div style={styles.toolGroup}>
-            <RibbonButton icon={<FaVectorSquare />} label="Simular" />
-            <RibbonButton icon={<FaRulerCombined />} label="Medir" />
-            <RibbonButton icon={<FaCog />} label="Params" />
-            <div style={styles.separator} />
-          </div>
+              {/* Grupo 3: Sistema */}
+              <div style={styles.toolGroup}>
+                <RibbonButton
+                  icon={<FaDatabase />}
+                  label="Backup Params"
+                  onClick={() => handleNotImplemented("Backup Params")}
+                />
+                <div style={styles.separator} />
+              </div>
 
-          {/* Grupo: Geração */}
-          <div style={styles.toolGroup}>
-            <RibbonButton
-              icon={<MdBorderOuter size={20} />}
-              label="Export G-Code"
-              highlight
-            />
-          </div>
+              {/* Grupo 4: Navegação (Sair) */}
+              <div style={styles.toolGroup}>
+                <RibbonButton
+                  icon={<FaArrowLeft />}
+                  label="Exit CAM"
+                  onClick={onBack}
+                  danger
+                />
+              </div>
+            </>
+          )}
+
+          {/* === CONTEÚDO DA ABA HOME (Exemplo mantido para não ficar vazio se clicar) === */}
+          {activeTab === "home" && (
+            <div style={styles.toolGroup}>
+              <RibbonButton icon={<FaSearchPlus />} label="Zoom In" />
+              <RibbonButton icon={<FaSearchMinus />} label="Zoom Out" />
+              <RibbonButton icon={<FaHandPaper />} label="Pan" />
+              <div style={styles.separator} />
+              <RibbonButton icon={<FaVectorSquare />} label="Simulate" />
+            </div>
+          )}
         </div>
       </div>
 
@@ -274,6 +319,27 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
                 style={styles.inputField}
               />
             </div>
+
+            {/* Botão de Exportação Rápida */}
+            <div style={{ marginTop: "auto", paddingTop: 10 }}>
+              <button
+                style={{
+                  width: "100%",
+                  padding: 10,
+                  backgroundColor: "#007acc",
+                  color: "white",
+                  border: "none",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 5,
+                }}
+              >
+                <MdBorderOuter /> Gerar G-Code
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -281,7 +347,7 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
   );
 };
 
-// --- COMPONENTES AUXILIARES TIPADOS ---
+// --- COMPONENTES AUXILIARES ---
 
 const RibbonButton: React.FC<RibbonButtonProps> = ({
   icon,
@@ -289,18 +355,40 @@ const RibbonButton: React.FC<RibbonButtonProps> = ({
   onClick,
   highlight,
   danger,
-}) => (
-  <button
-    onClick={onClick}
-    style={{
-      ...styles.ribbonBtn,
-      color: danger ? "#ff4d4d" : highlight ? "#fd7e14" : "#e0e0e0",
-    }}
-  >
-    <div style={{ fontSize: "1.2rem", marginBottom: 4 }}>{icon}</div>
-    <span style={{ fontSize: "0.7rem" }}>{label}</span>
-  </button>
-);
+  disabled,
+}) => {
+  // Adicionamos um estado local para controlar o Hover
+  const [isHovered, setIsHovered] = React.useState(false);
+
+  // Lógica de cor: Laranja se estiver com mouse em cima OU se tiver a prop highlight fixa
+  const iconColor = danger
+    ? isHovered
+      ? "#ff6666"
+      : "#ff4d4d"
+    : isHovered || highlight
+      ? "#fd7e14"
+      : "#e0e0e0"; // #e0e0e0 é o branco/cinza padrão
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      onMouseEnter={() => setIsHovered(true)} // Ativa cor ao entrar
+      onMouseLeave={() => setIsHovered(false)} // Desativa cor ao sair
+      style={{
+        ...styles.ribbonBtn,
+        color: disabled ? "#666" : iconColor,
+        opacity: disabled ? 0.5 : 1,
+        cursor: disabled ? "not-allowed" : "pointer",
+        transform: isHovered && !disabled ? "scale(1.05)" : "scale(1)", // Efeito sutil de zoom
+        transition: "all 0.2s ease", // Suaviza a troca de cor
+      }}
+    >
+      <div style={{ fontSize: "1.2rem", marginBottom: 4 }}>{icon}</div>
+      <span style={{ fontSize: "0.7rem" }}>{label}</span>
+    </button>
+  );
+};
 
 const LayerRow: React.FC<LayerRowProps> = ({
   color,
@@ -327,7 +415,6 @@ const LayerRow: React.FC<LayerRowProps> = ({
       }}
     />
     <div style={{ flex: 1 }}>{name}</div>
-    {/* CORREÇÃO: Adicionamos o 'pwr' aqui para resolver o erro de variável não usada */}
     <div style={{ fontSize: "0.75rem", color: "#aaa" }}>
       V:{speed} / P:{pwr}
     </div>
@@ -338,7 +425,7 @@ const JogButton: React.FC<JogButtonProps> = ({ icon }) => (
   <button style={styles.jogBtn}>{icon}</button>
 );
 
-// --- ESTILOS CSS-IN-JS (MANTIDOS IGUAIS) ---
+// --- ESTILOS CSS-IN-JS ---
 const styles: Record<string, React.CSSProperties> = {
   container: {
     display: "flex",
@@ -349,7 +436,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "Segoe UI, sans-serif",
     overflow: "hidden",
   },
-  // Title Bar
   titleBar: {
     height: "30px",
     backgroundColor: "#2d2d2d",
@@ -362,8 +448,6 @@ const styles: Record<string, React.CSSProperties> = {
   },
   titleText: { display: "flex", alignItems: "center", fontWeight: 600 },
   coordDisplay: { fontFamily: "monospace", color: "#fd7e14" },
-
-  // Ribbon
   ribbonContainer: {
     height: "110px",
     backgroundColor: "#252526",
@@ -371,11 +455,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     flexDirection: "column",
   },
-  ribbonTabs: {
-    display: "flex",
-    height: "28px",
-    backgroundColor: "#2d2d2d",
-  },
+  ribbonTabs: { display: "flex", height: "28px", backgroundColor: "#2d2d2d" },
   ribbonTab: {
     background: "transparent",
     border: "none",
@@ -406,14 +486,12 @@ const styles: Record<string, React.CSSProperties> = {
   ribbonBtn: {
     background: "transparent",
     border: "none",
-    color: "#e0e0e0",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
     padding: "5px 10px",
     minWidth: "60px",
-    cursor: "pointer",
     height: "70px",
     borderRadius: "4px",
   },
@@ -423,11 +501,7 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: "#3e3e42",
     marginLeft: 5,
   },
-
-  // Main Area
   mainArea: { flex: 1, display: "flex", overflow: "hidden" },
-
-  // Viewport
   viewportContainer: {
     flex: 1,
     display: "flex",
@@ -454,8 +528,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   canvasArea: {
     flex: 1,
-    marginLeft: 20, // Espaço da régua
-    backgroundColor: "#000", // CAD Background Black
+    marginLeft: 20,
+    backgroundColor: "#000",
     position: "relative",
     display: "flex",
     alignItems: "center",
@@ -475,7 +549,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   viewportStatus: {
     height: 25,
-    backgroundColor: "#252526", // Status bar azul clássico VSCode/CAD
+    backgroundColor: "#007acc",
     color: "#fff",
     display: "flex",
     alignItems: "center",
@@ -484,8 +558,6 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 20,
     marginLeft: 20,
   },
-
-  // Right Panel
   rightPanel: {
     width: "280px",
     backgroundColor: "#252526",
@@ -513,8 +585,6 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     borderRadius: 3,
   },
-
-  // CNC Console
   jogControl: {
     display: "flex",
     flexDirection: "column",
@@ -582,7 +652,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#fff",
     fontWeight: "bold",
   },
-
   paramsInputs: { display: "flex", flexDirection: "column", gap: 5 },
   inputLabel: { fontSize: "0.75rem", color: "#888" },
   inputField: {
