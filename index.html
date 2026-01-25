@@ -4,41 +4,110 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/logo-favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#007bff" />
     <link rel="apple-touch-icon" href="/pwa-192x192.png" />
-
     <title>AutoNest Hub</title>
+
+    <style>
+      /* Splash Screen - Estilo da Primeira Versão */
+      #splash-screen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: #1e1e1e;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        transition: opacity 0.5s ease-out;
+        font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      }
+
+      .loader-container { text-align: center; }
+
+      /* O Anel Rotativo que você gostou */
+      .rotating-ring {
+        transform-origin: center;
+        animation: rotate 2s linear infinite;
+      }
+
+      @keyframes rotate {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+
+      .splash-title {
+        color: #fd7e14; /* Cor accentCam */
+        font-size: 2.5rem;
+        margin: 20px 0 10px 0;
+        letter-spacing: -1px;
+      }
+
+      /* Barra de progresso horizontal */
+      .loading-bar {
+        width: 200px;
+        height: 4px;
+        background: #2d2d2d;
+        border-radius: 10px;
+        margin: 20px auto;
+        overflow: hidden;
+        position: relative;
+      }
+
+      .progress {
+        width: 40%;
+        height: 100%;
+        background: #fd7e14;
+        border-radius: 10px;
+        position: absolute;
+        animation: moveProgress 1.5s infinite ease-in-out;
+      }
+
+      @keyframes moveProgress {
+        0% { left: -40%; }
+        100% { left: 100%; }
+      }
+
+      .splash-text {
+        color: #e0e0e0;
+        opacity: 0.6;
+        font-size: 0.9rem;
+      }
+
+      .fade-out { opacity: 0; pointer-events: none; }
+    </style>
   </head>
   <body>
+    <div id="splash-screen">
+      <div class="loader-container">
+        <svg width="80" height="80" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M256 32L210 160H302L256 32Z" fill="#fd7e14" />
+          <circle cx="256" cy="256" r="80" stroke="#fd7e14" stroke-width="20" stroke-dasharray="300" class="rotating-ring" />
+          <path d="M256 480L302 352H210L256 480Z" fill="#fd7e14" />
+        </svg>
+        <h1 class="splash-title">AutoNest Hub</h1>
+        <div class="loading-bar">
+          <div class="progress"></div>
+        </div>
+        <p class="splash-text">Iniciando módulos de engenharia...</p>
+      </div>
+    </div>
+
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
 
     <script>
-      // 1. Armadilha Global: Prepara uma variável para guardar o evento
       window.deferredPrompt = null;
-
-      // 2. Escuta o evento IMEDIATAMENTE (antes do React)
       window.addEventListener("beforeinstallprompt", (e) => {
-        // Previne que o Chrome mostre a barra nativa feia automaticamente
         e.preventDefault();
-        // Guarda o evento na nossa variável global para usar no botão depois
         window.deferredPrompt = e;
-        console.log(
-          "🔥🔥🔥 SUCESSO: O navegador autorizou a instalação! (Capturado no index.html)"
-        );
       });
-
-      // 3. Registro do Service Worker (O que você já tinha)
       if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {
-          navigator.serviceWorker
-            .register("/sw.js")
-            .then((reg) =>
-              console.log("Service Worker registrado com sucesso:", reg.scope)
-            )
-            .catch((err) => console.error("Falha ao registrar SW:", err));
+          navigator.serviceWorker.register("/sw.js");
         });
       }
     </script>

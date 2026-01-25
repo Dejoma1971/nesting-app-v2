@@ -27,7 +27,12 @@ import { ThemeProvider } from "./context/ThemeContext";
 
 import { SuccessScreen } from "./components/SuccessScreen";
 
-type ScreenType = "home" | "engineering" | "nesting" | "dashboard" | "postprocessor";
+type ScreenType =
+  | "home"
+  | "engineering"
+  | "nesting"
+  | "dashboard"
+  | "postprocessor";
 
 // =================================================================
 // 1. COMPONENTE DO SISTEMA INTERNO (PROTEGIDO)
@@ -106,11 +111,9 @@ function ProtectedApp() {
       )}
 
       {/* --- ADICIONE ESTE BLOCO AQUI --- */}
-{/* AQUI ESTÁ A MUDANÇA: O componente real agora é chamado */}
+      {/* AQUI ESTÁ A MUDANÇA: O componente real agora é chamado */}
       {currentScreen === "postprocessor" && (
-        <PostProcessorScreen 
-          onBack={() => setCurrentScreen("home")} 
-        />
+        <PostProcessorScreen onBack={() => setCurrentScreen("home")} />
       )}
 
       {/* 4. O MODAL FLUTUANTE (Renderiza em cima de tudo se estiver true) */}
@@ -125,6 +128,18 @@ function ProtectedApp() {
 // 2. COMPONENTE PRINCIPAL COM ROTEAMENTO
 // =================================================================
 function App() {
+  // 2. O useEffect deve ficar logo no início da função App
+  useEffect(() => {
+    const splash = document.getElementById("splash-screen");
+    if (splash) {
+      const timer = setTimeout(() => {
+        splash.classList.add("fade-out");
+        setTimeout(() => splash.remove(), 600);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
   return (
     <AuthProvider>
       <ThemeProvider>
