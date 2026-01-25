@@ -1,9 +1,15 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { GiLaserburn } from "react-icons/gi";
 import { SidebarMenu } from "../components/SidebarMenu";
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
 import { useTheme } from "../context/ThemeContext";
 
-type ScreenType = "home" | "engineering" | "nesting" | "dashboard";
+type ScreenType =
+  | "home"
+  | "engineering"
+  | "nesting"
+  | "dashboard"
+  | "postprocessor";
 
 interface HomeProps {
   onNavigate: (screen: ScreenType) => void;
@@ -14,6 +20,47 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
   const { isDarkMode } = useTheme();
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
 
+  // ⬇️ --- 1. CONFIGURAÇÃO DO EFEITO "EM DESENVOLVIMENTO" --- ⬇️
+
+  // Controle Mestre: true = Ativa o efeito de esmaecer. false = Card normal.
+  const isPostProcessDisabled = true;
+
+  // Estado que controla se o texto "Em Desenvolvimento" aparece ou não
+  const [showOverlayText, setShowOverlayText] = useState(false);
+
+  // ⬇️ --- INSERIR ISTO --- ⬇️
+  // Estado para gatilho da animação visual (CSS)
+  const [triggerFade, setTriggerFade] = useState(false);
+
+  useEffect(() => {
+    if (isPostProcessDisabled) {
+      // Pequeno delay (100ms) para garantir que o card renderize "normal" primeiro
+      // e só depois aplique a classe que dispara a transição de 5s.
+      setTimeout(() => setTriggerFade(true), 100);
+    }
+  }, [isPostProcessDisabled]);
+  // ⬆️ -------------------- ⬆️
+
+  // Lógica do Timer: Espera 5 segundos antes de mostrar o texto
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+
+    if (isPostProcessDisabled) {
+      // Inicia a contagem de 5s (5000ms)
+      timer = setTimeout(() => {
+        setShowOverlayText(true);
+      }, 5000);
+    } else {
+      // Se estiver habilitado, garante que o texto não apareça
+      setShowOverlayText(false);
+    }
+
+    // Limpeza (caso o usuário saia da tela antes dos 5s)
+    return () => clearTimeout(timer);
+  }, [isPostProcessDisabled]);
+
+  // ⬆️ -------------------------------------------------------- ⬆️
+
   // --- TEMAS ---
   const theme = {
     bg: isDarkMode ? "#1e1e1e" : "#f0f2f5",
@@ -23,6 +70,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
     cardHover: isDarkMode ? "#383838" : "#fafafa",
     accentEng: "#007bff", // Azul para Engenharia
     accentNest: "#28a745", // Verde para Produção
+    accentCam: "#fd7e14", // Laranja Fogo para CAM (Novo)
     shadow: isDarkMode
       ? "0 4px 6px rgba(0,0,0,0.3)"
       : "0 4px 6px rgba(0,0,0,0.1)",
@@ -38,14 +86,18 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
     color: theme.text,
     fontFamily: "Segoe UI, Roboto, Helvetica, Arial, sans-serif",
     transition: "0.3s",
+    overflowY: "auto", // Garante scroll se a tela for pequena
   };
 
   const cardsContainerStyle: React.CSSProperties = {
     display: "flex",
-    gap: "40px",
+    gap: "30px",
     marginTop: "50px",
     flexWrap: "wrap",
     justifyContent: "center",
+    alignItems: "stretch", // Garante altura igual
+    maxWidth: "1200px", // Limite para não espalhar demais
+    padding: "20px",
   };
 
   const cardStyle = (accentColor: string): React.CSSProperties => ({
@@ -66,7 +118,9 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
   });
 
   // Estado local para hover (apenas visual)
-  const [hoveredCard, setHoveredCard] = useState<"eng" | "nest" | null>(null);
+  const [hoveredCard, setHoveredCard] = useState<"eng" | "nest" | "cam" | null>(
+    null,
+  );
 
   return (
     <div style={containerStyle}>
@@ -84,7 +138,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       </div>
 
       <div
-        style={{ textAlign: "center", maxWidth: "600px", padding: "0 20px" }}
+        style={{ textAlign: "center", maxWidth: "800px", padding: "0 20px" }}
       >
         <h1
           style={{
@@ -218,7 +272,114 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
               color: theme.accentNest,
             }}
           >
-            Ir para Produção →
+            Gerar Nesting →
+          </span>
+        </div>
+
+        {/* --- CARD 3: PÓS-PROCESSADOR (COM EFEITO DE ESMAECER 5s) --- */}
+        <div
+          style={{
+            ...cardStyle(theme.accentCam), // Usa estilos base
+            // Adiciona transições longas de 5s para opacidade e filtro
+            transition:
+              "transform 0.2s, box-shadow 0.2s, background 0.2s, opacity 5s ease-in-out, filter 5s ease-in-out",
+
+            // Lógica de hover (só se não estiver desabilitado)
+            transform:
+              !isPostProcessDisabled && hoveredCard === "cam"
+                ? "translateY(-5px)"
+                : "none",
+            background:
+              !isPostProcessDisabled && hoveredCard === "cam"
+                ? theme.cardHover
+                : theme.cardBg,
+
+            // --- CORREÇÃO AQUI ---
+            // Usamos 'triggerFade' para que a mudança ocorra DEPOIS do render inicial
+            opacity: isPostProcessDisabled && triggerFade ? 0.5 : 1,
+
+            filter:
+              isPostProcessDisabled && triggerFade
+                ? "grayscale(1) brightness(0.9)"
+                : "none",
+            cursor: isPostProcessDisabled ? "not-allowed" : "pointer",
+            // -----------------------------------
+          }}
+          onMouseEnter={() => !isPostProcessDisabled && setHoveredCard("cam")}
+          onMouseLeave={() => setHoveredCard(null)}
+          // Bloqueia clique
+          onClick={() => !isPostProcessDisabled && onNavigate("postprocessor")}
+        >
+          {/* OVERLAY "EM DESENVOLVIMENTO" (Aparece suavemente após 5s) */}
+          {isPostProcessDisabled && (
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: "100%",
+                borderRadius: "12px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                zIndex: 10,
+                // O overlay começa invisível (opacity 0) e fica visível (1) quando o timer termina
+                opacity: showOverlayText ? 1 : 0,
+                transition: "opacity 0.5s ease-in", // Transição suave para o texto aparecer
+                background: showOverlayText ? "rgba(0,0,0,0.2)" : "transparent", // Escurece um pouco o fundo quando o texto aparece
+                backdropFilter: showOverlayText ? "blur(2px)" : "none",
+              }}
+            >
+              <div
+                style={{
+                  background: "#333",
+                  color: "#fff",
+                  padding: "8px 16px",
+                  borderRadius: "20px",
+                  fontSize: "0.8rem",
+                  fontWeight: "bold",
+                  textTransform: "uppercase",
+                  letterSpacing: "1px",
+                  boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
+                }}
+              >
+                Em Desenvolvimento 🚧
+              </div>
+            </div>
+          )}
+
+          <div
+            style={{
+              width: "80px",
+              height: "80px",
+              background: "rgba(253, 126, 20, 0.1)",
+              borderRadius: "50%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: "20px",
+              color: theme.accentCam,
+            }}
+          >
+            <GiLaserburn size={48} color={theme.accentCam} />
+          </div>
+          <h2 style={{ margin: "0 0 10px 0", color: theme.accentCam }}>
+            Pós-Processador
+          </h2>
+          <p style={{ fontSize: "0.9rem", opacity: 0.8, lineHeight: "1.5" }}>
+            Configuração de parâmetros de corte e exportação G-Code / LXD.
+          </p>
+          <span
+            style={{
+              marginTop: "auto",
+              paddingTop: "20px",
+              fontSize: "0.85rem",
+              fontWeight: "bold",
+              color: theme.accentCam,
+            }}
+          >
+            Gerar Código →
           </span>
         </div>
       </div>

@@ -19,6 +19,7 @@ import { PartFilter, type FilterState } from "./PartFilter";
 import NestingWorker from "../workers/nesting.worker?worker";
 import WiseNestingWorker from "../workers/wiseNesting.worker?worker";
 import SmartNestNewWorker from "../workers/smartNestNew.worker?worker";
+import SmartNestV3Worker from "../workers/smartNestV3.worker?worker";
 import { useTheme } from "../context/ThemeContext";
 import { useLabelManager } from "../hooks/useLabelManager";
 import { GlobalLabelPanel, ThumbnailFlags } from "./labels/LabelControls";
@@ -40,6 +41,9 @@ import { useProductionRegister } from "../hooks/useProductionRegister"; // <--- 
 import { useNestingFileManager } from "../hooks/useNestingFileManager";
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
 import { calculatePartNetArea } from "../utils/areaCalculator";
+// Adicione junto com os outros imports
+import { rotatePartsGroup } from "../utils/transformUtils";
+import { calculateSmartLabel } from "../utils/labelUtils";
 
 interface Size {
   width: number;
@@ -444,7 +448,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const [gap, setGap] = useState(5);
   const [margin, setMargin] = useState(5);
   const [strategy, setStrategy] = useState<
-    "guillotine" | "true-shape" | "true-shape-v2" | "wise"
+    "guillotine" | "true-shape" | "true-shape-v2" | "true-shape-v3" | "wise"
   >("true-shape-v2");
   const [direction, setDirection] = useState<
     "auto" | "vertical" | "horizontal"
@@ -475,6 +479,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const nestingWorkerRef = useRef<Worker | null>(null);
   const wiseNestingWorkerRef = useRef<Worker | null>(null);
   const smartNestNewWorkerRef = useRef<Worker | null>(null);
+  const smartNestV3WorkerRef = useRef<Worker | null>(null);
 
   // --- NOVO: Estados para o Checklist de Pedidos ---
   const [availableOrders, setAvailableOrders] = useState<string[]>([]);
@@ -686,7 +691,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         cropLines,
         gap,
         margin,
-        strategy: strategy === "true-shape-v2" ? "true-shape" : strategy,
+        strategy: (strategy === "true-shape-v2" || strategy === "true-shape-v3") ? "true-shape" : strategy,
         direction,
         labelStates,
         disabledNestingIds,
@@ -756,33 +761,76 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       const defaultText = part.pedido || part.op || "";
 
       // Função auxiliar que decide qual texto usar e gera o vetor
+      // Adicione o import no topo do arquivo se não houver:
+      // import { calculateSmartLabel } from "../utils/labelUtils";
+
       const addLabelVector = (
         config: LabelConfig,
         color: string,
         type: "white" | "pink",
       ) => {
-        // 2. LÓGICA DE PRIORIDADE:
-        // Usa o texto editado (config.text). Se estiver vazio, usa o padrão (defaultText).
+        // Texto: Configurado ou Padrão
         const textToRender = config.text ? config.text : defaultText;
 
-        // Só desenha se estiver ativo e tiver algum texto para mostrar
         if (config.active && textToRender) {
-          const posX = bounds.cx + config.offsetX;
-          const posY = bounds.cy + config.offsetY;
+          const isCircular = part.entities.some((e) => e.type === "CIRCLE");
 
-          // Gera as linhas vetoriais (Agora suporta A-Z e símbolos, sem limpar caracteres)
+          // 1. Define o tamanho da fonte (Editado pelo usuário ou Padrão do Tipo)
+          // Se o usuário nunca editou, config.fontSize pode ser undefined/0, então assumimos o padrão.
+          const baseSize = config.fontSize || (type === "pink" ? 6 : 38);
+
+          // 2. Calcula a Posição Inteligente (Sugestão)
+          const { smartRotation, suggestedFontSize, smartX, smartY } =
+            calculateSmartLabel(
+              part.width,
+              part.height,
+              textToRender,
+              type,
+              isCircular,
+              baseSize,
+              5,
+            );
+
+          // 3. Sistema de Prioridades: Manual vs Automático
+
+          // Detecta se o usuário já moveu a etiqueta manualmente
+          // (Assumimos que etiquetas ROSA na posição 0,0 estão no estado "virgem")
+          const userHasMoved = config.offsetX !== 0 || config.offsetY !== 0;
+
+          // Detecta se o usuário girou manualmente
+          const userHasRotated = config.rotation !== 0;
+
+          // -- APLICAÇÃO FINAL --
+
+          // Posição: Se moveu, usa a do usuário. Se não, usa a Smart (Canto).
+          const finalOffsetX = userHasMoved ? config.offsetX : smartX;
+          const finalOffsetY = userHasMoved ? config.offsetY : smartY;
+
+          // Rotação: Soma a rotação manual com a inteligente
+          // Ex: Smart é 90º. Usuário adicionou 45º. Final = 135º.
+          const finalRotation =
+            (config.rotation + (userHasRotated ? 0 : smartRotation)) % 360;
+
+          // Tamanho: Prioriza o config do usuário se existir, senão usa o sugerido
+          const finalFontSize = config.fontSize || suggestedFontSize;
+
+          // -- GERAÇÃO DOS VETORES --
+          const posX = bounds.cx + finalOffsetX;
+          const posY = bounds.cy + finalOffsetY;
+
           const vectorLines = textToVectorLines(
-            textToRender, // <--- Passamos o texto direto, sem filtrar caracteres
+            textToRender,
             posX,
             posY,
-            config.fontSize,
+            finalFontSize,
             color,
           );
 
           const rotatedLines = vectorLines.map((line: any) => {
-            if (config.rotation === 0) return line;
+            if (finalRotation === 0) return line;
+
             const rotatePoint = (x: number, y: number) => {
-              const rad = (config.rotation * Math.PI) / 180;
+              const rad = (finalRotation * Math.PI) / 180;
               const dx = x - posX;
               const dy = y - posY;
               return {
@@ -1135,7 +1183,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         parts: displayedParts,
         user,
         cropLines,
-        motor: strategy === "true-shape-v2" ? "true-shape" : strategy,
+       motor: (strategy === "true-shape-v2" || strategy === "true-shape-v3") ? "true-shape" : strategy,
 
         // NOVOS PARÂMETROS
         binWidth: binSize.width,
@@ -1252,6 +1300,37 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         binHeight: binSize.height,
         rotationStep: 5,
       });
+    } else if (strategy === "true-shape-v3") {
+      // --- 5. MOTOR SMART NEST V3 (Memória + Furos) ---
+      // <--- NOVA LÓGICA AQUI
+      if (smartNestV3WorkerRef.current)
+        smartNestV3WorkerRef.current.terminate();
+      smartNestV3WorkerRef.current = new SmartNestV3Worker();
+
+      smartNestV3WorkerRef.current.onmessage = (e) => {
+        const result = e.data;
+        const duration = (Date.now() - startTime) / 1000;
+        setCalculationTime(duration);
+
+        resetNestingResult(result.placed);
+        setFailedCount(result.failed.length);
+        setTotalBins(result.totalBins || 1);
+        setIsComputing(false);
+
+        if (result.placed.length === 0) alert("Nenhuma peça coube (Motor V3)!");
+      };
+
+      smartNestV3WorkerRef.current.postMessage({
+        parts: JSON.parse(JSON.stringify(partsToNest)),
+        quantities,
+        gap,
+        margin,
+        binWidth: binSize.width,
+        binHeight: binSize.height,
+        iterations,
+        rotationStep,
+        targetEfficiency: 96 // Meta agressiva para o V3
+      });  
     } else if (strategy === "true-shape-v2") {
       // --- 4. MOTOR SMART NEST V2 (First Fit / Preencher) ---
       // <--- AQUI ENTRA A LÓGICA DO NOVO MOTOR SELECIONADO NO DROPDOWN
@@ -1390,25 +1469,35 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     clearSavedState,
   ]);
 
-  const handleRefreshView = useCallback(() => {
-    // 1. Liga a animação
-    setIsRefreshing(true);
+  // ⬇️ --- SUBSTITUIR ESTA FUNÇÃO INTEIRA --- ⬇️
+  const handleRefreshView = useCallback(
+    (e: React.MouseEvent) => {
+      // 1. HARD RESET (Shift + Click) - Limpeza de Cache
+      if (e.shiftKey) {
+        if (
+          window.confirm(
+            "⚠️ LIMPEZA DE CACHE (Shift detectado):\n\nIsso apagará o salvamento automático e reiniciará a mesa do zero. Continuar?",
+          )
+        ) {
+          clearSavedState(); // Limpa o localStorage (Cache)
+          handleClearTable(); // Limpa a memória RAM (React State)
+        }
+        return;
+      }
 
-    // 2. Incrementa a chave para forçar o React a recriar o componente Canvas
-    setViewKey((prev) => prev + 1);
+      // 2. SOFT RESET (Click Normal) - Destravar Interface
+      setIsRefreshing(true);
+      setViewKey((prev) => prev + 1);
+      setNestingResult((prev) => [...prev]); // Força re-render
+      setContextMenu(null);
+      setSheetMenu(null);
 
-    // 3. Força uma atualização rasa nos estados para garantir sincronia
-    setNestingResult((prev) => [...prev]);
-
-    // 4. Limpa menus travados
-    setContextMenu(null);
-    setSheetMenu(null);
-
-    // 5. Desliga a animação após 0.7s
-    setTimeout(() => setIsRefreshing(false), 700);
-
-    console.log("♻️ Interface gráfica recarregada (Soft Reset).");
-  }, [setNestingResult]);
+      setTimeout(() => setIsRefreshing(false), 700);
+      console.log("♻️ Interface gráfica recarregada (Soft Reset).");
+    },
+    [setNestingResult, clearSavedState, handleClearTable],
+  );
+  // ⬆️ -------------------------------------- ⬆️
 
   // --- NOVA FUNÇÃO: Navegação Segura para Home ---
   const handleSafeHomeExit = useCallback(() => {
@@ -1534,7 +1623,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     (angle: number) => {
       if (selectedPartIds.length === 0) return;
 
-      // 1. Verificação de travas (mantida)
+      // 1. Verificação de travas (Apenas aviso visual, a lógica real está no utilitário)
       const hasLockedParts = selectedPartIds.some((uuid) => {
         const placedPart = nestingResult.find((p) => p.uuid === uuid);
         if (!placedPart) return false;
@@ -1543,59 +1632,22 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       });
 
       if (hasLockedParts) {
-        alert("⚠️ AVISO:\n\nPeça possui trava de rotação - Sentido Escovado.");
+        // Opcional: Pode remover este alert se ficar muito intrusivo,
+        // pois a função rotatePartsGroup já ignora silenciosamente as travadas.
+        alert("⚠️ Algumas peças possuem trava de rotação e não serão movidas.");
       }
 
-      setNestingResult((prev) =>
-        prev.map((placed) => {
-          if (selectedPartIds.includes(placed.uuid)) {
-            const originalPart = parts.find((p) => p.id === placed.partId);
-
-            // Se não achou a peça ou está travada, retorna sem mexer
-            if (!originalPart || originalPart.isRotationLocked) {
-              return placed;
-            }
-
-            // --- LÓGICA DE COMPENSAÇÃO DE PIVÔ ---
-
-            // A. Calcula as dimensões ATUAIS da Bounding Box
-            const currentDims = calculateRotatedDimensions(
-              originalPart.width,
-              originalPart.height,
-              placed.rotation,
-            );
-
-            // B. Encontra o CENTRO REAL da peça na mesa
-            const centerX = placed.x + currentDims.width / 2;
-            const centerY = placed.y + currentDims.height / 2;
-
-            // C. Calcula a NOVA rotação
-            const newRotation = (placed.rotation + angle) % 360;
-
-            // D. Calcula as NOVAS dimensões da Bounding Box
-            const newDims = calculateRotatedDimensions(
-              originalPart.width,
-              originalPart.height,
-              newRotation,
-            );
-
-            // E. Recalcula X e Y para manter o CENTRO fixo
-            // Novo X = Centro Antigo - Metade da Nova Largura
-            const newX = centerX - newDims.width / 2;
-            const newY = centerY - newDims.height / 2;
-
-            return {
-              ...placed,
-              rotation: newRotation,
-              x: newX,
-              y: newY,
-            };
-          }
-          return placed;
-        }),
+      // 2. Chama a função utilitária para calcular a rotação em GRUPO
+      const newResult = rotatePartsGroup(
+        nestingResult,
+        selectedPartIds,
+        parts,
+        angle,
       );
+
+      setNestingResult(newResult);
     },
-    [selectedPartIds, nestingResult, parts, setNestingResult], // Dependências atualizadas
+    [selectedPartIds, nestingResult, parts, setNestingResult],
   );
 
   const handleContextMove = useCallback(
@@ -2545,6 +2597,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             {/* Mudou de "rect" */}
             <option value="true-shape">🧩 Smart Nest</option>
             <option value="true-shape-v2">⚡ Smart Nest V2</option>
+            {/* ADICIONE ESTA OPÇÃO: */}
+            <option value="true-shape-v3" style={{ fontWeight: 'bold', color: '#007bff' }}>
+              🚀 Smart Nest V3 (Furos)
+            </option>
             {/* ALTERAÇÃO AQUI: Adicionado disabled e estilo de cor/opacidade */}
             <option
               value="wise"
@@ -3078,7 +3134,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             binHeight={binSize.height}
             margin={margin}
             showDebug={showDebug}
-            strategy={strategy === "true-shape-v2" ? "true-shape" : strategy}
+            strategy={(strategy === "true-shape-v2" || strategy === "true-shape-v3") ? "true-shape" : strategy}
             theme={theme}
             selectedPartIds={selectedPartIds}
             collidingPartIds={collidingPartIds}

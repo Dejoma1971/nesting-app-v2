@@ -16,6 +16,7 @@ import { LoginScreen } from "./components/LoginScreen";
 import { RegisterScreen } from "./components/RegisterScreen";
 import { LandingPage } from "./components/LandingPage"; // <--- Novo
 import { TeamManagementScreen } from "./components/TeamManagementScreen"; // <--- 1. IMPORTE O MODAL
+import { PostProcessorScreen } from "./postProcessador/PostProcessorScreen";
 
 // Tipos
 import type { ImportedPart } from "./components/types";
@@ -26,7 +27,12 @@ import { ThemeProvider } from "./context/ThemeContext";
 
 import { SuccessScreen } from "./components/SuccessScreen";
 
-type ScreenType = "home" | "engineering" | "nesting" | "dashboard";
+type ScreenType =
+  | "home"
+  | "engineering"
+  | "nesting"
+  | "dashboard"
+  | "postprocessor";
 
 // =================================================================
 // 1. COMPONENTE DO SISTEMA INTERNO (PROTEGIDO)
@@ -104,6 +110,12 @@ function ProtectedApp() {
         />
       )}
 
+      {/* --- ADICIONE ESTE BLOCO AQUI --- */}
+      {/* AQUI ESTÁ A MUDANÇA: O componente real agora é chamado */}
+      {currentScreen === "postprocessor" && (
+        <PostProcessorScreen onBack={() => setCurrentScreen("home")} />
+      )}
+
       {/* 4. O MODAL FLUTUANTE (Renderiza em cima de tudo se estiver true) */}
       {isTeamModalOpen && (
         <TeamManagementScreen onClose={() => setIsTeamModalOpen(false)} />
@@ -116,6 +128,18 @@ function ProtectedApp() {
 // 2. COMPONENTE PRINCIPAL COM ROTEAMENTO
 // =================================================================
 function App() {
+  // 2. O useEffect deve ficar logo no início da função App
+  useEffect(() => {
+    const splash = document.getElementById("splash-screen");
+    if (splash) {
+      const timer = setTimeout(() => {
+        splash.classList.add("fade-out");
+        setTimeout(() => splash.remove(), 600);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
   return (
     <AuthProvider>
       <ThemeProvider>

@@ -12,6 +12,7 @@ import type { PlacedPart } from "../utils/nestingCore";
 import type { AppTheme } from "../styles/theme";
 import type { CropLine } from "../hooks/useSheetManager";
 import { getOBBCorners } from "../utils/obbUtil";
+import { useCanvasPan } from "../hooks/useCanvasPan";
 
 // --- COLE ISTO LOGO APÓS OS IMPORTS ---
 const calculateRotatedDimensions = (
@@ -639,6 +640,47 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     [],
   );
 
+  // Passe o 'svgContainerRef' como terceiro argumento
+  // ... código anterior (updateTransform)...
+
+  // 1. Função RÁPIDA: Atualiza apenas o atributo SVG (Zero Re-render)
+  const handleVisualPan = useCallback(
+    (newT: { x: number; y: number; k: number }) => {
+      // Atualiza a REF para que outros cálculos usem o valor correto sem esperar o React
+      transformRef.current = newT;
+
+      // Mexe direto no DOM
+      if (panGroupRef.current) {
+        panGroupRef.current.setAttribute(
+          "transform",
+          `translate(${newT.x}, ${newT.y}) scale(${newT.k})`,
+        );
+      }
+    },
+    [],
+  );
+
+  // 2. Função LENTA: Salva no React (Dispara re-render para persistir)
+  const handlePanEnd = useCallback(
+    (finalT: { x: number; y: number; k: number }) => {
+      setTransform(finalT); // Aqui sim o React atualiza tudo
+      // updateTransform(finalT); // Não precisamos chamar updateTransform aqui pois o setTransform já vai causar render
+    },
+    [],
+  );
+
+  // 3. Hook Otimizado com Leitura de Ref
+  const { isPanning, panHandlers } = useCanvasPan(
+    transform,
+    handleVisualPan,
+    handlePanEnd,
+    svgContainerRef,
+    transformRef, // <--- ADICIONE ISTO: Passamos a Ref que guarda o valor "vivo"
+  );
+
+  // -------------------------
+  // -------------------------
+
   useEffect(() => {
     const el = svgContainerRef.current;
     if (!el) return;
@@ -690,6 +732,30 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     },
     [onPartSelect],
   );
+
+  // --- NOVA FUNÇÃO DE MENU (Extraída do Rect) ---
+  const handleBackgroundContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      if (!onBackgroundContextMenu) return;
+
+      // 1. Pega a coordenada bruta do SVG
+      const svgPos = getSVGPoint(e.clientX, e.clientY);
+
+      // 2. Remove o Pan e o Zoom atuais (usando a Ref para valor instantâneo)
+      const currentT = transformRef.current;
+      const visualX = (svgPos.x - currentT.x) / currentT.k;
+      const visualY = (svgPos.y - currentT.y) / currentT.k;
+
+      // 3. Corrige o sistema de coordenadas da máquina (Y invertido)
+      const binX = visualX;
+      const binY = binHeight - visualY;
+
+      // Dispara o evento
+      onBackgroundContextMenu(e, { x: binX, y: binY });
+    },
+    [onBackgroundContextMenu, getSVGPoint, binHeight]
+  );
+  // ----------------------------------------------
 
   const partTransforms = useMemo(() => {
     const transforms: Record<string, any> = {};
@@ -1165,12 +1231,28 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         background: "transparent",
         display: "flex",
         flexDirection: "column",
-        cursor: dragMode !== "none" ? "grabbing" : "default",
+        // AQUI VAMOS ALTERAR O CURSOR
+        cursor:
+          dragMode !== "none" ? "grabbing" : isPanning ? "grabbing" : "default",
         overflow: "hidden",
         width: "100%",
         height: "100%",
       }}
-      onMouseDown={handleMouseDownContainer}
+      // AQUI VAMOS INSERIR OS HANDLERS
+      onMouseDown={(e) => {
+        handleMouseDownContainer();
+        panHandlers.onMouseDown(e); // <--- LIGA O PAN AQUI
+      }}
+      onMouseMove={panHandlers.onMouseMove} // Novo
+      onMouseUp={panHandlers.onMouseUp} // Novo
+      onMouseLeave={panHandlers.onMouseLeave} // Novo
+      // NOVO CONTEXT MENU COM PROTEÇÃO
+      onContextMenu={(e) => {
+        panHandlers.onContextMenu(e); // 1. Verifica se arrastou
+        if (!e.defaultPrevented) {    // 2. Se não arrastou, abre o menu
+          handleBackgroundContextMenu(e);
+        }
+      }}
       onDoubleClick={handleDoubleClickContainer}
       onDrop={handleNativeDrop}
       onDragOver={handleNativeDragOver}
@@ -1291,30 +1373,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                 strokeWidth="2"
                 vectorEffect="non-scaling-stroke"
                 style={{ pointerEvents: "all" }}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  if (onBackgroundContextMenu) {
-                    // 1. Pega a coordenada bruta do SVG (Screen -> SVG)
-                    const svgPos = getSVGPoint(e.clientX, e.clientY);
-
-                    // 2. Remove o Pan e o Zoom (transform visual)
-                    const visualX =
-                      (svgPos.x - transformRef.current.x) /
-                      transformRef.current.k;
-                    const visualY =
-                      (svgPos.y - transformRef.current.y) /
-                      transformRef.current.k;
-
-                    // 3. Corrige o sistema de coordenadas da máquina (Y invertido)
-                    // O grupo CNC tem scale(1, -1) e translate(0, binHeight)
-                    // Portanto: Y_Real = Altura_Chapa - Y_Visual
-                    const binX = visualX;
-                    const binY = binHeight - visualY;
-
-                    // Envia o evento E as coordenadas reais calculadas
-                    onBackgroundContextMenu(e, { x: binX, y: binY });
-                  }
-                }}
               />
 
               {/* CORREÇÃO: Mostra a margem sempre que ela for maior que 0, independente do Debug */}

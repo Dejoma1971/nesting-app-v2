@@ -14,6 +14,25 @@ import { useEngineeringLogic } from "../hooks/useEngineeringLogic"; // Ajuste o 
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
 import { FaPuzzlePiece } from "react-icons/fa";
 
+import { PartViewerModalOptimized } from "../components/PartViewerModalOptimized";
+
+// ⬇️ --- 1. ADICIONE ESTES IMPORTS DO DND --- ⬇️
+import {
+  DndContext,
+  closestCenter,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  rectSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+// ⬆️ ---------------------------------------- ⬆️
+
 // Mapeamento amigável para o usuário vs Valor no Banco
 const PRODUCTION_TYPES = [
   { label: "Normal", value: "NORMAL" },
@@ -21,8 +40,44 @@ const PRODUCTION_TYPES = [
   { label: "Erro de Processo", value: "RETRABALHO_PROCESSO" },
   { label: "Erro de Projeto", value: "ERRO_ENGENHARIA" },
   { label: "Erro Comercial", value: "ERRO_COMERCIAL" },
-  { label: "Correção Cadastro", value: "EDITAR_CADASTRO" },
+  { label: "Correção Qtde", value: "EDITAR_CADASTRO" },
 ];
+
+// ⬇️ --- 2. ADICIONE ESTE COMPONENTE AUXILIAR (FORA DA FUNÇÃO PRINCIPAL) --- ⬇️
+// Este componente cria o "envelope" arrastável mantendo seus estilos originais
+const SortablePart = ({ id, style, className, children, ...props }: any) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const combinedStyle = {
+    ...style, // Mantém o estilo original do seu Card
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1, // Fica meio transparente quando arrasta
+    zIndex: isDragging ? 999 : style.zIndex, // Garante que a peça flutue por cima
+    touchAction: "none", // Importante para evitar scroll enquanto arrasta no touch
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={combinedStyle}
+      className={className}
+      {...attributes}
+      {...listeners}
+      {...props}
+    >
+      {children}
+    </div>
+  );
+};
+// ⬆️ ----------------------------------------------------------------------- ⬆️
 
 export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   const { isDarkMode, theme } = useTheme();
@@ -78,9 +133,36 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     refreshData,
     handleSaveLocalProject,
     handleLoadLocalProject,
+    handleDragEnd,
   } = useEngineeringLogic(props);
 
+  // ⬇️ --- 3. CONFIGURAÇÃO DOS SENSORES (Logo após os hooks) --- ⬇️
+  // Isso define que o arrasto só começa se mover 10px (evita clique acidental)
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 10 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 250, tolerance: 5 },
+    }),
+  );
+  // ⬆️ --------------------------------------------------------- ⬆️
+
   const { parts, onBack, onOpenTeam } = props as any;
+
+  
+  // ⬇️ --- [INSERÇÃO CIRÚRGICA] PREENCHIMENTO AUTOMÁTICO DO AUTOR --- ⬇️
+  React.useEffect(() => {
+    // Se o usuário está logado (tem nome) e o campo autor está vazio...
+    if (
+      user &&
+      user.name &&
+      (!batchDefaults.autor || batchDefaults.autor === "")
+    ) {
+      console.log("👤 Definindo autor automático:", user.name);
+      handleDefaultChange("autor", user.name);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+  // ⬆️ --------------------------------------------------------------- ⬆️
 
   // --- NOVO: EFEITO PARA DETECTAR GEOMETRIA ABERTA NO MODAL ---
   // CORREÇÃO: Removemos 'props.' e usamos as variáveis locais 'parts' e 'viewingPartId'
@@ -109,14 +191,26 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   }, [selectedPartId]);
   // -----------------------------------------------------------------
 
-  // ⬇️ --- INSERIR AQUI (A função que o botão vai chamar) --- ⬇️
-  const handleRefreshView = () => {
+  // ⬇️ --- SUBSTITUIR ESTA FUNÇÃO INTEIRA --- ⬇️
+  const handleRefreshView = (e: React.MouseEvent) => {
+    // 1. HARD RESET (Shift + Click)
+    if (e.shiftKey) {
+      const confirmHard = window.confirm(
+        "⚠️ HARD RESET (Shift detectado):\n\nDeseja limpar completamente a lista de peças e reiniciar a tela?",
+      );
+      if (confirmHard) {
+        handleReset(); // Chama a função que já limpa tudo
+      }
+      return;
+    }
+
+    // 2. SOFT RESET (Click Normal - Apenas Visual)
     setIsRefreshing(true);
     setViewKey((prev) => prev + 1);
     setTimeout(() => setIsRefreshing(false), 700);
-    console.log("♻️ Interface da Engenharia recarregada.");
+    console.log("♻️ Interface da Engenharia recarregada (Visual).");
   };
-  // ⬆️ ------------------------------------------------------ ⬆️
+  // ⬆️ -------------------------------------- ⬆️
 
   // --- NOVO: FUNÇÃO PARA CORRIGIR ---
   // ... dentro do EngineeringScreen.tsx
@@ -228,6 +322,38 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
       setSelectedIds(parts.map((p: ImportedPart) => p.id));
     }
   };
+
+  // --- [INSERÇÃO CIRÚRGICA 1] Lógica de Shift + Click ---
+
+  // Guarda qual foi o último índice clicado (sem Shift)
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(
+    null,
+  );
+
+  const handleSmartSelection = (
+    id: string,
+    index: number,
+    event: React.MouseEvent,
+  ) => {
+    // Se Shift estiver pressionado E já houver um último item clicado
+    if (event.shiftKey && lastSelectedIndex !== null) {
+      const start = Math.min(lastSelectedIndex, index);
+      const end = Math.max(lastSelectedIndex, index);
+
+      // Pega todos os IDs no intervalo entre o último clique e o atual
+      const idsInRange = parts
+        .slice(start, end + 1)
+        .map((p: ImportedPart) => p.id);
+
+      // Adiciona à seleção existente (usando Set para evitar duplicatas)
+      setSelectedIds((prev) => Array.from(new Set([...prev, ...idsInRange])));
+    } else {
+      // Comportamento normal (sem Shift): Alterna e memoriza este índice
+      toggleSelection(id);
+      setLastSelectedIndex(index);
+    }
+  };
+  // -----------------------------------------------------
 
   // Executa a exclusão (ALTERADO)
   const executeBulkDelete = () => {
@@ -426,7 +552,15 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     color: theme.label,
     fontSize: "12px",
     whiteSpace: "nowrap",
+    // --- [INSERÇÃO] Fixar Cabeçalho da Tabela ---
+    position: "sticky",
+    top: "36px", // Deslocamento para ficar logo abaixo da barra "CADASTRO TÉCNICO"
+    zIndex: 9, // Garante que fique acima das linhas da tabela
+    background: theme.panelBg, // Cor de fundo opaca (importante!)
+    boxShadow: `0 1px 0 ${theme.border}`, // Garante a linha da borda visível
+    // --------------------------------------------
   };
+
   const tableCellStyle: React.CSSProperties = {
     padding: "5px 8px",
     borderBottom: `1px solid ${theme.border}`,
@@ -950,6 +1084,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
       <div key={viewKey} style={splitContainer}>
         {/* ------------------------------------- */}
 
+        {/* ⬇️ --- SUBSTITUA TUDO DENTRO DA DIV 'leftPanel' POR ISTO: --- ⬇️ */}
         <div style={leftPanel}>
           <div
             style={{
@@ -961,15 +1096,12 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              // --- ALTERAÇÃO: FIXAR NO TOPO ---
               position: "sticky",
               top: 0,
               zIndex: 10,
-              // --------------------------------
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              {/* CHECKBOX MESTRE (Selecionar Tudo) */}
               <input
                 type="checkbox"
                 checked={
@@ -982,7 +1114,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               <span>VISUALIZAÇÃO ({parts.length})</span>
             </div>
 
-            {/* BOTÃO LIXEIRA (Só aparece se tiver seleção) */}
             {selectedIds.length > 0 && (
               <button
                 onClick={executeBulkDelete}
@@ -1005,249 +1136,262 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               </button>
             )}
           </div>
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              padding: "10px",
-              alignContent: "flex-start",
-            }}
+
+          {/* --- AQUI COMEÇA O DRAG AND DROP --- */}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
           >
-            {parts.map((part: ImportedPart, idx: number) => {
-              const box = calculateBoundingBox(part.entities, part.blocks);
-              const w = box.maxX - box.minX || 100;
-              const h = box.maxY - box.minY || 100;
-              const p = Math.max(w, h) * 0.1;
-              const viewBox = `${box.minX - p} ${box.minY - p} ${w + p * 2} ${
-                h + p * 2
-              }`;
-              const isSelected = part.id === selectedPartId;
+            <SortableContext items={parts} strategy={rectSortingStrategy}>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  padding: "10px",
+                  alignContent: "flex-start",
+                }}
+              >
+                {parts.map((part: ImportedPart, idx: number) => {
+                  const box = calculateBoundingBox(part.entities, part.blocks);
+                  const w = box.maxX - box.minX || 100;
+                  const h = box.maxY - box.minY || 100;
+                  const p = Math.max(w, h) * 0.1;
+                  const viewBox = `${box.minX - p} ${box.minY - p} ${
+                    w + p * 2
+                  } ${h + p * 2}`;
+                  const isSelected = part.id === selectedPartId;
 
-              return (
-                <div
-                  // --- [INSERÇÃO 2] ADICIONE ESTA LINHA AQUI ---
-                  id={`part-card-${part.id}`}
-                  // ---------------------------------------------
-                  key={part.id}
-                  // ADICIONE ESTA LINHA (Aplica a classe de animação se tiver erro):
-                  className={
-                    part.hasOpenGeometry ? "open-geometry-warning" : ""
-                  }
-                  style={{
-                    ...cardStyle,
-                    // ALTERE A LÓGICA DA BORDA PARA INCLUIR O AMARELO:
-                    borderColor: selectedIds.includes(part.id)
-                      ? "#d32f2f" // Vermelho (Selecionado para excluir)
-                      : isSelected
-                        ? "#007bff" // Azul (Selecionado clicado)
-                        : part.hasOpenGeometry
-                          ? "#ffc107" // Amarelo (Aviso de Geometria) <--- NOVO
-                          : theme.border, // Padrão
-
-                    background: selectedIds.includes(part.id)
-                      ? "rgba(220, 53, 69, 0.08)"
-                      : theme.cardBg,
-                    boxShadow: isSelected
-                      ? "0 0 0 2px rgba(0,123,255,0.5)"
-                      : "none",
-                    transform: isSelected ? "scale(1.05)" : "scale(1)",
-                    zIndex: isSelected ? 1 : 0,
-                  }}
-                  title={part.name}
-                  onClick={() => setSelectedPartId(part.id)}
-                >
-                  {/* CHECKBOX INDIVIDUAL */}
-                  <div
-                    onClick={(e) => {
-                      e.stopPropagation(); // Não seleciona o card (azul)
-                      toggleSelection(part.id);
-                    }}
-                    style={{
-                      position: "absolute",
-                      top: 12,
-                      left: -1,
-                      zIndex: 20,
-                      cursor: "pointer",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.includes(part.id)}
-                      readOnly
+                  return (
+                    <SortablePart
+                      key={part.id}
+                      id={part.id} // ID Exigido pelo DND
+                      // Passamos o ID visual (para o scroll) via prop style ou custom
+                      // O SortablePart que criamos repassa props extras para a div
+                      // Mas para garantir o scroll, vamos injetar o ID no HTML da div:
+                      idHtml={`part-card-${part.id}`}
+                      className={
+                        part.hasOpenGeometry ? "open-geometry-warning" : ""
+                      }
                       style={{
-                        cursor: "pointer",
-                        width: "14px",
-                        height: "14px",
+                        ...cardStyle,
+                        borderColor: selectedIds.includes(part.id)
+                          ? "#d32f2f"
+                          : isSelected
+                            ? "#007bff"
+                            : part.hasOpenGeometry
+                              ? "#ffc107"
+                              : theme.border,
+                        background: selectedIds.includes(part.id)
+                          ? "rgba(220, 53, 69, 0.08)"
+                          : theme.cardBg,
+                        boxShadow: isSelected
+                          ? "0 0 0 2px rgba(0,123,255,0.5)"
+                          : "none",
+                        transform: isSelected ? "scale(1.05)" : "scale(1)",
+                        zIndex: isSelected ? 1 : 0,
                       }}
-                    />
-                  </div>
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: 2,
-                      left: 2,
-                      fontSize: "9px",
-                      color: isSelected ? "#007bff" : theme.label,
-                      fontWeight: "bold",
-                    }}
-                  >
-                    #{idx + 1}
-                  </div>
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: 5,
-                      right: 5,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 5,
-                      zIndex: 10,
-                    }}
-                  >
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setViewingPartId(part.id);
-                      }}
-                      style={{
-                        background: "rgba(0,0,0,0.1)",
-                        border: `1px solid ${theme.border}`,
-                        color: "#007bff",
-                        cursor: "pointer",
-                        fontSize: "12px",
-                        padding: "4px",
-                        borderRadius: "3px",
-                        width: "24px",
-                        height: "24px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                      title="Visualizar"
+                      title={part.name}
+                      onClick={() => setSelectedPartId(part.id)}
                     >
-                      {/* --- REMOVA O 👁️ E COLE ISTO NO LUGAR: --- */}
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+                      {/* CONTEÚDO DO CARD (Igual ao original) */}
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSmartSelection(part.id, idx, e);
+                        }}
+                        style={{
+                          position: "absolute",
+                          top: 12,
+                          left: -1,
+                          zIndex: 20,
+                          cursor: "pointer",
+                        }}
                       >
-                        <circle cx="11" cy="11" r="8"></circle>
-                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                      </svg>
-                      {/* ----------------------------------------- */}
-                    </button>
-                    <button
-                      onClick={(e) => handleDeletePart(part.id, e)}
-                      style={{
-                        background: "rgba(0,0,0,0.1)",
-                        border: `1px solid ${theme.border}`,
-                        color: "#ff4d4d",
-                        cursor: "pointer",
-                        fontSize: "12px",
-                        fontWeight: "bold",
-                        padding: "4px",
-                        borderRadius: "3px",
-                        width: "24px",
-                        height: "24px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                      title="Excluir"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  <div
-                    style={{
-                      flex: 1,
-                      width: "100%",
-                      padding: "5px",
-                      boxSizing: "border-box",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <svg
-                      viewBox={viewBox}
-                      style={{ width: "100%", height: "100%" }}
-                      transform="scale(1, -1)"
-                      preserveAspectRatio="xMidYMid meet"
-                    >
-                      {part.entities.map((ent: any, i: number) =>
-                        renderEntity(ent, i, part.blocks),
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(part.id)}
+                          readOnly
+                          style={{
+                            cursor: "pointer",
+                            width: "14px",
+                            height: "14px",
+                          }}
+                        />
+                      </div>
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: 2,
+                          left: 2,
+                          fontSize: "9px",
+                          color: isSelected ? "#007bff" : theme.label,
+                          fontWeight: "bold",
+                        }}
+                      >
+                        #{idx + 1}
+                      </div>
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: 5,
+                          right: 5,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 5,
+                          zIndex: 10,
+                        }}
+                      >
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();                            
+                            setViewingPartId(part.id);
+                          }}
+                          style={{
+                            background: "rgba(0,0,0,0.1)",
+                            border: `1px solid ${theme.border}`,
+                            color: "#007bff",
+                            cursor: "pointer",
+                            fontSize: "12px",
+                            padding: "4px",
+                            borderRadius: "3px",
+                            width: "24px",
+                            height: "24px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                          title="Visualizar"
+                        >
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                          </svg>
+                        </button>
+                        <button
+                          onClick={(e) => handleDeletePart(part.id, e)}
+                          style={{
+                            background: "rgba(0,0,0,0.1)",
+                            border: `1px solid ${theme.border}`,
+                            color: "#ff4d4d",
+                            cursor: "pointer",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            padding: "4px",
+                            borderRadius: "3px",
+                            width: "24px",
+                            height: "24px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                          title="Excluir"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <div
+                        style={{
+                          flex: 1,
+                          width: "100%",
+                          padding: "5px",
+                          boxSizing: "border-box",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <svg
+                          viewBox={viewBox}
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            maxWidth: "100%",
+                            maxHeight: "100%",
+                          }}
+                          transform="scale(1, -1)"
+                          preserveAspectRatio="xMidYMid meet"
+                        >
+                          {part.entities.map((ent: any, i: number) =>
+                            renderEntity(ent, i, part.blocks),
+                          )}
+                        </svg>
+                      </div>
+                      {part.isRotationLocked && (
+                        <div
+                          title="Rotação Travada (Sentido do Fio)"
+                          style={{
+                            position: "absolute",
+                            bottom: "22px",
+                            right: "5px",
+                            background: "#dc3545",
+                            color: "white",
+                            borderRadius: "50%",
+                            width: "18px",
+                            height: "18px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "10px",
+                            boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                            zIndex: 15,
+                            pointerEvents: "none",
+                          }}
+                        >
+                          <svg
+                            width="10"
+                            height="10"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <rect
+                              x="3"
+                              y="11"
+                              width="18"
+                              height="11"
+                              rx="2"
+                              ry="2"
+                            ></rect>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                          </svg>
+                        </div>
                       )}
-                    </svg>
-                  </div>
-                  {/* --- VISUALIZAÇÃO DO CADEADO (SE ESTIVER TRAVADO) --- */}
-                  {part.isRotationLocked && (
-                    <div
-                      title="Rotação Travada (Sentido do Fio)"
-                      style={{
-                        position: "absolute",
-                        bottom: "22px", // Logo acima da barra de dimensão
-                        right: "5px",
-                        background: "#dc3545", // Vermelho
-                        color: "white",
-                        borderRadius: "50%",
-                        width: "18px",
-                        height: "18px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: "10px",
-                        boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
-                        zIndex: 15,
-                        pointerEvents: "none", // Deixa clicar no card através dele
-                      }}
-                    >
-                      <svg
-                        width="10"
-                        height="10"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+                      <div
+                        style={{
+                          width: "100%",
+                          background: isSelected
+                            ? "#007bff"
+                            : "rgba(0,0,0,0.1)",
+                          color: isSelected ? "#fff" : "inherit",
+                          padding: "2px 5px",
+                          fontSize: "9px",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          textAlign: "center",
+                        }}
                       >
-                        <rect
-                          x="3"
-                          y="11"
-                          width="18"
-                          height="11"
-                          rx="2"
-                          ry="2"
-                        ></rect>
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                      </svg>
-                    </div>
-                  )}
-                  {/* ---------------------------------------------------- */}
-                  <div
-                    style={{
-                      width: "100%",
-                      background: isSelected ? "#007bff" : "rgba(0,0,0,0.1)",
-                      color: isSelected ? "#fff" : "inherit",
-                      padding: "2px 5px",
-                      fontSize: "9px",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      textAlign: "center",
-                    }}
-                  >
-                    {part.width.toFixed(0)}x{part.height.toFixed(0)}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                        {part.width.toFixed(0)}x{part.height.toFixed(0)}
+                      </div>
+                    </SortablePart>
+                  );
+                })}
+              </div>
+            </SortableContext>
+          </DndContext>
         </div>
+        {/* ⬆️ --- FIM DA SUBSTITUIÇÃO DO leftPanel --- ⬆️ */}
 
         <div style={rightPanel}>
           <div
@@ -1440,8 +1584,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                     <td
                       style={{ ...tableCellStyle, textAlign: "center" }}
                       onClick={(e) => {
-                        e.stopPropagation(); // Evita selecionar a linha (azul) ao clicar no checkbox
-                        toggleSelection(part.id);
+                        e.stopPropagation();
+                        // MUDANÇA: Passamos o ID, o Index (i) e o Evento (e)
+                        handleSmartSelection(part.id, i, e);
                       }}
                     >
                       <input
@@ -1651,401 +1796,18 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         </div>
       </div>
 
+      {/* --- MODAL DE VISUALIZAÇÃO OTIMIZADO (ISOLADO) --- */}
       {viewingPart && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            background: theme.modalOverlay,
-            zIndex: 9999,
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-          }}
-        >
-          <div
-            style={{
-              background: theme.modalBg,
-              width: "80%",
-              height: "80%",
-              borderRadius: "8px",
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-              boxShadow: "0 0 20px rgba(0,0,0,0.5)",
-              border: `1px solid ${theme.border}`,
-            }}
-          >
-            <div
-              style={{
-                padding: "15px",
-                borderBottom: `1px solid ${theme.border}`,
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                flexShrink: 0,
-              }}
-            >
-              <h3 style={{ margin: 0, color: theme.text }}>
-                Visualização e Ajuste
-              </h3>
-              <button
-                onClick={() => setViewingPartId(null)}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: theme.text,
-                  fontSize: "20px",
-                  cursor: "pointer",
-                }}
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* ------------------------------------------------------------------ */}
-            {/* MUDANÇA 4: Inserir o Alerta de Corrente Quebrada AQUI              */}
-            {/* ------------------------------------------------------------------ */}
-            {openPoints.length > 0 && (
-              <div
-                style={{
-                  background: "#fff3cd",
-                  color: "#856404",
-                  padding: "10px 15px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  borderBottom: "1px solid #ffeeba",
-                  animation: "fadeIn 0.3s",
-                }}
-              >
-                <div
-                  style={{ display: "flex", alignItems: "center", gap: "10px" }}
-                >
-                  {/* Ícone de Corrente Quebrada */}
-                  <svg
-                    width="24"
-                    height="24"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="#d9534f"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
-                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
-                    <line
-                      x1="11"
-                      y1="13"
-                      x2="13"
-                      y2="11"
-                      stroke="#fff"
-                      strokeWidth="3"
-                    />
-                  </svg>
-
-                  <div style={{ display: "flex", flexDirection: "column" }}>
-                    <span style={{ fontWeight: "bold", fontSize: "13px" }}>
-                      Atenção: Perímetro Aberto
-                    </span>
-                    <span style={{ fontSize: "11px" }}>
-                      Detectadas {openPoints.length} pontas soltas.
-                    </span>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", gap: "10px" }}>
-                  {/* <button
-                    onClick={() => setOpenPoints([])}
-                    style={{
-                      background: "transparent",
-                      border: "1px solid #856404",
-                      color: "#856404",
-                      padding: "5px 10px",
-                      borderRadius: "4px",
-                      fontSize: "11px",
-                      cursor: "pointer",
-                      fontWeight: "bold",
-                    }}
-                  >
-                    Ignorar
-                  </button> */}
-                  <button
-                    onClick={handleFixOpenGeometry}
-                    style={{
-                      background: "#d9534f",
-                      border: "none",
-                      color: "white",
-                      padding: "5px 10px",
-                      borderRadius: "4px",
-                      fontSize: "11px",
-                      cursor: "pointer",
-                      fontWeight: "bold",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "5px",
-                    }}
-                  >
-                    Fechar Peça
-                  </button>
-                </div>
-              </div>
-            )}
-            {/* ------------------------------------------------------------------ */}
-
-            <div
-              style={{
-                flex: 1,
-                position: "relative",
-                background: theme.inputBg,
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-                padding: "20px",
-                minHeight: 0,
-                overflow: "hidden",
-              }}
-            >
-              {(() => {
-                const box = calculateBoundingBox(
-                  viewingPart.entities,
-                  viewingPart.blocks,
-                );
-                const w = box.maxX - box.minX || 100;
-                const h = box.maxY - box.minY || 100;
-                const p = Math.max(w, h) * 0.2;
-                const viewBox = `${box.minX - p} ${box.minY - p} ${w + p * 2} ${
-                  h + p * 2
-                }`;
-                return (
-                  <svg
-                    viewBox={viewBox}
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      maxWidth: "100%",
-                      maxHeight: "100%",
-                    }}
-                    transform="scale(1, -1)"
-                    preserveAspectRatio="xMidYMid meet"
-                  >
-                    {viewingPart.entities.map((ent: any, i: number) =>
-                      renderEntity(ent, i, viewingPart.blocks),
-                    )}
-
-                    {/* ------------------------------------------------------------------ */}
-                    {/* MUDANÇA 5: Marcadores de erro (Bolinhas vermelhas)                 */}
-                    {/* ------------------------------------------------------------------ */}
-                    {openPoints.map((p, idx) => (
-                      <circle
-                        key={`open-${idx}`}
-                        cx={p.x}
-                        cy={p.y}
-                        r={Math.max((viewingPart.width || 100) / 40, 3)}
-                        fill="#d9534f"
-                        stroke="white"
-                        strokeWidth={1}
-                        vectorEffect="non-scaling-stroke"
-                      >
-                        <title>Ponta Solta</title>
-                        <animate
-                          attributeName="r"
-                          values="3;6;3"
-                          dur="1.5s"
-                          repeatCount="indefinite"
-                        />
-                      </circle>
-                    ))}
-                    {/* ------------------------------------------------------------------ */}
-                  </svg>
-                );
-              })()}
-            </div>
-            <div
-              style={{
-                padding: "20px",
-                borderTop: `1px solid ${theme.border}`,
-                display: "flex",
-                justifyContent: "center",
-                gap: "10px",
-                background: theme.modalBg,
-                flexShrink: 0,
-                alignItems: "center",
-              }}
-            >
-              {/* --- NOVO: BOTÃO CADEADO (SENTIDO DO FIO) --- */}
-              <button
-                onClick={() => handleToggleRotationLock(viewingPart.id)}
-                title={
-                  viewingPart.isRotationLocked
-                    ? "Destravar Rotação"
-                    : "Travar Rotação (Sentido do Fio)"
-                }
-                style={{
-                  padding: "8px",
-                  background: viewingPart.isRotationLocked
-                    ? "#dc3545"
-                    : "transparent",
-                  color: viewingPart.isRotationLocked ? "#fff" : theme.text,
-                  border: `1px solid ${
-                    viewingPart.isRotationLocked ? "#dc3545" : theme.border
-                  }`,
-                  borderRadius: "4px",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  marginRight: "10px",
-                  transition: "all 0.2s",
-                }}
-              >
-                {viewingPart.isRotationLocked ? (
-                  // CADEADO FECHADO
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <rect
-                      x="3"
-                      y="11"
-                      width="18"
-                      height="11"
-                      rx="2"
-                      ry="2"
-                    ></rect>
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                  </svg>
-                ) : (
-                  // CADEADO ABERTO
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <rect
-                      x="3"
-                      y="11"
-                      width="18"
-                      height="11"
-                      rx="2"
-                      ry="2"
-                    ></rect>
-                    <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
-                  </svg>
-                )}
-              </button>
-
-              <button
-                onClick={() =>
-                  !viewingPart.isRotationLocked && handleRotatePart("ccw")
-                }
-                disabled={viewingPart.isRotationLocked}
-                title="Girar Anti-Horário (90°)"
-                style={{
-                  padding: "10px 20px",
-                  background: theme.inputBg,
-                  color: theme.text,
-                  border: `1px solid ${theme.border}`,
-                  borderRadius: "4px",
-                  cursor: viewingPart.isRotationLocked
-                    ? "not-allowed"
-                    : "pointer",
-                  opacity: viewingPart.isRotationLocked ? 0.5 : 1,
-                }}
-              >
-                ↺ Girar Anti-Horário
-              </button>
-
-              <button
-                onClick={() =>
-                  !viewingPart.isRotationLocked && handleRotatePart("cw")
-                }
-                disabled={viewingPart.isRotationLocked}
-                title="Girar Horário (90°)"
-                style={{
-                  padding: "10px 20px",
-                  background: theme.inputBg,
-                  color: theme.text,
-                  border: `1px solid ${theme.border}`,
-                  borderRadius: "4px",
-                  cursor: viewingPart.isRotationLocked
-                    ? "not-allowed"
-                    : "pointer",
-                  opacity: viewingPart.isRotationLocked ? 0.5 : 1,
-                }}
-              >
-                ↻ Girar Horário
-              </button>
-
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleMirrorPart(viewingPart.id);
-                }}
-                title="Espelhar (Flip Horizontal)"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  padding: "6px 12px",
-                  marginLeft: "5px",
-                  borderRadius: "4px",
-                  border: `1px solid ${theme.border || "#ccc"}`,
-                  backgroundColor: theme.buttonBg || "#f0f0f0",
-                  color: theme.text || "#333",
-                  cursor: "pointer",
-                }}
-              >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M7.5 12h9" />
-                  <path d="M16.5 7.5L21 12l-4.5 4.5" />
-                  <path d="M7.5 7.5L3 12l4.5 4.5" />
-                  <line x1="12" y1="4" x2="12" y2="20" strokeDasharray="2 2" />
-                </svg>
-                <span style={{ marginLeft: "5px" }}>Espelhar</span>
-              </button>
-
-              <button
-                onClick={() => setViewingPartId(null)}
-                style={{
-                  padding: "10px 20px",
-                  background: "#007bff",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: "4px",
-                  cursor: "pointer",
-                  marginLeft: "20px",
-                }}
-              >
-                Concluir
-              </button>
-            </div>
-          </div>
-        </div>
+        <PartViewerModalOptimized
+          part={viewingPart}
+          openPoints={openPoints}
+          theme={theme}
+          onClose={() => setViewingPartId(null)}
+          onRotate={handleRotatePart}
+          onMirror={handleMirrorPart}
+          onToggleLock={handleToggleRotationLock}
+          onFixGeometry={handleFixOpenGeometry}
+        />
       )}
 
       {/* --- MODAL DE ALERTA: CORTAR AGORA --- */}

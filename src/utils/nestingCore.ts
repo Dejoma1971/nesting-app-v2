@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { ImportedPart } from "../components/types";
+export type { ImportedPart };
 
 export interface PlacedPart {
   uuid: string;
