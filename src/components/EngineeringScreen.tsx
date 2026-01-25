@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   calculateBoundingBox,
   detectOpenEndpoints,
@@ -44,8 +44,14 @@ const PRODUCTION_TYPES = [
 // ⬇️ --- 2. ADICIONE ESTE COMPONENTE AUXILIAR (FORA DA FUNÇÃO PRINCIPAL) --- ⬇️
 // Este componente cria o "envelope" arrastável mantendo seus estilos originais
 const SortablePart = ({ id, style, className, children, ...props }: any) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id });
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
 
   const combinedStyle = {
     ...style, // Mantém o estilo original do seu Card
@@ -132,11 +138,166 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   // Isso define que o arrasto só começa se mover 10px (evita clique acidental)
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 10 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } })
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 250, tolerance: 5 },
+    }),
   );
   // ⬆️ --------------------------------------------------------- ⬆️
 
   const { parts, onBack, onOpenTeam } = props as any;
+
+  // ⬇️ --- [INÍCIO] LÓGICA DE ZOOM E PAN (INJEÇÃO) --- ⬇️
+
+  const svgRef = useRef<SVGSVGElement>(null);
+  const dragRef = useRef({
+    startX: 0,
+    startY: 0,
+    initialViewBox: { x: 0, y: 0, w: 0, h: 0 },
+  });
+  const [isPanning, setIsPanning] = useState(false);
+  const [dynamicViewBox, setDynamicViewBox] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
+
+  // 1. Calcula o ViewBox inicial sempre que abrir uma peça nova
+  useEffect(() => {
+    // Encontra a peça atual baseada no ID
+    const currentPart = parts.find((p: any) => p.id === viewingPartId);
+
+    if (currentPart) {
+      const box = calculateBoundingBox(
+        currentPart.entities,
+        currentPart.blocks,
+      );
+      const w = box.maxX - box.minX || 100;
+      const h = box.maxY - box.minY || 100;
+      const p = Math.max(w, h) * 0.2; // 20% de margem
+
+      setDynamicViewBox({
+        x: box.minX - p,
+        y: box.minY - p,
+        w: w + p * 2,
+        h: h + p * 2,
+      });
+    }
+  }, [viewingPartId, parts]);
+
+  // 2. Função de Zoom (Roda do Mouse)
+  const handleWheel = useCallback(
+    (e: React.WheelEvent) => {
+      if (!dynamicViewBox) return;
+      e.stopPropagation();
+      e.preventDefault();
+
+      const zoomSpeed = 0.1;
+      const direction = e.deltaY > 0 ? 1 : -1;
+      const factor = 1 + direction * zoomSpeed;
+
+      const svgEl = svgRef.current;
+      if (!svgEl) return;
+
+      const rect = svgEl.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      const ratioX = mouseX / rect.width;
+      const ratioY = mouseY / rect.height;
+
+      const newW = dynamicViewBox.w * factor;
+      const newH = dynamicViewBox.h * factor;
+
+      const dx = (newW - dynamicViewBox.w) * ratioX;
+      const dy = (newH - dynamicViewBox.h) * ratioY;
+
+      setDynamicViewBox((prev: any) => ({
+        x: prev.x - dx,
+        y: prev.y - dy,
+        w: newW,
+        h: newH,
+      }));
+    },
+    [dynamicViewBox],
+  );
+
+  // 3. Efeitos para o Pan (Arrastar) - VERSÃO CORRIGIDA COM MATRIX (CTM)
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      // Se não estiver arrastando ou não tiver referência, sai
+      if (!isPanning || !svgRef.current || !dynamicViewBox) return;
+
+      // O "getScreenCTM" pega a escala exata que o navegador está usando para desenhar o SVG
+      const ctm = svgRef.current.getScreenCTM();
+      if (!ctm) return;
+
+      // Calcula quanto o mouse andou em pixels na tela
+      const deltaPixelX = e.clientX - dragRef.current.startX;
+      const deltaPixelY = e.clientY - dragRef.current.startY;
+
+      // Converte pixels para unidades SVG usando a matriz do navegador
+      // ctm.a = Escala X
+      // ctm.d = Escala Y (será negativo por causa do scale(1, -1))
+
+      const dx = deltaPixelX / ctm.a;
+      const dy = deltaPixelY / Math.abs(ctm.d); // Usamos Math.abs para ignorar o sinal negativo da escala
+
+      setDynamicViewBox((prev: any) => ({
+        ...prev,
+        // Subtrai o deslocamento para criar o efeito de "puxar o papel"
+        x: dragRef.current.initialViewBox.x - dx,
+        // Soma no Y porque a coordenada SVG cresce para cima, mas o pixel do mouse cresce para baixo
+        y: dragRef.current.initialViewBox.y + dy,
+      }));
+    };
+
+    const handleMouseUp = () => setIsPanning(false);
+
+    if (isPanning) {
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isPanning, dynamicViewBox]);
+
+  // Função para iniciar o arrasto
+  const handleMouseDownSVG = (e: React.MouseEvent) => {
+    if (!dynamicViewBox) return;
+    e.preventDefault();
+    setIsPanning(true);
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initialViewBox: { ...dynamicViewBox },
+    };
+  };
+
+  // Função para Centralizar (Resetar Zoom/Pan)
+  const handleCenterView = () => {
+    const currentPart = parts.find((p: any) => p.id === viewingPartId);
+    if (currentPart) {
+      const box = calculateBoundingBox(
+        currentPart.entities,
+        currentPart.blocks,
+      );
+      const w = box.maxX - box.minX || 100;
+      const h = box.maxY - box.minY || 100;
+      const p = Math.max(w, h) * 0.2; // 20% de margem
+
+      setDynamicViewBox({
+        x: box.minX - p,
+        y: box.minY - p,
+        w: w + p * 2,
+        h: h + p * 2,
+      });
+    }
+  };
+
+  // ⬆️ --- [FIM] LÓGICA DE ZOOM E PAN --- ⬆️
 
   // ⬇️ --- [INSERÇÃO CIRÚRGICA] PREENCHIMENTO AUTOMÁTICO DO AUTOR --- ⬇️
   React.useEffect(() => {
@@ -1158,8 +1319,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                       // Passamos o ID visual (para o scroll) via prop style ou custom
                       // O SortablePart que criamos repassa props extras para a div
                       // Mas para garantir o scroll, vamos injetar o ID no HTML da div:
-                      idHtml={`part-card-${part.id}`} 
-                      
+                      idHtml={`part-card-${part.id}`}
                       className={
                         part.hasOpenGeometry ? "open-geometry-warning" : ""
                       }
@@ -1168,10 +1328,10 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                         borderColor: selectedIds.includes(part.id)
                           ? "#d32f2f"
                           : isSelected
-                          ? "#007bff"
-                          : part.hasOpenGeometry
-                          ? "#ffc107"
-                          : theme.border,
+                            ? "#007bff"
+                            : part.hasOpenGeometry
+                              ? "#ffc107"
+                              : theme.border,
                         background: selectedIds.includes(part.id)
                           ? "rgba(220, 53, 69, 0.08)"
                           : theme.cardBg,
@@ -1235,6 +1395,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            setDynamicViewBox(null);
                             setViewingPartId(part.id);
                           }}
                           style={{
@@ -1300,12 +1461,17 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                       >
                         <svg
                           viewBox={viewBox}
-                          style={{ width: "100%", height: "100%" }}
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            maxWidth: "100%",
+                            maxHeight: "100%",
+                          }}
                           transform="scale(1, -1)"
                           preserveAspectRatio="xMidYMid meet"
                         >
                           {part.entities.map((ent: any, i: number) =>
-                            renderEntity(ent, i, part.blocks)
+                            renderEntity(ent, i, part.blocks),
                           )}
                         </svg>
                       </div>
@@ -1951,14 +2117,25 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 const viewBox = `${box.minX - p} ${box.minY - p} ${w + p * 2} ${
                   h + p * 2
                 }`;
+                // LÓGICA: Se o estado dinâmico (zoom) estiver pronto, usa ele. Se não, usa o estático.
+                const activeViewBox = dynamicViewBox
+                  ? `${dynamicViewBox.x} ${dynamicViewBox.y} ${dynamicViewBox.w} ${dynamicViewBox.h}`
+                  : viewBox;
                 return (
                   <svg
-                    viewBox={viewBox}
+                    ref={svgRef} // <--- AGORA SIM: Referência correta no Modal
+                    viewBox={activeViewBox}
+                    onWheel={handleWheel}
+                    onMouseDown={handleMouseDownSVG}
                     style={{
                       width: "100%",
                       height: "100%",
                       maxWidth: "100%",
                       maxHeight: "100%",
+                      // Muda o cursor para indicar que pode arrastar
+                      cursor: isPanning ? "grabbing" : "grab",
+                      // Impede seleção de texto enquanto arrasta
+                      userSelect: "none",
                     }}
                     transform="scale(1, -1)"
                     preserveAspectRatio="xMidYMid meet"
@@ -1967,9 +2144,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                       renderEntity(ent, i, viewingPart.blocks),
                     )}
 
-                    {/* ------------------------------------------------------------------ */}
-                    {/* MUDANÇA 5: Marcadores de erro (Bolinhas vermelhas)                 */}
-                    {/* ------------------------------------------------------------------ */}
+                    {/* (Mantenha os marcadores de erro/bolinhas vermelhas aqui) */}
                     {openPoints.map((p, idx) => (
                       <circle
                         key={`open-${idx}`}
@@ -1990,7 +2165,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                         />
                       </circle>
                     ))}
-                    {/* ------------------------------------------------------------------ */}
                   </svg>
                 );
               })()}
@@ -2132,7 +2306,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  padding: "6px 12px",
+                  padding: "10px 20px",
                   marginLeft: "5px",
                   borderRadius: "4px",
                   border: `1px solid ${theme.border || "#ccc"}`,
@@ -2157,6 +2331,40 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   <line x1="12" y1="4" x2="12" y2="20" strokeDasharray="2 2" />
                 </svg>
                 <span style={{ marginLeft: "5px" }}>Espelhar</span>
+              </button>
+
+              <button
+                onClick={handleCenterView}
+                title="Centralizar Visualização"
+                style={{
+                  padding: "8px",
+                  background: theme.inputBg,
+                  color: theme.text,
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginRight: "10px",
+                }}
+              >
+                {/* Ícone de Alvo / Centralizar */}
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  {/* Desenhando a cruz com PATH em vez de LINE */}
+                  <path d="M22 12h-4M6 12H2M12 6V2M12 22v-4" />
+                  <circle cx="12" cy="12" r="2" />
+                </svg>
               </button>
 
               <button
