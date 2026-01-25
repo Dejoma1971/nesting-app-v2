@@ -77,7 +77,7 @@ export const useEngineeringLogic = ({
     try {
       // 1. Verifica Status da Assinatura
       const subData = await EngineeringService.getSubscriptionStatus(
-        user.token
+        user.token,
       );
 
       if (subData.status === "trial") {
@@ -98,7 +98,7 @@ export const useEngineeringLogic = ({
         // Processa Materiais
         if (mats && (mats as CustomMaterial[]).length > 0) {
           const nomesUnicos = Array.from(
-            new Set((mats as CustomMaterial[]).map((m) => m.nome))
+            new Set((mats as CustomMaterial[]).map((m) => m.nome)),
           );
           setMaterialList(nomesUnicos as string[]);
         } else {
@@ -109,7 +109,7 @@ export const useEngineeringLogic = ({
         // Processa Espessuras
         if (thicks && (thicks as CustomThickness[]).length > 0) {
           const valoresUnicos = Array.from(
-            new Set((thicks as CustomThickness[]).map((t) => t.valor))
+            new Set((thicks as CustomThickness[]).map((t) => t.valor)),
           );
           setThicknessList(valoresUnicos as string[]);
         } else {
@@ -148,15 +148,15 @@ export const useEngineeringLogic = ({
         !window.confirm(
           `Confirma a aplicação de "${value}" em ${field.toUpperCase()} apenas para as ${
             idsToUpdate.length
-          } peças selecionadas?`
+          } peças selecionadas?`,
         )
       )
         return;
 
       setParts((prev) =>
         prev.map((p) =>
-          idsToUpdate.includes(p.id) ? { ...p, [field]: value } : p
-        )
+          idsToUpdate.includes(p.id) ? { ...p, [field]: value } : p,
+        ),
       );
       return;
     }
@@ -166,7 +166,7 @@ export const useEngineeringLogic = ({
       !window.confirm(
         `Nenhuma seleção detectada.\n\nDeseja aplicar "${value}" em ${field.toUpperCase()} para TODAS as ${
           parts.length
-        } peças da lista?`
+        } peças da lista?`,
       )
     )
       return;
@@ -176,7 +176,7 @@ export const useEngineeringLogic = ({
 
   const handleRowChange = (id: string, field: string, value: any) => {
     setParts((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, [field]: value } : p))
+      prev.map((p) => (p.id === id ? { ...p, [field]: value } : p)),
     );
   };
 
@@ -198,7 +198,7 @@ export const useEngineeringLogic = ({
 
     if (
       window.confirm(
-        `Tem certeza que deseja excluir ${idsToRemove.length} peças selecionadas?`
+        `Tem certeza que deseja excluir ${idsToRemove.length} peças selecionadas?`,
       )
     ) {
       const newParts = parts.filter((p) => !idsToRemove.includes(p.id));
@@ -246,14 +246,14 @@ export const useEngineeringLogic = ({
         };
 
         return { ...p, entities: [insertEntity], blocks: newBlocks };
-      })
+      }),
     );
   };
 
   const handleConvertAllToBlocks = () => {
     if (
       !window.confirm(
-        `Isso irá converter TODAS as peças com múltiplas entidades em Blocos únicos. Deseja continuar?`
+        `Isso irá converter TODAS as peças com múltiplas entidades em Blocos únicos. Deseja continuar?`,
       )
     )
       return;
@@ -276,7 +276,7 @@ export const useEngineeringLogic = ({
         };
 
         return { ...p, entities: [insertEntity], blocks: newBlocks };
-      })
+      }),
     );
   };
 
@@ -297,12 +297,23 @@ export const useEngineeringLogic = ({
       autor: p.autor || batchDefaults.autor || user.name,
     }));
 
+    // 1. Identifica peças que não possuem Pedido, Material ou Espessura
     const invalidParts = partsToProcess.filter(
-      (p) => !p.pedido || p.pedido.trim() === ""
+      (p) =>
+        !p.pedido ||
+        p.pedido.trim() === "" ||
+        !p.material ||
+        p.material.trim() === "" ||
+        !p.espessura ||
+        p.espessura.trim() === "",
     );
+
     if (invalidParts.length > 0) {
+      // 2. Mensagem detalhada para o usuário saber o que falta
       alert(
-        `⚠️ AÇÃO BLOQUEADA\n\nExistem ${invalidParts.length} peças sem o número do 'Pedido'.\nEste campo é obrigatório.`
+        `⚠️ AÇÃO BLOQUEADA\n\n` +
+          `Existem ${invalidParts.length} peças com informações incompletas.\n\n` +
+          `Os campos 'Pedido', 'Material' e 'Espessura' são obrigatórios para salvar no banco de dados.`,
       );
       return false;
     }
@@ -312,7 +323,7 @@ export const useEngineeringLogic = ({
 
     try {
       const normalParts = partsToProcess.filter(
-        (p) => p.tipo_producao === "NORMAL"
+        (p) => p.tipo_producao === "NORMAL",
       );
 
       if (normalParts.length > 0) {
@@ -323,7 +334,7 @@ export const useEngineeringLogic = ({
 
         const duplicadas = await EngineeringService.checkPartsExistence(
           user.token,
-          checkList
+          checkList,
         );
 
         if (duplicadas.length > 0) {
@@ -339,7 +350,7 @@ export const useEngineeringLogic = ({
             `⛔ BLOQUEIO DE DUPLICIDADE\n\n` +
               `Detectamos ${duplicadas.length} peças duplicadas no banco.\n\n` +
               `Peças afetadas: ${nomesDuplicados}${mais}\n\n` +
-              `Altere para 'RETRABALHO' se for reposição.`
+              `Altere para 'RETRABALHO' se for reposição.`,
           );
           return false;
         }
@@ -351,21 +362,21 @@ export const useEngineeringLogic = ({
       if (nonBlocks.length > 0) {
         setLoading(false);
         alert(
-          `ATENÇÃO: Existem ${nonBlocks.length} peças que ainda não são Blocos. Use o botão 📦 Insert/Block.`
+          `ATENÇÃO: Existem ${nonBlocks.length} peças que ainda não são Blocos. Use o botão 📦 Insert/Block.`,
         );
         return false;
       }
 
       const data = await EngineeringService.saveParts(
         user.token,
-        partsToProcess
+        partsToProcess,
       );
 
       if (!silent)
         alert(
           `✅ SUCESSO!\n\n${
             data.count || parts.length
-          } peças registradas com sucesso.`
+          } peças registradas com sucesso.`,
         );
 
       return true;
@@ -395,7 +406,7 @@ export const useEngineeringLogic = ({
       alert(
         `⚠️ OTIMIZAÇÃO NECESSÁRIA\n\n` +
           `Detectamos ${nonBlocks.length} geometrias soltas.\n` +
-          `Use "📦 Insert/Block" para corrigir.`
+          `Use "📦 Insert/Block" para corrigir.`,
       );
       return;
     }
@@ -410,7 +421,7 @@ export const useEngineeringLogic = ({
       }
 
       const subData = await EngineeringService.getSubscriptionStatus(
-        user.token
+        user.token,
       );
       const status = subData.status ? subData.status.toLowerCase() : "";
 
@@ -418,14 +429,14 @@ export const useEngineeringLogic = ({
         alert(
           `🔒 LIMITE DO TRIAL (MÁX 10 PEÇAS)\n\n` +
             `Você tem ${parts.length} peças na lista.\n` +
-            `O modo gratuito permite apenas 10 peças.`
+            `O modo gratuito permite apenas 10 peças.`,
         );
         setLoading(false);
         return;
       }
 
       const uniqueOrders = Array.from(
-        new Set(parts.map((p) => p.pedido).filter(Boolean))
+        new Set(parts.map((p) => p.pedido).filter(Boolean)),
       );
       const searchString = uniqueOrders.join(", ");
 
@@ -442,7 +453,7 @@ export const useEngineeringLogic = ({
     if (parts.length > 0) {
       if (
         !window.confirm(
-          "Ir para o Nesting diretamente NÃO levará estas peças da lista.\n\nDeseja ir para o Nesting vazio?"
+          "Ir para o Nesting diretamente NÃO levará estas peças da lista.\n\nDeseja ir para o Nesting vazio?",
         )
       ) {
         return;
@@ -458,7 +469,7 @@ export const useEngineeringLogic = ({
       prev.map((p) => {
         if (p.id === viewingPartId) return applyRotationToPart(p, angle);
         return p;
-      })
+      }),
     );
   };
 
@@ -469,7 +480,7 @@ export const useEngineeringLogic = ({
           return applyMirrorToPart(part);
         }
         return part;
-      })
+      }),
     );
   };
 
@@ -477,13 +488,13 @@ export const useEngineeringLogic = ({
   const handleToggleRotationLock = (partId: string) => {
     setParts((prev) =>
       prev.map((p) =>
-        p.id === partId ? { ...p, isRotationLocked: !p.isRotationLocked } : p
-      )
+        p.id === partId ? { ...p, isRotationLocked: !p.isRotationLocked } : p,
+      ),
     );
   };
 
   const handleFileUpload = async (
-    event: React.ChangeEvent<HTMLInputElement>
+    event: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
@@ -510,7 +521,7 @@ export const useEngineeringLogic = ({
                 (parsed as any).entities,
                 file.name,
                 batchDefaults,
-                (parsed as any).blocks // <--- O 4º ARGUMENTO QUE FALTAVA
+                (parsed as any).blocks, // <--- O 4º ARGUMENTO QUE FALTAVA
               );
               newPartsGlobal.push(...partsFromFile);
             }
@@ -571,7 +582,7 @@ export const useEngineeringLogic = ({
 
       // Se der outro erro, o código segue para o método antigo abaixo (fallback)
       console.warn(
-        "API de Salvar Como não suportada ou erro, usando método tradicional."
+        "API de Salvar Como não suportada ou erro, usando método tradicional.",
       );
     }
 
@@ -589,14 +600,14 @@ export const useEngineeringLogic = ({
 
   // --- NOVO: CARREGAR PROJETO LOCAL ---
   const handleLoadLocalProject = (
-    event: React.ChangeEvent<HTMLInputElement>
+    event: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     if (
       !window.confirm(
-        "Isso irá substituir a lista atual pelo arquivo carregado. Deseja continuar?"
+        "Isso irá substituir a lista atual pelo arquivo carregado. Deseja continuar?",
       )
     ) {
       event.target.value = ""; // Limpa o input

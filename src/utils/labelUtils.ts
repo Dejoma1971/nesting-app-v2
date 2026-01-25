@@ -4,8 +4,7 @@ export type LabelType = "white" | "pink";
 
 /**
  * Calcula a posição e rotação ideais para a etiqueta.
- * Para etiquetas ROSA, busca a extremidade interna.
- * Para etiquetas BRANCA, busca o centro e auto-fit.
+ * AGORA: A etiqueta Rosa segue a Branca, posicionando-se paralela e abaixo.
  */
 export const calculateSmartLabel = (
   partWidth: number,
@@ -13,91 +12,75 @@ export const calculateSmartLabel = (
   text: string,
   type: LabelType,
   isCircular: boolean,
-  currentFontSize: number, 
-  margin: number = 5
+  currentFontSize: number,
+  margin: number = 5,
 ) => {
   let finalFontSize = currentFontSize;
   let smartRotation = 0;
-  
+
   // Coordenadas sugeridas (0,0 = Centro Geométrico)
   let smartX: number = 0;
   let smartY: number = 0;
 
+  // --- LÓGICA DE GEOMETRIA (Comum para ambas agora) ---
+  // Define se a peça "pede" um texto vertical ou horizontal
+  const isVerticalGeometry = partHeight > partWidth;
+
+  // Se for circular, tratamos como Horizontal (0º) por padrão
+  const effectiveVertical = isCircular ? false : isVerticalGeometry;
+
+  // Distância padrão para a "linha de baixo" (Gap entre Branca e Rosa)
+  // Branca (~38px) + Espaço (~5px) + Rosa (~6px) -> Centro a Centro ≈ 30px
+  const LINE_OFFSET = 30;
+
   if (type === "pink") {
     // --- LÓGICA ROSA (GRAVAÇÃO) ---
-    // Objetivo: Posicionar na extremidade (canto inferior esquerdo), mas DENTRO da peça.
-    
-    // 1. Estimativa do comprimento do texto para centralizar o bloco corretamente
-    // Uma fonte vetorial média tem largura ~0.6x da altura por caractere
-    const charWidthRatio = 0.6; 
-    const textLength = text.length * finalFontSize * charWidthRatio;
-    
-    const halfLength = textLength / 2;    // Metade do comprimento
-    const halfHeight = finalFontSize / 2; // Metade da altura
-    
-    const edgeMargin = 1; // 1mm de respiro da borda
+    // Regra: Paralela à Branca e Abaixo dela.
 
-    if (isCircular) {
-      // PEÇA CIRCULAR: Fundo (Sul)
-      smartRotation = 0;
-      const radius = Math.min(partWidth, partHeight) / 2;
-      smartX = 0;
-      // Y = Borda Inferior (-Raio) + Margem + Metade da Altura do texto
-      smartY = -radius + edgeMargin + halfHeight;
+    // 1. Rotação: Copia exatamente a lógica da etiqueta Branca
+    smartRotation = effectiveVertical ? 90 : 0;
+
+    // 2. Tamanho: Fixo (padrão de gravação)
+    // Se o usuário não definiu, o padrão é 6.
+    if (!currentFontSize) finalFontSize = 6;
+
+    // 3. Posição: Deslocamento relativo ao Centro (onde a branca estaria)
+    if (effectiveVertical) {
+      // PEÇA VERTICAL (Texto 90º, lendo de baixo para cima)
+      // "Abaixo" do texto visualmente significa à DIREITA dele.
+      smartX = LINE_OFFSET;
+      smartY = 0;
     } else {
-      // PEÇA RETANGULAR / POLÍGONO
-      const isVertical = partHeight > partWidth;
-      const leftEdge = -(partWidth / 2);
-      const bottomEdge = -(partHeight / 2);
+      // PEÇA HORIZONTAL (Texto 0º, lendo da esq para dir)
+      // "Abaixo" do texto visualmente significa DESCER no Y.
+      smartX = 0;
+      smartY = -LINE_OFFSET;
+    }
+  } else {
+    // --- LÓGICA BRANCA (ID) ---
+    // Regra: Centralizada e Auto-Fit
 
-      if (isVertical) {
-        // VERTICAL (Alta): Texto na Horizontal (0º) no fundo
-        smartRotation = 0;
-        
-        // X: Encosta na Esquerda (Borda + Margem + Metade do Texto)
-        smartX = leftEdge + edgeMargin + halfLength;
-        
-        // Y: Encosta no Fundo (Borda + Margem + Metade da Altura)
-        smartY = bottomEdge + edgeMargin + halfHeight;
+    // Auto-Fit (Calcula tamanho se necessário)
+    if (!currentFontSize || currentFontSize === 38) {
+      const availableLength = effectiveVertical ? partHeight : partWidth;
+      const safeSpace = availableLength - margin * 2;
+      const charWidthRatio = 0.7;
+      const baseSize = 38;
+      const estimatedTextWidth = text.length * (baseSize * charWidthRatio);
+
+      if (estimatedTextWidth > safeSpace) {
+        const ratio = safeSpace / estimatedTextWidth;
+        finalFontSize = Math.floor(baseSize * ratio);
+        if (finalFontSize < 12) finalFontSize = 12;
       } else {
-        // HORIZONTAL (Larga): Texto na Vertical (90º) na esquerda
-        smartRotation = 90;
-        
-        // X: Encosta na Esquerda (Borda + Margem + Metade da Altura)
-        // (Nota: Como gira 90º, a "altura" visual é a largura da fonte)
-        smartX = leftEdge + edgeMargin + halfHeight;
-        
-        // Y: Encosta no Fundo (Borda + Margem + Metade do Texto)
-        smartY = bottomEdge + edgeMargin + halfLength;
+        finalFontSize = 38;
       }
     }
 
-  } else {
-    // --- LÓGICA BRANCA (IDENTIFICAÇÃO) ---
-    // Mantém no centro com ajuste automático de tamanho
-    
-    // Se o tamanho for inválido ou padrãozão, tenta calcular o Auto-Fit
-    if (!currentFontSize || currentFontSize === 38) {
-        const isVertical = partHeight > partWidth;
-        const availableLength = isVertical ? partHeight : partWidth;
-        const safeSpace = availableLength - (margin * 2);
-        const charWidthRatio = 0.7;
-        const baseSize = 38;
-        const estimatedTextWidth = text.length * (baseSize * charWidthRatio);
+    // Rotação: Acompanha o maior lado
+    smartRotation = effectiveVertical ? 90 : 0;
 
-        if (estimatedTextWidth > safeSpace) {
-            const ratio = safeSpace / estimatedTextWidth;
-            finalFontSize = Math.floor(baseSize * ratio);
-            if (finalFontSize < 12) finalFontSize = 12; // Mínimo legível
-        } else {
-            finalFontSize = 38;
-        }
-    }
-
-    // Acompanha o maior lado
-    smartRotation = (partHeight > partWidth) ? 90 : 0;
-    
-    // Centralizado
+    // Posição: Centro Exato
     smartX = 0;
     smartY = 0;
   }
@@ -106,6 +89,6 @@ export const calculateSmartLabel = (
     smartRotation,
     suggestedFontSize: finalFontSize,
     smartX,
-    smartY
+    smartY,
   };
 };
