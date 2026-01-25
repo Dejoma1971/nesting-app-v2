@@ -17,6 +17,11 @@ import {
   applyMirrorToPart,
 } from "../utils/engineeringUtil";
 
+// ⬇️ --- INSERIR ISTO --- ⬇️
+import type { DragEndEvent } from "@dnd-kit/core";
+import { arrayMove } from "@dnd-kit/sortable";
+// ⬆️ -------------------- ⬆️
+
 // LISTAS ESTÁTICAS (Fallback para modo Trial ou erro)
 const STATIC_THICKNESS = [
   "28",
@@ -493,6 +498,23 @@ export const useEngineeringLogic = ({
     );
   };
 
+  // ⬇️ --- INSERIR NOVA FUNÇÃO --- ⬇️
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    // Se soltou sobre um item diferente do que arrastou
+    if (over && active.id !== over.id) {
+      setParts((items) => {
+        const oldIndex = items.findIndex((item) => item.id === active.id);
+        const newIndex = items.findIndex((item) => item.id === over.id);
+
+        // A função arrayMove faz a mágica de trocar os itens de lugar
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+  };
+  // ⬆️ --------------------------- ⬆️
+
   const handleFileUpload = async (
     event: React.ChangeEvent<HTMLInputElement>,
   ) => {
@@ -669,5 +691,6 @@ export const useEngineeringLogic = ({
     handleToggleRotationLock,
     handleSaveLocalProject,
     handleLoadLocalProject,
+    handleDragEnd,
   };
 };
