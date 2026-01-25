@@ -33,7 +33,11 @@
     "react-router-dom": "^7.11.0",
     "recharts": "^3.6.0",
     "stripe": "^20.1.0",
-    "svg-path-parser": "^1.1.0"
+    "svg-path-parser": "^1.1.0",
+    "prom-client": "^15.0.0",
+    "morgan": "^1.10.0",
+    "winston": "^3.11.0",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

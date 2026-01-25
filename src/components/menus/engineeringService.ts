@@ -1,6 +1,6 @@
 import type { ImportedPart, CustomMaterial, CustomThickness } from "../types";
 
-const API_BASE = "http://localhost:3001/api";
+import { API_URL as API_BASE } from "../../services/api";
 
 // --- FUNÇÃO AUXILIAR DE INTERCEPTAÇÃO ---
 // Simplificada: Removemos o try/catch redundante.
@@ -11,8 +11,8 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
   // SE O TOKEN FOR INVÁLIDO (403) OU AUSENTE (401)
   if (response.status === 401 || response.status === 403) {
     // 1. Dispara o evento global que o AuthContext está ouvindo
-    window.dispatchEvent(new Event('auth:logout'));
-    
+    window.dispatchEvent(new Event("auth:logout"));
+
     // 2. Lança erro para interromper o fluxo atual
     throw new Error("Sessão expirada.");
   }
@@ -43,35 +43,44 @@ export const EngineeringService = {
     });
 
     const data = await response.json();
-    
+
     if (!response.ok) {
       throw new Error(data.error || "Erro desconhecido no servidor");
     }
-    
+
     return data;
   },
 
-  checkPartsExistence: async (token: string, items: { pedido: string; nome: string }[]) => {
-    const response = await fetchWithAuth(`${API_BASE}/pecas/verificar-existencia`, {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}` 
+  checkPartsExistence: async (
+    token: string,
+    items: { pedido: string; nome: string }[],
+  ) => {
+    const response = await fetchWithAuth(
+      `${API_BASE}/pecas/verificar-existencia`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ itens: items }),
       },
-      body: JSON.stringify({ itens: items }),
-    });
+    );
 
     if (!response.ok) return [];
-    
+
     const data = await response.json();
     return data.duplicadas || [];
   },
 
   checkOrderExists: async (token: string, pedido: string): Promise<boolean> => {
     try {
-      const response = await fetchWithAuth(`${API_BASE}/pedidos/verificar/${pedido}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetchWithAuth(
+        `${API_BASE}/pedidos/verificar/${pedido}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
       if (!response.ok) return false;
       const data = await response.json();
       return data.exists;
@@ -105,7 +114,7 @@ export const EngineeringService = {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ name, density }), 
+      body: JSON.stringify({ name, density }),
     });
 
     if (!response.ok) {
@@ -163,7 +172,12 @@ export const EngineeringService = {
     });
   },
 
-  updateCustomMaterial: async (token: string, id: number, name: string, density: string) => {
+  updateCustomMaterial: async (
+    token: string,
+    id: number,
+    name: string,
+    density: string,
+  ) => {
     const response = await fetchWithAuth(`${API_BASE}/materials/${id}`, {
       method: "PUT",
       headers: {
@@ -189,5 +203,5 @@ export const EngineeringService = {
 
     if (!response.ok) throw new Error("Erro ao atualizar espessura");
     return response.json();
-  }
+  },
 };

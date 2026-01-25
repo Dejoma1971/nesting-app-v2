@@ -1,12 +1,12 @@
 // src/services/paymentService.ts
-
-// Ajuste a URL se sua porta for diferente (ex: 3000 ou 3001)
-const API_URL = "http://localhost:3001/api"; 
+// IMPORTANTE: Importamos a variável de texto, não a instância do axios, 
+// já que você optou por usar 'fetch' neste serviço.
+import { API_URL } from './api';
 
 export const handleSubscription = async (
   planType: 'premium' | 'corporate', 
   quantity: number = 1,
-  token?: string // Opcional, caso o usuário já esteja logado (upgrade)
+  token?: string 
 ) => {
   try {
     const headers: HeadersInit = {
@@ -17,6 +17,7 @@ export const handleSubscription = async (
       headers["Authorization"] = `Bearer ${token}`;
     }
 
+    // Agora o API_URL será reconhecido corretamente
     const response = await fetch(`${API_URL}/payment/checkout`, {
       method: "POST",
       headers,
@@ -29,7 +30,6 @@ export const handleSubscription = async (
     const data = await response.json();
 
     if (data.url) {
-      // Redireciona para o Stripe
       window.location.href = data.url;
     } else {
       console.error("Erro Stripe:", data);
