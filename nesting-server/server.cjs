@@ -38,38 +38,6 @@ const JWT_SECRET =
   process.env.JWT_SECRET || "segredo-super-secreto-do-nesting-app";
 
 // ==========================================================
-// MIDDLEWARE DE AUTENTICAÇÃO (Melhorado para Debug)
-// ==========================================================
-// function authenticateToken(req, res, next) {
-//   const authHeader = req.headers["authorization"];
-//   // O formato esperado é "Bearer <TOKEN>"
-//   const token = authHeader && authHeader.split(" ")[1];
-
-//   if (token == null) {
-//     console.log(
-//       "❌ DEBUG AUTH: Token não fornecido ou cabeçalho mal formatado."
-//     );
-//     console.log("   Header recebido:", authHeader);
-//     return res.sendStatus(401);
-//   }
-
-//   jwt.verify(token, JWT_SECRET, (err, user) => {
-//     if (err) {
-//       // ESTE LOG VAI TE MOSTRAR O MOTIVO DO LOOP:
-//       console.log("🚫 DEBUG AUTH: Token rejeitado.");
-//       console.log("   Motivo:", err.message); // Ex: "jwt expired", "invalid signature"
-
-//       // Dica: Se o erro for "jwt malformed", o frontend está mandando lixo.
-//       // Dica: Se for "invalid signature", o JWT_SECRET mudou entre o login e agora.
-//       return res.sendStatus(403);
-//     }
-
-//     req.user = user;
-//     next();
-//   });
-// }
-
-// ==========================================================
 // MIDDLEWARE DE AUTENTICAÇÃO (Versão Diagnóstico Anti-Looping)
 // ==========================================================
 function authenticateToken(req, res, next) {
@@ -514,7 +482,7 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
       VALUES ? `;
 
     const values = parts.map((p) => [
-      p.id,
+      crypto.randomUUID(),
       usuarioId,
       empresaId,
       p.name,
@@ -540,6 +508,15 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
       .json({ message: "Peças salvas!", count: result.affectedRows });
   } catch (error) {
     console.error(error);
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        error: "Duplicidade Detectada!",
+        message:
+          "Esta peça já existe neste pedido com este mesmo Tipo de Produção. Altere o tipo para salvar novamente.",
+      });
+    }
+    // ---------------------
+
     res.status(500).json({ error: "Erro interno." });
   }
 });

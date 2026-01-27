@@ -40,7 +40,7 @@ const PRODUCTION_TYPES = [
   { label: "Erro de Processo", value: "RETRABALHO_PROCESSO" },
   { label: "Erro de Projeto", value: "ERRO_ENGENHARIA" },
   { label: "Erro Comercial", value: "ERRO_COMERCIAL" },
-  { label: "Correção Qtde", value: "EDITAR_CADASTRO" },
+  { label: "Edição Cadastro", value: "EDITAR_CADASTRO" },
 ];
 
 // ⬇️ --- 2. ADICIONE ESTE COMPONENTE AUXILIAR (FORA DA FUNÇÃO PRINCIPAL) --- ⬇️
@@ -148,7 +148,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
 
   const { parts, onBack, onOpenTeam } = props as any;
 
-  
   // ⬇️ --- [INSERÇÃO CIRÚRGICA] PREENCHIMENTO AUTOMÁTICO DO AUTOR --- ⬇️
   React.useEffect(() => {
     // Se o usuário está logado (tem nome) e o campo autor está vazio...
@@ -1244,7 +1243,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                       >
                         <button
                           onClick={(e) => {
-                            e.stopPropagation();                            
+                            e.stopPropagation();
                             setViewingPartId(part.id);
                           }}
                           style={{
@@ -1547,16 +1546,20 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             <tbody>
               {parts.map((part: ImportedPart, i: number) => {
                 const isSelected = part.id === selectedPartId;
-                // --- INSERIR LOGICA DE COR ---
+                // --- LOGICA DE COR ATUALIZADA ---
+                // Agora consideramos "Retrabalho" apenas se não for NORMAL e não for EDITAR_CADASTRO
                 const isRetrabalho =
-                  part.tipo_producao && part.tipo_producao !== "NORMAL";
-                const textColor = isRetrabalho ? "#f81010ff" : "inherit"; // Texto vermelho se retrabalho
+                  part.tipo_producao &&
+                  part.tipo_producao !== "NORMAL" &&
+                  part.tipo_producao !== "EDITAR_CADASTRO"; // <--- ADICIONE ESTA LINHA
 
-                // Ajustar background para destacar retrabalho
+                const textColor = isRetrabalho ? "#f81010ff" : "inherit";
+
+                // Ajustar background para destacar apenas retrabalhos reais
                 const rowBackground = isSelected
                   ? theme.selectedRow
                   : isRetrabalho
-                    ? "rgba(220, 53, 69, 0.08)" // Fundo levemente avermelhado
+                    ? "rgba(220, 53, 69, 0.08)"
                     : i % 2 === 0
                       ? "transparent"
                       : theme.hoverRow;

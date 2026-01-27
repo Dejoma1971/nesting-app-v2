@@ -22,8 +22,8 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
 
   // ⬇️ --- 1. CONFIGURAÇÃO DO EFEITO "EM DESENVOLVIMENTO" --- ⬇️
 
-  // Controle Mestre: true = Ativa o efeito de esmaecer. false = Card normal.
-  const isPostProcessDisabled = true;
+  // Altere de false para true para ativar o bloqueio
+  const isPostProcessDisabled = false;
 
   // Estado que controla se o texto "Em Desenvolvimento" aparece ou não
   const [showOverlayText, setShowOverlayText] = useState(false);
@@ -32,34 +32,23 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
   // Estado para gatilho da animação visual (CSS)
   const [triggerFade, setTriggerFade] = useState(false);
 
+  // --- LOGICA DE CONTROLE (SEM RENDERS EM CASCATA) ---
   useEffect(() => {
-    if (isPostProcessDisabled) {
-      // Pequeno delay (100ms) para garantir que o card renderize "normal" primeiro
-      // e só depois aplique a classe que dispara a transição de 5s.
-      setTimeout(() => setTriggerFade(true), 100);
-    }
-  }, [isPostProcessDisabled]);
-  // ⬆️ -------------------- ⬆️
+    // Se o card estiver habilitado, não fazemos nada (os valores padrão já são false)
+    if (!isPostProcessDisabled) return;
 
-  // Lógica do Timer: Espera 5 segundos antes de mostrar o texto
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
+    // Se estiver desabilitado, iniciamos os timers
+    const fadeTimer = setTimeout(() => setTriggerFade(true), 100);
+    const textTimer = setTimeout(() => setShowOverlayText(true), 5000);
 
-    if (isPostProcessDisabled) {
-      // Inicia a contagem de 5s (5000ms)
-      timer = setTimeout(() => {
-        setShowOverlayText(true);
-      }, 5000);
-    } else {
-      // Se estiver habilitado, garante que o texto não apareça
+    return () => {
+      clearTimeout(fadeTimer);
+      clearTimeout(textTimer);
+      // Resetamos ao desmontar ou ao mudar a chave de controle
+      setTriggerFade(false);
       setShowOverlayText(false);
-    }
-
-    // Limpeza (caso o usuário saia da tela antes dos 5s)
-    return () => clearTimeout(timer);
+    };
   }, [isPostProcessDisabled]);
-
-  // ⬆️ -------------------------------------------------------- ⬆️
 
   // --- TEMAS ---
   const theme = {
