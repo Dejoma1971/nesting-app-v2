@@ -691,7 +691,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         cropLines,
         gap,
         margin,
-        strategy: (strategy === "true-shape-v2" || strategy === "true-shape-v3") ? "true-shape" : strategy,
+        strategy:
+          strategy === "true-shape-v2" || strategy === "true-shape-v3"
+            ? "true-shape"
+            : strategy,
         direction,
         labelStates,
         disabledNestingIds,
@@ -1084,14 +1087,33 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   useEffect(() => {
     if (selectedPartIds.length > 0) {
-      const lastUUID = selectedPartIds[selectedPartIds.length - 1];
-      const placed = nestingResult.find((p) => p.uuid === lastUUID);
-      if (placed) {
-        const el = thumbnailRefs.current[placed.partId];
-        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      // Pega o último ID selecionado
+      const lastId = selectedPartIds[selectedPartIds.length - 1];
+
+      // Tenta descobrir o ID da peça (seja selecionado via UUID da mesa ou ID direto do banco)
+      let partIdToScroll = nestingResult.find((p) => p.uuid === lastId)?.partId;
+
+      // Se não achou na mesa, assume que o ID selecionado é o próprio ID da peça (ex: clique na lista)
+      if (!partIdToScroll) {
+        if (parts.some((p) => p.id === lastId)) {
+          partIdToScroll = lastId;
+        }
+      }
+
+      if (partIdToScroll) {
+        // Pequeno timeout para garantir que a aba trocou e o DOM renderizou
+        setTimeout(() => {
+          const element = thumbnailRefs.current[partIdToScroll];
+          if (element) {
+            element.scrollIntoView({
+              behavior: "smooth",
+              block: "center", // "center" ou "start" para forçar a visão
+            });
+          }
+        }, 100);
       }
     }
-  }, [selectedPartIds, nestingResult]);
+  }, [selectedPartIds, nestingResult, activeTab, parts]); // Adicionei activeTab e parts
 
   const handleReturnToBank = useCallback(
     (uuidsToRemove: string[]) => {
@@ -1183,7 +1205,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         parts: displayedParts,
         user,
         cropLines,
-       motor: (strategy === "true-shape-v2" || strategy === "true-shape-v3") ? "true-shape" : strategy,
+        motor:
+          strategy === "true-shape-v2" || strategy === "true-shape-v3"
+            ? "true-shape"
+            : strategy,
 
         // NOVOS PARÂMETROS
         binWidth: binSize.width,
@@ -1329,8 +1354,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         binHeight: binSize.height,
         iterations,
         rotationStep,
-        targetEfficiency: 96 // Meta agressiva para o V3
-      });  
+        targetEfficiency: 96, // Meta agressiva para o V3
+      });
     } else if (strategy === "true-shape-v2") {
       // --- 4. MOTOR SMART NEST V2 (First Fit / Preencher) ---
       // <--- AQUI ENTRA A LÓGICA DO NOVO MOTOR SELECIONADO NO DROPDOWN
@@ -2598,7 +2623,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             <option value="true-shape">🧩 Smart Nest</option>
             <option value="true-shape-v2">⚡ Smart Nest V2</option>
             {/* ADICIONE ESTA OPÇÃO: */}
-            <option value="true-shape-v3" style={{ fontWeight: 'bold', color: '#007bff' }}>
+            <option
+              value="true-shape-v3"
+              style={{ fontWeight: "bold", color: "#007bff" }}
+            >
               🚀 Smart Nest V3 (Furos)
             </option>
             {/* ALTERAÇÃO AQUI: Adicionado disabled e estilo de cor/opacidade */}
@@ -3134,7 +3162,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             binHeight={binSize.height}
             margin={margin}
             showDebug={showDebug}
-            strategy={(strategy === "true-shape-v2" || strategy === "true-shape-v3") ? "true-shape" : strategy}
+            strategy={
+              strategy === "true-shape-v2" || strategy === "true-shape-v3"
+                ? "true-shape"
+                : strategy
+            }
             theme={theme}
             selectedPartIds={selectedPartIds}
             collidingPartIds={collidingPartIds}
@@ -3840,18 +3872,46 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                       const remainingVisual = Math.max(0, qty - totalVisual);
                       const isDoneVisual = remainingVisual === 0;
                       const isOnCurrentSheet = currentBinPartIds.has(part.id);
-                      const rowBg = isOnCurrentSheet
-                        ? "rgba(40, 167, 69, 0.05)"
-                        : isDoneVisual
-                          ? "rgba(40, 167, 69, 0.1)"
-                          : "transparent";
+                      // --- ALTERAÇÃO 1: Detecta se está selecionado ---
+                      const isSelected = activeSelectedPartIds.has(part.id);
 
+                      // --- ALTERAÇÃO 2: Prioriza a cor de seleção (Azul) sobre as outras ---
+                      const rowBg = isSelected
+                        ? theme.selectedRow // Fundo azulado definido no tema
+                        : isOnCurrentSheet
+                          ? "rgba(40, 167, 69, 0.05)" // Verde claro (na chapa)
+                          : isDoneVisual
+                            ? "rgba(40, 167, 69, 0.1)" // Verde escuro (concluído)
+                            : "transparent";
+
+                      // --- ALTERAÇÃO 3: Borda de destaque para seleção ---
+                      // Se selecionado, usamos uma borda azul grossa (#007bff).
+                      // Se não, mantemos a borda padrão do tema.
+                      const rowBorder = isSelected
+                        ? "2px solid #007bff"
+                        : `1px solid ${theme.border}`;
                       return (
                         <tr
                           key={part.id}
+                          // ADICIONE ESTA LINHA ABAIXO:
+                          ref={(el) => {
+                            if (el) thumbnailRefs.current[part.id] = el;
+                          }}
+                          // --- OPCIONAL: Clique na linha seleciona a peça também ---
+                          onClick={(e) => {
+                            // Se quiser que o clique na lista selecione a peça na mesa:
+                            if (e.ctrlKey) handlePartSelect([part.id], true);
+                            else handlePartSelect([part.id], false);
+                          }}
                           style={{
-                            borderBottom: `1px solid ${theme.border}`,
+                            // Aplica a borda calculada acima
+                            borderBottom: rowBorder,
+                            borderTop: isSelected
+                              ? "2px solid #007bff"
+                              : undefined, // Borda dupla para destaque total
                             background: rowBg,
+                            cursor: "pointer", // Indica que é clicável
+                            position: "relative", // Para garantir que o z-index da borda funcione se necessário
                           }}
                         >
                           <td
