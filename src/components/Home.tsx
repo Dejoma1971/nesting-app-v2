@@ -23,7 +23,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
   // ⬇️ --- 1. CONFIGURAÇÃO DO EFEITO "EM DESENVOLVIMENTO" --- ⬇️
 
   // Altere de false para true para ativar o bloqueio
-  const isPostProcessDisabled = true;
+  const isPostProcessDisabled = false;
 
   // Estado que controla se o texto "Em Desenvolvimento" aparece ou não
   const [showOverlayText, setShowOverlayText] = useState(false);
