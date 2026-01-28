@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from "react";
 import {
-  AreaChart,
-  Area,
   BarChart,
   Bar,
   XAxis,
@@ -10,29 +8,46 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
+  ComposedChart,
+  Line,
+  PieChart,
+  Pie,
+  Cell,
 } from "recharts";
-
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { SidebarMenu } from "./SidebarMenu";
 
-// IMPORTAÇÃO QUE FALTAVA
-import type { AppTheme } from "../styles/theme";
-
 // --- INTERFACES ---
-
-// Interface para os itens de dados dentro do Tooltip
-interface TooltipPayloadItem {
-  name: string;
-  value: number | string;
-  color: string;
-}
-
-// Interface para as props do componente CustomTooltip
-interface CustomTooltipProps {
-  active?: boolean;
-  payload?: TooltipPayloadItem[];
-  label?: string;
+interface DashboardData {
+  resumo: {
+    totalEntrada: number;
+    totalSaida: number;
+    saldo: number;
+  };
+  engenharia: {
+    usuario: string;
+    qtd_pedidos_entrada: number;
+    qtd_pecas_entrada: number;
+  }[];
+  producao: {
+    usuario: string;
+    qtd_pedidos_processados: number;
+    qtd_chapas_geradas: number;
+    eficiencia_media: number;
+    consumo_medio: number;
+  }[];
+  // --- ATUALIZADO PARA O NOVO RELATÓRIO DETALHADO ---
+  estudoConsumo: {
+    material: string;
+    espessura: string;
+    largura_chapa: number; // NOVO
+    altura_chapa: number; // NOVO
+    total_chapas: number;
+    avg_aproveitamento: number;
+    avg_consumo: number; // NOVO
+    total_retalho_m2: number;
+  }[];
 }
 
 interface DashboardScreenProps {
@@ -42,59 +57,7 @@ interface DashboardScreenProps {
   onOpenTeam?: () => void;
 }
 
-interface DashboardData {
-  kpis: {
-    chapas: number;
-    eficiencia: number;
-    peso: number;
-    area: number;
-    pecas: number;
-    pedidos: number;
-  };
-  breakdown: {
-    materiais: { material: string; espessura: string; qtd_chapas: number }[];
-    usuarios: { nome: string; chapas_processadas: number }[];
-    listaPedidos: {
-      pedido: string;
-      chapas_envolvidas: number;
-      ultima_producao: string;
-    }[];
-  };
-  charts: {
-    evolucao: { data: string; chapas: number; eficiencia: number }[];
-  };
-}
-
-// --- COMPONENTE BOTÃO DE NAVEGAÇÃO ---
-const NavButton: React.FC<{
-  onClick: () => void;
-  icon: React.ReactNode;
-  title: string;
-  theme: AppTheme;
-}> = ({ onClick, icon, title, theme }) => {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      style={{
-        background: "transparent",
-        border: `1px solid ${theme.border}`,
-        color: theme.text,
-        padding: "8px",
-        borderRadius: "4px",
-        cursor: "pointer",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        transition: "all 0.2s",
-      }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = theme.hoverRow)}
-      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-    >
-      {icon}
-    </button>
-  );
-};
+const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884d8"];
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({
   onNavigate,
@@ -103,29 +66,18 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
   const { user } = useAuth();
   const { theme } = useTheme();
 
-  // Datas Iniciais (Mês Atual)
-  const today = new Date();
-  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-
-  // Ajuste de Fuso Horário Simples para Input Date
-  const formatDateInput = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
-
-  const [startDate, setStartDate] = useState(formatDateInput(firstDay));
-  const [endDate, setEndDate] = useState(formatDateInput(lastDay));
-
+  const [startDate, setStartDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
+  const [endDate, setEndDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [isPedidosModalOpen, setIsPedidosModalOpen] = useState(false);
 
   useEffect(() => {
-    const fetchDashboard = async () => {
-      if (!user || !user.token) return;
+    const fetchStats = async () => {
+      if (!user?.token) return;
       setLoading(true);
       try {
         const res = await fetch(
@@ -134,716 +86,283 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
             headers: { Authorization: `Bearer ${user.token}` },
           },
         );
-        if (!res.ok) throw new Error("Falha ao carregar dados");
         const json = await res.json();
         setData(json);
-      } catch (error) {
-        console.error(error);
+      } catch (err) {
+        console.error("Erro ao buscar dados:", err);
       } finally {
         setLoading(false);
       }
     };
-
-    fetchDashboard();
+    fetchStats();
   }, [startDate, endDate, user]);
 
   // --- ESTILOS ---
-  const containerStyle: React.CSSProperties = {
-    display: "flex",
-    flexDirection: "column",
-    height: "100vh",
-    width: "100%",
+  const mainContainerStyle: React.CSSProperties = {
     background: theme.bg,
     color: theme.text,
-    overflowY: "auto",
-  };
-
-  const headerStyle: React.CSSProperties = {
-    padding: "15px 40px",
-    background: theme.headerBg,
-    borderBottom: `1px solid ${theme.border}`,
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: "10px",
-  };
-
-  const cardContainerStyle: React.CSSProperties = {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-    gap: "20px",
-    padding: "20px 40px",
-  };
-
-  const kpiCardStyle: React.CSSProperties = {
-    background: theme.panelBg,
-    border: `1px solid ${theme.border}`,
-    borderRadius: "8px",
-    padding: "20px",
+    height: "100vh",
+    width: "100%",
     display: "flex",
     flexDirection: "column",
-    gap: "5px",
-    boxShadow: "0 2px 4px rgba(0,0,0,0.05)",
-    position: "relative",
+    overflow: "hidden",
   };
 
-  const sectionGridStyle: React.CSSProperties = {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))",
-    gap: "20px",
-    padding: "0 40px 40px 40px",
+  const scrollableContentStyle: React.CSSProperties = {
+    flex: 1,
+    overflowY: "auto",
+    padding: "30px 40px 80px 40px",
   };
 
-  const contentCardStyle: React.CSSProperties = {
+  const cardStyle: React.CSSProperties = {
     background: theme.panelBg,
     border: `1px solid ${theme.border}`,
     borderRadius: "12px",
     padding: "20px",
     display: "flex",
     flexDirection: "column",
-    minHeight: "350px",
-    overflow: "hidden",
+    height: "420px",
+    boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
   };
 
-  const inputDateStyle: React.CSSProperties = {
-    padding: "6px",
-    borderRadius: "4px",
+  const kpiCardStyle: React.CSSProperties = {
+    background: theme.panelBg,
     border: `1px solid ${theme.border}`,
-    background: theme.inputBg,
+    borderRadius: "12px",
+    padding: "20px",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+  };
+
+  const navButtonStyle: React.CSSProperties = {
+    background: "transparent",
+    border: "none",
     color: theme.text,
-    fontSize: "13px",
+    cursor: "pointer",
+    fontSize: "14px",
+    fontWeight: "bold",
+    padding: "8px 12px",
+    borderRadius: "6px",
   };
 
-  const tableStyle: React.CSSProperties = {
-    width: "100%",
-    borderCollapse: "collapse",
-    marginTop: "10px",
-    fontSize: "13px",
-  };
+ // Função auxiliar para converter espessura em "Gauge" aproximado
+  const getGaugeLabel = (thickness: string | number) => {
+    // 1. Garante que é string, troca vírgula por ponto para o cálculo matemático
+    const safeThickness = String(thickness).replace(",", ".");
+    const t = parseFloat(safeThickness);
 
-  const thStyle: React.CSSProperties = {
-    textAlign: "left",
-    padding: "8px",
-    borderBottom: `1px solid ${theme.border}`,
-    color: theme.label,
-  };
+    // Se não for um número válido após a conversão, retorna o texto original
+    if (isNaN(t)) return thickness;
 
-  const tdStyle: React.CSSProperties = {
-    padding: "8px",
-    borderBottom: `1px solid ${theme.border}`,
-    color: theme.text,
-  };
-
-  // --- COMPONENTES VISUAIS AUXILIARES ---
-
-  const KPICard = ({
-    title,
-    value,
-    unit,
-    icon,
-    color,
-    onClick,
-  }: {
-    title: string;
-    value: string | number;
-    unit?: string;
-    icon: React.ReactNode;
-    color: string;
-    onClick?: () => void;
-  }) => (
-    <div style={kpiCardStyle}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "10px",
-        }}
-      >
-        <span style={{ fontSize: "14px", color: theme.label, fontWeight: 600 }}>
-          {title}
-        </span>
-        <div
-          style={{
-            background: `${color}20`,
-            color: color,
-            padding: "8px",
-            borderRadius: "50%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          {icon}
-        </div>
-      </div>
-      <div style={{ fontSize: "28px", fontWeight: "bold", color: theme.text }}>
-        {value}
-        {unit && (
-          <span style={{ fontSize: "14px", color: theme.label, marginLeft: 4 }}>
-            {unit}
-          </span>
-        )}
-      </div>
-      {onClick && (
-        <button
-          onClick={onClick}
-          style={{
-            marginTop: "10px",
-            background: "transparent",
-            border: `1px solid ${color}`,
-            color: color,
-            padding: "4px 8px",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontSize: "12px",
-            fontWeight: "bold",
-            alignSelf: "flex-start",
-          }}
-        >
-          Ver Lista ➜
-        </button>
-      )}
-    </div>
-  );
-
-  // Formatação customizada para o Tooltip do gráfico
-  const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
-    if (active && payload && payload.length) {
-      return (
-        <div
-          style={{
-            background: theme.panelBg,
-            border: `1px solid ${theme.border}`,
-            padding: "10px",
-            borderRadius: "4px",
-            boxShadow: "0 2px 10px rgba(0,0,0,0.2)",
-          }}
-        >
-          <p
-            style={{ fontWeight: "bold", marginBottom: 5 }}
-          >{`Data: ${label}`}</p>
-          {payload.map((p) => (
-            <p key={p.name} style={{ color: p.color, fontSize: 12 }}>
-              {p.name}: {p.value}
-            </p>
-          ))}
-        </div>
-      );
-    }
-    return null;
+    // Tabela aproximada de bitolas MSG para mm
+    if (t >= 0.55 && t <= 0.65) return `#24 (${thickness}mm)`;
+    if (t >= 0.70 && t <= 0.80) return `#22 (${thickness}mm)`;
+    if (t >= 0.85 && t <= 0.95) return `#20 (${thickness}mm)`;
+    if (t >= 1.15 && t <= 1.25) return `#18 (${thickness}mm)`;
+    if (t >= 1.45 && t <= 1.55) return `#16 (${thickness}mm)`;
+    if (t >= 1.85 && t <= 2.05) return `#14 (${thickness}mm)`;
+    if (t >= 2.60 && t <= 2.70) return `#12 (${thickness}mm)`;
+    
+    return `${thickness}mm`;
   };
 
   return (
-    <div style={containerStyle}>
-      {/* HEADER */}
-      <div style={headerStyle}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: "24px" }}>Dashboard</h1>
-          <span style={{ fontSize: "13px", color: theme.label }}>
-            Visão geral da produção
-          </span>
+    <div style={mainContainerStyle}>
+      {/* HEADER FIXO */}
+      <div
+        style={{
+          padding: "15px 40px",
+          background: theme.headerBg,
+          borderBottom: `1px solid ${theme.border}`,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexShrink: 0,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: "22px" }}>Dashboard</h1>
+            <p style={{ color: theme.label, margin: 0, fontSize: "12px" }}>
+              Visão Geral
+            </p>
+          </div>
+
+          <div style={{ display: "flex", gap: "5px", marginLeft: "20px", borderLeft: `1px solid ${theme.border}`, paddingLeft: "20px" }}>
+             <button onClick={() => onNavigate("home")} style={{...navButtonStyle, color: "#007bff"}}>🏠 Home</button>
+             <button onClick={() => onNavigate("engineering")} style={navButtonStyle}>🛠️ Engenharia</button>
+             <button onClick={() => onNavigate("nesting")} style={navButtonStyle}>🧩 Nesting</button>
+          </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          {/* --- BOTÕES DE NAVEGAÇÃO --- */}
-          <div
-            style={{
-              display: "flex",
-              gap: "5px",
-              paddingRight: "15px",
-              marginRight: "5px",
-              borderRight: `1px solid ${theme.border}`,
-            }}
-          >
-            <NavButton
-              onClick={() => onNavigate("home")}
-              title="Ir para Home"
-              theme={theme}
-              icon={
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-                  <polyline points="9 22 9 12 15 12 15 22"></polyline>
-                </svg>
-              }
-            />
-            <NavButton
-              onClick={() => onNavigate("engineering")}
-              title="Ir para Engenharia (Peças)"
-              theme={theme}
-              icon={
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
-                </svg>
-              }
-            />
-            <NavButton
-              onClick={() => onNavigate("nesting")}
-              title="Ir para Nesting (Mesa de Corte)"
-              theme={theme}
-              icon={
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="3" y="3" width="7" height="7"></rect>
-                  <rect x="14" y="3" width="7" height="7"></rect>
-                  <rect x="14" y="14" width="7" height="7"></rect>
-                  <rect x="3" y="14" width="7" height="7"></rect>
-                </svg>
-              }
-            />
-          </div>
-          {/* ----------------------------------- */}
-
-          {/* Filtros de Data */}
-          <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-            <span style={{ fontSize: 12, fontWeight: "bold" }}>De:</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
+          <div style={{ display: "flex", gap: "10px" }}>
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              style={inputDateStyle}
+              style={{ padding: "6px", borderRadius: "4px", background: theme.inputBg, color: theme.text, border: `1px solid ${theme.border}` }}
             />
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-            <span style={{ fontSize: 12, fontWeight: "bold" }}>Até:</span>
             <input
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              style={inputDateStyle}
+              style={{ padding: "6px", borderRadius: "4px", background: theme.inputBg, color: theme.text, border: `1px solid ${theme.border}` }}
             />
           </div>
-
-          <div
-            style={{
-              width: 1,
-              height: 24,
-              background: theme.border,
-              margin: "0 5px",
-            }}
-          />
-
-          <SidebarMenu
-            onNavigate={onNavigate}
-            onOpenProfile={() => {}}
-            onOpenTeam={onOpenTeam}
-          />
+          <SidebarMenu onNavigate={onNavigate} onOpenProfile={() => {}} onOpenTeam={onOpenTeam} />
         </div>
       </div>
 
-      {loading ? (
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-          }}
-        >
-          <p>Carregando estatísticas...</p>
-        </div>
-      ) : (
-        <>
-          {/* KPI CARDS */}
-          <div style={cardContainerStyle}>
-            <KPICard
-              title="Pedidos Processados"
-              value={data?.kpis.pedidos || 0}
-              unit="ped"
-              color="#e83e8c"
-              icon={
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                  <polyline points="14 2 14 8 20 8"></polyline>
-                  <line x1="16" y1="13" x2="8" y2="13"></line>
-                  <line x1="16" y1="17" x2="8" y2="17"></line>
-                  <polyline points="10 9 9 9 8 9"></polyline>
-                </svg>
-              }
-              onClick={() => setIsPedidosModalOpen(true)}
-            />
-
-            <KPICard
-              title="Peso Total"
-              value={
-                data?.kpis.peso.toLocaleString("pt-BR", {
-                  maximumFractionDigits: 1,
-                }) || "0"
-              }
-              unit="kg"
-              color="#007bff"
-              icon={
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                </svg>
-              }
-            />
-            <KPICard
-              title="Área Cortada"
-              value={
-                data?.kpis.area.toLocaleString("pt-BR", {
-                  maximumFractionDigits: 1,
-                }) || "0"
-              }
-              unit="m²"
-              color="#28a745"
-              icon={
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                </svg>
-              }
-            />
-            <KPICard
-              title="Eficiência Global"
-              value={data?.kpis.eficiencia.toFixed(1) || "0"}
-              unit="%"
-              color="#ffc107"
-              icon={
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <circle cx="12" cy="12" r="10"></circle>
-                  <polyline points="12 6 12 12 16 14"></polyline>
-                </svg>
-              }
-            />
-            <KPICard
-              title="Peças Produzidas"
-              value={data?.kpis.pecas || 0}
-              unit="und"
-              color="#6f42c1"
-              icon={
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
-                  <line x1="7" y1="7" x2="7.01" y2="7"></line>
-                </svg>
-              }
-            />
-          </div>
-
-          <div style={sectionGridStyle}>
-            {/* GRÁFICO 1: EVOLUÇÃO */}
-            <div style={contentCardStyle}>
-              <h3 style={{ margin: "0 0 20px 0", fontSize: "16px" }}>
-                📈 Evolução Diária (Eficiência vs Chapas)
-              </h3>
-              <div style={{ flex: 1, width: "100%", minHeight: "300px" }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart
-                    data={data?.charts.evolucao}
-                    margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
-                  >
-                    <defs>
-                      <linearGradient
-                        id="colorEficiencia"
-                        x1="0"
-                        y1="0"
-                        x2="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="5%"
-                          stopColor="#8884d8"
-                          stopOpacity={0.8}
-                        />
-                        <stop
-                          offset="95%"
-                          stopColor="#8884d8"
-                          stopOpacity={0}
-                        />
-                      </linearGradient>
-                      <linearGradient
-                        id="colorChapas"
-                        x1="0"
-                        y1="0"
-                        x2="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="5%"
-                          stopColor="#82ca9d"
-                          stopOpacity={0.8}
-                        />
-                        <stop
-                          offset="95%"
-                          stopColor="#82ca9d"
-                          stopOpacity={0}
-                        />
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="data" stroke={theme.label} fontSize={12} />
-                    <YAxis stroke={theme.label} fontSize={12} />
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke={theme.border}
-                    />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Legend />
-                    <Area
-                      type="monotone"
-                      dataKey="eficiencia"
-                      name="Eficiência (%)"
-                      stroke="#8884d8"
-                      fillOpacity={1}
-                      fill="url(#colorEficiencia)"
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="chapas"
-                      name="Qtd Chapas"
-                      stroke="#82ca9d"
-                      fillOpacity={1}
-                      fill="url(#colorChapas)"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
+      {/* CORPO COM SCROLL */}
+      <div style={scrollableContentStyle}>
+        {loading ? (
+          <div style={{ padding: "100px", textAlign: "center" }}>Carregando estatísticas...</div>
+        ) : (
+          data && (
+            <>
+              {/* KPIs */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "20px", marginBottom: "30px" }}>
+                <div style={{ ...kpiCardStyle, borderLeft: "6px solid #007bff" }}>
+                  <span style={{ fontSize: "14px", color: theme.label }}>Entrada (Engenharia)</span>
+                  <h2 style={{ fontSize: "32px", margin: "5px 0" }}>{data.resumo.totalEntrada} <small style={{ fontSize: "14px", fontWeight: "normal" }}>pedidos</small></h2>
+                </div>
+                <div style={{ ...kpiCardStyle, borderLeft: "6px solid #28a745" }}>
+                  <span style={{ fontSize: "14px", color: theme.label }}>Saída (Nesting)</span>
+                  <h2 style={{ fontSize: "32px", margin: "5px 0" }}>{data.resumo.totalSaida} <small style={{ fontSize: "14px", fontWeight: "normal" }}>pedidos</small></h2>
+                </div>
+                <div style={{ ...kpiCardStyle, borderLeft: `6px solid ${data.resumo.saldo >= 0 ? "#ffc107" : "#dc3545"}` }}>
+                  <span style={{ fontSize: "14px", color: theme.label }}>Saldo em Aberto</span>
+                  <h2 style={{ fontSize: "32px", margin: "5px 0" }}>{data.resumo.saldo}</h2>
+                </div>
               </div>
-            </div>
 
-            {/* GRÁFICO 2: RANKING USUÁRIOS */}
-            <div style={contentCardStyle}>
-              <h3 style={{ margin: "0 0 20px 0", fontSize: "16px" }}>
-                🏆 Produção por Usuário
-              </h3>
-              <div style={{ flex: 1, width: "100%", minHeight: "300px" }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={data?.breakdown.usuarios}
-                    layout="vertical"
-                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                  >
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke={theme.border}
-                    />
-                    <XAxis type="number" stroke={theme.label} fontSize={12} />
-                    <YAxis
-                      dataKey="nome"
-                      type="category"
-                      stroke={theme.label}
-                      fontSize={12}
-                      width={100}
-                    />
-                    <Tooltip
-                      cursor={{ fill: theme.hoverRow }}
-                      contentStyle={{
-                        background: theme.panelBg,
-                        border: `1px solid ${theme.border}`,
-                      }}
-                    />
-                    <Bar
-                      dataKey="chapas_processadas"
-                      name="Chapas"
-                      fill="#007bff"
-                      radius={[0, 4, 4, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
+              {/* GRÁFICOS */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(450px, 1fr))", gap: "20px", marginBottom: "30px" }}>
+                <div style={cardStyle}>
+                  <h3 style={{ marginBottom: "20px", fontSize: "16px" }}>Produtividade: Entrada por Usuário</h3>
+                  <div style={{ width: "100%", height: "300px" }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={data.engenharia}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme.border} />
+                        <XAxis dataKey="usuario" stroke={theme.text} fontSize={11} />
+                        <YAxis stroke={theme.text} fontSize={11} />
+                        <Tooltip contentStyle={{ background: theme.panelBg, border: `1px solid ${theme.border}` }} />
+                        <Bar dataKey="qtd_pedidos_entrada" name="Pedidos" fill="#007bff" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div style={cardStyle}>
+                  <h3 style={{ marginBottom: "20px", fontSize: "16px" }}>Produtividade: Nesting por Usuário</h3>
+                  <div style={{ width: "100%", height: "300px" }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={data.producao}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme.border} />
+                        <XAxis dataKey="usuario" stroke={theme.text} fontSize={11} />
+                        <YAxis yAxisId="left" stroke={theme.text} fontSize={11} />
+                        <YAxis yAxisId="right" orientation="right" stroke="#ffc107" fontSize={11} />
+                        <Tooltip contentStyle={{ background: theme.panelBg, border: `1px solid ${theme.border}` }} />
+                        <Legend wrapperStyle={{ fontSize: "12px" }} />
+                        <Bar yAxisId="left" dataKey="qtd_pedidos_processados" name="Pedidos" fill="#28a745" radius={[4, 4, 0, 0]} />
+                        <Line yAxisId="right" type="monotone" dataKey="eficiencia_media" name="Efic. %" stroke="#ffc107" strokeWidth={3} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
 
-          {/* TABELA DE MATERIAIS */}
-          <div style={{ padding: "0 40px 40px 40px" }}>
-            <div style={contentCardStyle}>
-              <h3 style={{ margin: "0 0 10px 0", fontSize: "16px" }}>
-                📦 Consumo de Chapas (Material x Espessura)
-              </h3>
-              <div style={{ overflowX: "auto" }}>
-                <table style={tableStyle}>
-                  <thead>
-                    <tr>
-                      <th style={thStyle}>Material</th>
-                      <th style={thStyle}>Espessura</th>
-                      <th style={thStyle}>Quantidade de Chapas</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data?.breakdown.materiais.map((item, index) => (
-                      <tr key={index}>
-                        <td style={tdStyle}>{item.material}</td>
-                        <td style={tdStyle}>{item.espessura}</td>
-                        <td style={{ ...tdStyle, fontWeight: "bold" }}>
-                          {item.qtd_chapas}
-                        </td>
-                      </tr>
-                    ))}
-                    {data?.breakdown.materiais.length === 0 && (
-                      <tr>
-                        <td
-                          colSpan={3}
-                          style={{
-                            ...tdStyle,
-                            textAlign: "center",
-                            opacity: 0.6,
-                            padding: "20px",
-                          }}
+              {/* BLOCO 3: RELATÓRIO DE CHAPAS CONSUMIDAS (ATUALIZADO) */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "20px", marginBottom: "30px" }}>
+                
+                {/* GRÁFICO DE PIZZA (RESUMO POR MATERIAL) */}
+                <div style={cardStyle}>
+                  <h3 style={{ fontSize: "16px", marginBottom: "10px" }}>Materiais mais Usados (Qtd Chapas)</h3>
+                  <div style={{ width: "100%", height: "300px" }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={data.estudoConsumo}
+                          dataKey="total_chapas"
+                          nameKey="material"
+                          cx="50%"
+                          cy="50%"
+                          outerRadius={80}
+                          label={({ payload }) => payload.material}
                         >
-                          Nenhum registro no período.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+                          {data.estudoConsumo.map((_, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
 
-          {/* MODAL DE LISTA DE PEDIDOS */}
-          {isPedidosModalOpen && (
-            <div
-              style={{
-                position: "fixed",
-                top: 0,
-                left: 0,
-                width: "100%",
-                height: "100%",
-                backgroundColor: "rgba(0,0,0,0.7)",
-                zIndex: 9999,
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-              }}
-              onClick={() => setIsPedidosModalOpen(false)}
-            >
-              <div
-                style={{
-                  background: theme.panelBg,
-                  width: "600px",
-                  maxHeight: "80vh",
-                  borderRadius: "8px",
-                  display: "flex",
-                  flexDirection: "column",
-                  border: `1px solid ${theme.border}`,
-                  boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div
-                  style={{
-                    padding: "20px",
-                    borderBottom: `1px solid ${theme.border}`,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <h2 style={{ margin: 0, fontSize: "18px" }}>
-                    📋 Pedidos Processados
-                  </h2>
-                  <button
-                    onClick={() => setIsPedidosModalOpen(false)}
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      color: theme.text,
-                      fontSize: "20px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
-                <div style={{ overflowY: "auto", padding: "20px" }}>
-                  <table style={tableStyle}>
-                    <thead>
-                      <tr>
-                        <th style={thStyle}>Pedido</th>
-                        <th style={thStyle}>Chapas Geradas</th>
-                        <th style={thStyle}>Último Processamento</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data?.breakdown.listaPedidos.map((ped, idx) => (
-                        <tr key={idx}>
-                          <td style={{ ...tdStyle, fontWeight: "bold" }}>
-                            {ped.pedido}
-                          </td>
-                          <td style={tdStyle}>{ped.chapas_envolvidas}</td>
-                          <td style={tdStyle}>
-                            {new Date(ped.ultima_producao).toLocaleString()}
-                          </td>
+                {/* TABELA DETALHADA */}
+                <div style={{ ...cardStyle, height: "auto", minHeight: "420px" }}>
+                  <h3 style={{ fontSize: "16px", marginBottom: "15px" }}>Relação de Chapas Consumidas</h3>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+                      <thead>
+                        <tr style={{ textAlign: "left", color: theme.label, borderBottom: `1px solid ${theme.border}` }}>
+                          <th style={{ padding: "10px" }}>Material / Bitola</th>
+                          <th style={{ padding: "10px" }}>Dimensão (mm)</th>
+                          <th style={{ padding: "10px" }}>Qtd</th>
+                          <th style={{ padding: "10px" }}>Aprov.</th>
+                          <th style={{ padding: "10px" }}>Consumo</th>
+                          <th style={{ padding: "10px" }}>Status</th>
                         </tr>
-                      ))}
-                      {(!data?.breakdown.listaPedidos ||
-                        data.breakdown.listaPedidos.length === 0) && (
-                        <tr>
-                          <td
-                            colSpan={3}
-                            style={{ ...tdStyle, textAlign: "center" }}
-                          >
-                            Nenhum pedido encontrado.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {data.estudoConsumo.map((item, idx) => (
+                          <tr key={idx} style={{ borderBottom: `1px solid ${theme.border}` }}>
+                            {/* Material e Espessura */}
+                            <td style={{ padding: "12px" }}>
+                              <div style={{ fontWeight: "bold" }}>{item.material}</div>
+                              <small style={{ opacity: 0.7 }}>{getGaugeLabel(item.espessura)}</small>
+                            </td>
+
+                            {/* Dimensão da Chapa (Novo) */}
+                            <td style={{ padding: "12px" }}>
+                               {item.largura_chapa} x {item.altura_chapa}
+                            </td>
+
+                            {/* Quantidade */}
+                            <td style={{ padding: "12px", fontWeight: "bold" }}>
+                                {item.total_chapas}
+                            </td>
+
+                            {/* Aproveitamento Global */}
+                            <td style={{ fontWeight: "bold", color: item.avg_aproveitamento > 80 ? "#28a745" : "#ffc107" }}>
+                              {Number(item.avg_aproveitamento).toFixed(1)}%
+                            </td>
+
+                            {/* Consumo da Chapa (Novo) */}
+                            <td style={{ fontWeight: "bold", color: theme.text }}>
+                               {item.avg_consumo ? Number(item.avg_consumo).toFixed(1) + "%" : "-"}
+                            </td>
+
+                            {/* Barra Visual */}
+                            <td>
+                              <div style={{ width: "60px", height: "6px", background: theme.border, borderRadius: "3px", overflow: "hidden" }}>
+                                <div style={{ width: `${Math.min(item.avg_aproveitamento, 100)}%`, height: "100%", background: item.avg_aproveitamento > 80 ? "#28a745" : "#ffc107" }} />
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-        </>
-      )}
+            </>
+          )
+        )}
+      </div>
     </div>
   );
 };

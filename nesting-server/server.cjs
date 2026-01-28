@@ -38,38 +38,6 @@ const JWT_SECRET =
   process.env.JWT_SECRET || "segredo-super-secreto-do-nesting-app";
 
 // ==========================================================
-// MIDDLEWARE DE AUTENTICAÇÃO (Melhorado para Debug)
-// ==========================================================
-// function authenticateToken(req, res, next) {
-//   const authHeader = req.headers["authorization"];
-//   // O formato esperado é "Bearer <TOKEN>"
-//   const token = authHeader && authHeader.split(" ")[1];
-
-//   if (token == null) {
-//     console.log(
-//       "❌ DEBUG AUTH: Token não fornecido ou cabeçalho mal formatado."
-//     );
-//     console.log("   Header recebido:", authHeader);
-//     return res.sendStatus(401);
-//   }
-
-//   jwt.verify(token, JWT_SECRET, (err, user) => {
-//     if (err) {
-//       // ESTE LOG VAI TE MOSTRAR O MOTIVO DO LOOP:
-//       console.log("🚫 DEBUG AUTH: Token rejeitado.");
-//       console.log("   Motivo:", err.message); // Ex: "jwt expired", "invalid signature"
-
-//       // Dica: Se o erro for "jwt malformed", o frontend está mandando lixo.
-//       // Dica: Se for "invalid signature", o JWT_SECRET mudou entre o login e agora.
-//       return res.sendStatus(403);
-//     }
-
-//     req.user = user;
-//     next();
-//   });
-// }
-
-// ==========================================================
 // MIDDLEWARE DE AUTENTICAÇÃO (Versão Diagnóstico Anti-Looping)
 // ==========================================================
 function authenticateToken(req, res, next) {
@@ -514,7 +482,7 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
       VALUES ? `;
 
     const values = parts.map((p) => [
-      p.id,
+      crypto.randomUUID(),
       usuarioId,
       empresaId,
       p.name,
@@ -540,6 +508,15 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
       .json({ message: "Peças salvas!", count: result.affectedRows });
   } catch (error) {
     console.error(error);
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        error: "Duplicidade Detectada!",
+        message:
+          "Esta peça já existe neste pedido com este mesmo Tipo de Produção. Altere o tipo para salvar novamente.",
+      });
+    }
+    // ---------------------
+
     res.status(500).json({ error: "Erro interno." });
   }
 });
@@ -690,131 +667,109 @@ app.get("/api/subscription/status", authenticateToken, async (req, res) => {
 // 6. ROTAS DE DASHBOARD (ATUALIZADO)
 // ==========================================
 
+// [server.cjs] - Atualização da rota /api/dashboard/stats
+
 app.get("/api/dashboard/stats", authenticateToken, async (req, res) => {
   const empresaId = req.user.empresa_id;
   const { startDate, endDate } = req.query;
 
-  // Filtro de data personalizado (YYYY-MM-DD)
-  // Adicionamos ' 00:00:00' e ' 23:59:59' para pegar o dia todo
-  let dateFilter = "";
+  let dateFilterProducao = "";
+  let dateFilterEngenharia = "";
   const params = [empresaId];
 
+  // Configura os filtros de data
   if (startDate && endDate) {
-    dateFilter = "AND h.data_producao BETWEEN ? AND ?";
-    params.push(`${startDate} 00:00:00`, `${endDate} 23:59:59`);
+    const start = `${startDate} 00:00:00`;
+    const end = `${endDate} 23:59:59`;
+    dateFilterProducao = "AND h.data_producao BETWEEN ? AND ?";
+    dateFilterEngenharia = "AND pe.data_cadastro BETWEEN ? AND ?";
+    params.push(start, end);
   } else {
-    // Fallback: Últimos 30 dias se não informar data
-    dateFilter = "AND h.data_producao >= DATE_SUB(NOW(), INTERVAL 30 DAY)";
+    dateFilterProducao =
+      "AND h.data_producao >= DATE_SUB(NOW(), INTERVAL 30 DAY)";
+    dateFilterEngenharia =
+      "AND pe.data_cadastro >= DATE_SUB(NOW(), INTERVAL 30 DAY)";
   }
 
   try {
     const connection = await db.getConnection();
 
-    // 1. KPIs Gerais (Incluindo contagem de Pedidos Únicos)
-    // Precisamos fazer JOIN até pecas_engenharia para ler o campo 'pedido'
-    const kpiQuery = `
+    // 1. ENTRADA NA ENGENHARIA
+    const engenhariaQuery = `
       SELECT 
-        COUNT(DISTINCT h.id) as total_chapas,
-        COALESCE(AVG(h.aproveitamento), 0) as media_aproveitamento,
-        COALESCE(SUM((h.largura_chapa * h.altura_chapa * h.espessura * h.densidade) / 1000000), 0) as peso_total_kg,
-        COALESCE(SUM((h.largura_chapa * h.altura_chapa) / 1000000), 0) as area_total_m2,
-        COUNT(DISTINCT pe.pedido) as total_pedidos_unicos
-      FROM producao_historico h
-      LEFT JOIN producao_itens pi ON h.id = pi.producao_id
-      LEFT JOIN pecas_engenharia pe ON pi.peca_original_id = pe.id
-      WHERE h.empresa_id = ? ${dateFilter}
+        u.nome as usuario,
+        COUNT(DISTINCT pe.pedido) as qtd_pedidos_entrada,
+        COUNT(*) as qtd_pecas_entrada
+      FROM pecas_engenharia pe
+      JOIN usuarios u ON pe.usuario_id = u.id
+      WHERE pe.empresa_id = ? ${dateFilterEngenharia}
+      GROUP BY u.nome
     `;
 
-    // 2. Total de Peças (Unitário)
-    const partesQuery = `
-      SELECT COALESCE(SUM(i.quantidade), 0) as total_pecas
-      FROM producao_itens i
-      JOIN producao_historico h ON i.producao_id = h.id
-      WHERE h.empresa_id = ? ${dateFilter}
-    `;
-
-    // 3. Uso de Chapas por Material e Espessura
-    const matEspQuery = `
+    // 2. PROCESSADOS NO NESTING
+    const processadosQuery = `
       SELECT 
-        material, 
-        espessura, 
-        COUNT(*) as qtd_chapas
-      FROM producao_historico h
-      WHERE h.empresa_id = ? ${dateFilter}
-      GROUP BY material, espessura
-      ORDER BY material ASC, espessura ASC
-    `;
-
-    // 4. Produção por Usuário (Quem processou?)
-    const userQuery = `
-      SELECT 
-        u.nome, 
-        COUNT(*) as chapas_processadas
+        u.nome as usuario,
+        COUNT(DISTINCT pe.pedido) as qtd_pedidos_processados,
+        COUNT(DISTINCT h.id) as qtd_chapas_geradas,
+        AVG(h.aproveitamento) as eficiencia_media,
+        AVG(h.consumo_chapa) as consumo_medio
       FROM producao_historico h
       JOIN usuarios u ON h.usuario_id = u.id
-      WHERE h.empresa_id = ? ${dateFilter}
+      LEFT JOIN producao_itens pi ON h.id = pi.producao_id
+      LEFT JOIN pecas_engenharia pe ON pi.peca_original_id = pe.id
+      WHERE h.empresa_id = ? ${dateFilterProducao}
       GROUP BY u.nome
-      ORDER BY chapas_processadas DESC
     `;
 
-    // 5. Lista Detalhada de Pedidos (Para o Modal)
-    const pedidosListQuery = `
-      SELECT DISTINCT 
-        pe.pedido, 
-        COUNT(DISTINCT h.id) as chapas_envolvidas,
-        MAX(h.data_producao) as ultima_producao
-      FROM producao_historico h
-      JOIN producao_itens pi ON h.id = pi.producao_id
-      JOIN pecas_engenharia pe ON pi.peca_original_id = pe.id
-      WHERE h.empresa_id = ? ${dateFilter} AND pe.pedido IS NOT NULL AND pe.pedido != ''
-      GROUP BY pe.pedido
-      ORDER BY ultima_producao DESC
-    `;
-
-    // Execução em Paralelo (Note que reutilizamos 'params' onde o filtro é igual)
-    const [kpiRows] = await connection.query(kpiQuery, params);
-    const [partesRows] = await connection.query(partesQuery, params);
-    const [matEspRows] = await connection.query(matEspQuery, params);
-    const [userRows] = await connection.query(userQuery, params);
-    const [pedidosRows] = await connection.query(pedidosListQuery, params);
-
-    // Gráfico de Evolução (Mantido simples)
-    const chartQuery = `
+    // 3. RELATÓRIO DE CHAPAS CONSUMIDAS (ATUALIZADO)
+    // Agora agrupamos também por Largura e Altura
+    const consumoQuery = `
       SELECT 
-        DATE_FORMAT(data_producao, '%d/%m') as data, 
-        COUNT(*) as chapas, 
-        AVG(aproveitamento) as eficiencia
+        material, 
+        espessura,
+        largura_chapa,
+        altura_chapa,
+        COUNT(*) as total_chapas,
+        AVG(aproveitamento) as avg_aproveitamento,
+        AVG(consumo_chapa) as avg_consumo,
+        SUM(area_retalho) as total_retalho_m2
       FROM producao_historico h
-      WHERE h.empresa_id = ?
-      ${dateFilter}
-      GROUP BY DATE_FORMAT(data_producao, '%d/%m') 
-      ORDER BY MIN(data_producao) ASC
+      WHERE h.empresa_id = ? ${dateFilterProducao}
+      GROUP BY material, espessura, largura_chapa, altura_chapa
+      ORDER BY material ASC, espessura ASC, total_chapas DESC
     `;
-    const [chartRows] = await connection.query(chartQuery, params);
+
+    // Executa em paralelo
+    const [rowsEngenharia] = await connection.query(engenhariaQuery, params);
+    const [rowsProcessados] = await connection.query(processadosQuery, params);
+    const [rowsConsumo] = await connection.query(consumoQuery, params);
+
+    // 4. SALDO
+    const totalEntrada = rowsEngenharia.reduce(
+      (acc, curr) => acc + curr.qtd_pedidos_entrada,
+      0,
+    );
+    const totalSaida = rowsProcessados.reduce(
+      (acc, curr) => acc + curr.qtd_pedidos_processados,
+      0,
+    );
 
     connection.release();
 
     res.json({
-      kpis: {
-        chapas: kpiRows[0].total_chapas,
-        eficiencia: Number(kpiRows[0].media_aproveitamento),
-        peso: Number(kpiRows[0].peso_total_kg),
-        area: Number(kpiRows[0].area_total_m2),
-        pecas: partesRows[0].total_pecas,
-        pedidos: kpiRows[0].total_pedidos_unicos, // NOVO
+      resumo: {
+        totalEntrada,
+        totalSaida,
+        saldo: totalEntrada - totalSaida,
       },
-      breakdown: {
-        materiais: matEspRows, // NOVO
-        usuarios: userRows, // NOVO
-        listaPedidos: pedidosRows, // NOVO
-      },
-      charts: {
-        evolucao: chartRows,
-      },
+      engenharia: rowsEngenharia,
+      producao: rowsProcessados,
+      estudoConsumo: rowsConsumo,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Erro ao carregar dashboard" });
+    console.error("Erro Dashboard:", error);
+    res.status(500).json({ error: "Erro ao processar métricas avançadas" });
   }
 });
 
@@ -853,7 +808,7 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
     );
     if (pecaRows.length > 0) {
       materialReal = pecaRows[0].material;
-      espessuraReal = parseFloat(pecaRows[0].espessura) || 0;
+      espessuraReal = pecaRows[0].espessura || "0";
     }
 
     // INSERT ATUALIZADO COM OS NOVOS CAMPOS
@@ -1076,6 +1031,54 @@ app.delete("/api/thicknesses/:id", authenticateToken, async (req, res) => {
     res.json({ message: "Removido" });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ROTA TEMPORÁRIA PARA CORRIGIR ESPESSURAS
+app.get("/api/fix-database", async (req, res) => {
+  try {
+    const connection = await db.getConnection();
+    
+    // 1. Busca todos os registros zerados vinculados à engenharia
+    const [rows] = await connection.query(`
+      SELECT ph.id, pe.espessura as texto_original 
+      FROM producao_historico ph
+      JOIN producao_itens pi ON ph.id = pi.producao_id
+      JOIN pecas_engenharia pe ON pi.peca_original_id = pe.id
+      WHERE ph.espessura = 0 OR ph.espessura = '0'
+    `);
+
+    let corrigidos = 0;
+
+    // 2. Processa um por um usando JavaScript
+    for (const row of rows) {
+      const texto = String(row.texto_original);
+      
+      // Regex que procura por "numero,numero" ou "numero.numero" (Ex: 0,60 ou 1.5)
+      // Ignora números inteiros isolados como o "24" de "Chapa #24"
+      const match = texto.match(/(\d+[.,]\d+)/);
+      
+      if (match) {
+        // Pega o valor encontrado (ex: "0,60"), troca vírgula por ponto e converte
+        const valorLimpo = parseFloat(match[0].replace(',', '.'));
+
+        if (!isNaN(valorLimpo) && valorLimpo > 0) {
+          await connection.query(
+            "UPDATE producao_historico SET espessura = ? WHERE id = ?",
+            [valorLimpo, row.id]
+          );
+          corrigidos++;
+        }
+      }
+    }
+
+    connection.release();
+    res.json({ message: `Processo finalizado. Registros corrigidos: ${corrigidos}` });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
   }
 });
 
