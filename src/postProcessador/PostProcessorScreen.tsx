@@ -540,7 +540,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   viewportStatus: {
     height: 25,
-    backgroundColor: "#007acc",
+    backgroundColor: "#444",
     color: "#fff",
     display: "flex",
     alignItems: "center",
