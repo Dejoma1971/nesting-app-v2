@@ -1553,7 +1553,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   part.tipo_producao !== "NORMAL" &&
                   part.tipo_producao !== "EDITAR_CADASTRO"; // <--- ADICIONE ESTA LINHA
 
-                const textColor = isRetrabalho ? "#f81010ff" : "inherit";
+                const textColor = isRetrabalho ? "theme.text" : "inherit";
 
                 // Ajustar background para destacar apenas retrabalhos reais
                 const rowBackground = isSelected
