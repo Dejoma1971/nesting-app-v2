@@ -671,6 +671,23 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
   }, [isSearchModalOpen, user]);
 
+  // Adicione isso junto com os outros useEffects
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Tenta enviar um sinal de desbloqueio ao fechar a aba
+      if (user && user.token) {
+        const url = "http://localhost:3001/api/pedidos/unlock";
+        const data = JSON.stringify({});
+        const blob = new Blob([data], { type: "application/json" });
+        // Navigator.sendBeacon é mais confiável para eventos de fechamento de aba
+        navigator.sendBeacon(url, blob);
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [user]);
+
   // Efeito para carregar a lista quando o modal abrir
   useEffect(() => {
     if (isSearchModalOpen && user?.token) {
@@ -1101,6 +1118,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 espessura: item.espessura,
                 autor: item.autor,
                 dataCadastro: item.dataCadastro,
+                isRotationLocked: item.isRotationLocked,
               }));
               setParts(dbParts);
             }
@@ -1576,7 +1594,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               Authorization: `Bearer ${user.token}`,
             },
             // Body vazio = Desbloqueia TUDO que estiver preso no meu nome
-            body: JSON.stringify({}), 
+            body: JSON.stringify({}),
           });
           console.log("🔓 Pedidos liberados com sucesso.");
         } catch (error) {
@@ -1597,7 +1615,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       resetProduction();
       resetAllSaveStatus();
       if (setCropLines) setCropLines([]);
-      
+
       // Limpa seleções do modal também, por garantia
       setSelectedOps([]);
     }
@@ -1643,29 +1661,43 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   );
   // ⬆️ -------------------------------------- ⬆️
 
-  // --- NOVA FUNÇÃO: Navegação Segura para Home ---
-  const handleSafeHomeExit = useCallback(() => {
-    // Verifica se tem "trabalho na mesa" (Peças carregadas ou Nesting feito)
+ // --- NOVA FUNÇÃO: Navegação Segura para Home (COM DESBLOQUEIO) ---
+  const handleSafeHomeExit = useCallback(async () => {
     const hasWorkInProgress = parts.length > 0 || nestingResult.length > 0;
 
-    if (hasWorkInProgress) {
-      const confirmExit = window.confirm(
-        "Atenção: Você tem um trabalho em andamento não salvo.\n\nSe sair agora, o progresso será perdido. Deseja continuar?",
-      );
-
-      if (confirmExit) {
-        clearSavedState(); // Limpa o cache explicitamente
-        if (onNavigate) onNavigate("home");
-        else if (onBack) onBack();
+    const performExit = async () => {
+      // 1. Tenta liberar o pedido no banco (sem travar a UI)
+      if (user && user.token) {
+        try {
+          // Usa sendBeacon se possível para garantir envio ao fechar, ou fetch normal
+          // Aqui usaremos fetch para manter padrão, mas 'no-await' para não segurar demais
+           await fetch("http://localhost:3001/api/pedidos/unlock", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${user.token}`,
+            },
+            body: JSON.stringify({}), // Body vazio libera TUDO do usuário
+          });
+        } catch (err) {
+          console.error("Erro ao liberar pedidos na saída:", err);
+        }
       }
-      // Se cancelar, não faz nada (fica na tela e mantem o cache)
-    } else {
-      // Se não tem trabalho, limpa e sai direto
+
+      // 2. Limpa e navega
       clearSavedState();
       if (onNavigate) onNavigate("home");
       else if (onBack) onBack();
+    };
+
+    if (hasWorkInProgress) {
+      if (window.confirm("Atenção: Você tem um trabalho em andamento.\n\nSe sair agora, o pedido será liberado e o progresso não salvo será perdido. Continuar?")) {
+        await performExit();
+      }
+    } else {
+      await performExit();
     }
-  }, [parts.length, nestingResult.length, clearSavedState, onNavigate, onBack]);
+  }, [parts.length, nestingResult.length, clearSavedState, onNavigate, onBack, user]);
 
   // Função para o botão do Menu de Contexto
   const handleContextDelete = useCallback(() => {
@@ -1680,7 +1712,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     if (!searchQuery) return;
     // SEGURANÇA: Bloqueia busca sem login
     if (!user || !user.token) {
-      alert("Erro de segurança: Você precisa estar logado para buscar no banco.");
+      alert(
+        "Erro de segurança: Você precisa estar logado para buscar no banco.",
+      );
       return;
     }
 
@@ -1689,28 +1723,31 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       // =================================================================
       // 1. INSERIR ESTE BLOCO NOVO AQUI (ANTES DE MONTAR OS PARAMS)
       // =================================================================
-      const lockResponse = await fetch("http://localhost:3001/api/pedidos/lock", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${user.token}`,
+      const lockResponse = await fetch(
+        "http://localhost:3001/api/pedidos/lock",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${user.token}`,
+          },
+          body: JSON.stringify({
+            pedido: searchQuery,
+            op: selectedOps.length > 0 ? selectedOps : undefined,
+          }),
         },
-        body: JSON.stringify({
-          pedido: searchQuery,
-          op: selectedOps.length > 0 ? selectedOps : undefined 
-        })
-      });
+      );
 
       // --- AQUI ESTÁ A CORREÇÃO DO RETURN ---
       if (lockResponse.status === 409) {
         const errorData = await lockResponse.json();
-        
+
         // 1. Mostra o alerta
         alert(`🚫 PEDIDO BLOQUEADO:\n\n${errorData.message}`);
-        
+
         // 2. Para o loading
-        setIsSearching(false); 
-        
+        setIsSearching(false);
+
         // 3. O RETURN QUE CANCELA TUDO
         return; // <--- SE ESTIVER BLOQUEADO, O CÓDIGO PARA AQUI E NÃO EXECUTA O GET ABAIXO
       }
@@ -1718,15 +1755,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       if (!lockResponse.ok) throw new Error("Erro ao tentar reservar pedidos.");
       // =================================================================
 
-
       // DAQUI PARA BAIXO SEGUE O CÓDIGO QUE JÁ EXISTIA NO ARQUIVO [cite: 129]
       const params = new URLSearchParams();
       params.append("pedido", searchQuery);
-      
+
       if (selectedOps.length > 0) {
         params.append("op", selectedOps.join(","));
       }
-      
+
       const response = await fetch(
         `http://localhost:3001/api/pecas/buscar?${params.toString()}`,
         {
@@ -1743,11 +1779,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         setIsSearching(false);
         return;
       }
-      
+
       if (!response.ok) throw new Error("Erro ao buscar.");
-      
+
       const data = await response.json();
-      
+
       if (Array.isArray(data) && data.length > 0) {
         // ... (Mantenha o restante do seu código de mapeamento das peças igual ao original [cite: 135-142])
         const dbParts: ImportedPart[] = data.map((item: any) => ({
@@ -1758,7 +1794,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           width: Number(item.width),
           height: Number(item.height),
           grossArea: Number(item.grossArea),
-          netArea: calculatePartNetArea(item.entities) || Number(item.grossArea),
+          netArea:
+            calculatePartNetArea(item.entities) || Number(item.grossArea),
           quantity: Number(item.quantity) || 1,
           pedido: item.pedido,
           op: item.op,
@@ -1766,6 +1803,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           espessura: item.espessura,
           autor: item.autor,
           dataCadastro: item.dataCadastro,
+          isRotationLocked: item.isRotationLocked,
         }));
 
         if (searchMode === "replace") {
@@ -1794,7 +1832,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         setSearchQuery("");
         setIsSearchModalOpen(false);
         // Limpar seleção de OPs após importar
-        setSelectedOps([]); 
+        setSelectedOps([]);
       }
     } catch (err) {
       console.error(err);
