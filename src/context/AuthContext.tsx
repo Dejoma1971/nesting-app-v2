@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import type { ReactNode } from 'react';
 
 // Define a estrutura do Usuário
@@ -50,11 +50,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   // Função de Logout
-  const logout = () => {
+  // Função de Logout (Estabilizada com useCallback)
+  const logout = useCallback(async () => {
+    // 1. TENTA LIBERAR OS PEDIDOS NO SERVIDOR ANTES DE SAIR
+    if (user && user.token) {
+      try {
+        await fetch("http://localhost:3001/api/pedidos/unlock", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${user.token}`,
+          },
+          body: JSON.stringify({}),
+        });
+        console.log("🔓 Pedidos liberados com sucesso ao fazer logout.");
+      } catch (error) {
+        console.error("Erro silencioso ao tentar desbloquear no logout:", error);
+      }
+    }
+
+    // 2. LIMPEZA LOCAL
     setUser(null);
     localStorage.removeItem('autoNest_user');
     window.location.href = '/'; 
-  };
+  }, [user]); // <--- Dependência necessária para ler o token atual
 
   // --- NOVA FUNÇÃO: ATUALIZAR PERFIL SILENCIOSAMENTE ---
   const refreshProfile = async () => {
@@ -102,7 +121,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => {
       window.removeEventListener('auth:logout', handleSessionExpired);
     };
-  }, []);
+  }, [logout]);
 
   return (
     <AuthContext.Provider value={{ user, login, logout, refreshProfile, isAuthenticated: !!user, loading }}>

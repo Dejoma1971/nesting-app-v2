@@ -548,21 +548,32 @@ app.post(
   },
 );
 
-// --- BUSCAR PEÇAS ---
+// --- BUSCAR PEÇAS (COM FILTRO DE OP) ---
 app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
-  const { pedido } = req.query;
+  const { pedido, op } = req.query; // <--- Agora aceita 'op'
   const empresaId = req.user.empresa_id;
 
   if (!pedido) return res.status(400).json({ error: "Falta pedido." });
 
-  const pedidosArray = pedido
-    .split(",")
-    .map((p) => p.trim())
-    .filter(Boolean);
+  const pedidosArray = pedido.split(",").map((p) => p.trim()).filter(Boolean);
+  
+  // Tratamento das OPs (se vierem)
+  let opsArray = [];
+  if (op) {
+    opsArray = op.split(",").map((o) => o.trim()).filter(Boolean);
+  }
 
   try {
-    const sql = `SELECT * FROM pecas_engenharia WHERE pedido IN (?) AND empresa_id = ? AND status = 'AGUARDANDO'`;
-    const [rows] = await db.query(sql, [pedidosArray, empresaId]);
+    let sql = `SELECT * FROM pecas_engenharia WHERE pedido IN (?) AND empresa_id = ? AND status = 'AGUARDANDO'`;
+    const params = [pedidosArray, empresaId];
+
+    // Se o usuário selecionou OPs específicas, adicionamos o filtro
+    if (opsArray.length > 0) {
+      sql += ` AND op IN (?)`;
+      params.push(opsArray);
+    }
+
+    const [rows] = await db.query(sql, params);
 
     if (rows.length === 0)
       return res.status(404).json({ message: "Não encontrado" });
@@ -598,17 +609,202 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
   }
 });
 
-// --- LISTAR PEDIDOS DISPONÍVEIS ---
+// --- LISTAR PEDIDOS DISPONÍVEIS (COM BLOQUEIO E TIMEOUT) ---
 app.get("/api/pedidos/disponiveis", authenticateToken, async (req, res) => {
   const empresaId = req.user.empresa_id;
+  const usuarioId = req.user.id;
+  
+  // Tempo limite em minutos para considerar um bloqueio "expirado" (ex: 30 min)
+  const LOCK_TIMEOUT_MINUTES = 30;
+
   try {
-    const [rows] = await db.query(
-      "SELECT DISTINCT pedido FROM pecas_engenharia WHERE empresa_id = ? AND status = 'AGUARDANDO' AND pedido IS NOT NULL AND pedido != '' ORDER BY pedido DESC",
-      [empresaId],
-    );
-    res.json(rows.map((r) => r.pedido));
+    // 1. Buscamos Pedido, OP e dados de bloqueio + Nome do usuário que bloqueou
+    const sql = `
+      SELECT DISTINCT 
+        pe.pedido, 
+        pe.op, 
+        pe.locked_by, 
+        pe.locked_at,
+        u.nome as locker_name
+      FROM pecas_engenharia pe
+      LEFT JOIN usuarios u ON pe.locked_by = u.id
+      WHERE pe.empresa_id = ? 
+        AND pe.status = 'AGUARDANDO' 
+        AND pe.pedido IS NOT NULL 
+        AND pe.pedido != '' 
+      ORDER BY pe.pedido DESC, pe.op ASC
+    `;
+
+    const [rows] = await db.query(sql, [empresaId]);
+
+    // 2. Agrupamos e verificamos a validade do bloqueio
+    const mapaPedidos = {};
+    const now = new Date();
+
+    rows.forEach((row) => {
+      // Verifica se está bloqueado e se o bloqueio ainda é válido
+      let isLocked = false;
+      let lockedByInfo = null;
+
+      if (row.locked_by) {
+        const lockTime = new Date(row.locked_at);
+        const diffMinutes = (now - lockTime) / 1000 / 60;
+
+        // Se o bloqueio for recente (< 30 min), consideramos válido
+        if (diffMinutes < LOCK_TIMEOUT_MINUTES) {
+          // Se fui EU que bloqueiei, para mim aparece como disponível (ou marcado)
+          // Se foi OUTRO, aparece como bloqueado
+          if (row.locked_by !== usuarioId) {
+            isLocked = true;
+            lockedByInfo = row.locker_name || "Outro usuário";
+          }
+        }
+      }
+
+      if (!mapaPedidos[row.pedido]) {
+        mapaPedidos[row.pedido] = {
+          ops: new Set(),
+          // Se qualquer parte do pedido estiver bloqueada, marcamos o pedido como "com alertas"
+          // Mas aqui vamos focar na granularidade da OP
+        };
+      }
+
+      // Adicionamos a OP com seu status individual
+      if (row.op) {
+        mapaPedidos[row.pedido].ops.add(JSON.stringify({
+          name: row.op,
+          isLocked: isLocked,
+          lockedBy: lockedByInfo
+        }));
+      }
+    });
+
+    // 3. Convertemos para array final
+    const resultado = Object.keys(mapaPedidos).map((pedido) => {
+      const opsData = Array.from(mapaPedidos[pedido].ops).map(s => JSON.parse(s));
+      return {
+        pedido,
+        ops: opsData // Agora é uma lista de objetos: { name: "OP1", isLocked: true... }
+      };
+    });
+    
+    // Ordena
+    resultado.sort((a, b) => b.pedido.localeCompare(a.pedido, undefined, { numeric: true }));
+
+    res.json(resultado);
   } catch (error) {
+    console.error("Erro ao buscar pedidos:", error);
     res.status(500).json({ error: "Erro ao buscar pedidos." });
+  }
+});
+
+// --- BLOQUEAR (RESERVAR) PEDIDOS/OPS ---
+app.post("/api/pedidos/lock", authenticateToken, async (req, res) => {
+  const { pedido, op } = req.body; // Recebe string do pedido e string (ou array) de OPs
+  const usuarioId = req.user.id;
+  const empresaId = req.user.empresa_id;
+
+  if (!pedido) return res.status(400).json({ error: "Pedido obrigatório." });
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 1. Verifica se já existe algo bloqueado por OUTRA pessoa recentemente
+    let checkSql = `
+      SELECT locked_by, locked_at, u.nome 
+      FROM pecas_engenharia pe
+      LEFT JOIN usuarios u ON pe.locked_by = u.id
+      WHERE pe.empresa_id = ? 
+        AND pe.pedido = ?
+        AND pe.locked_by IS NOT NULL 
+        AND pe.locked_by != ?
+        AND pe.locked_at > DATE_SUB(NOW(), INTERVAL 30 MINUTE)
+    `;
+    
+    const params = [empresaId, pedido, usuarioId];
+    
+    // Se tiver OPs específicas, filtra também
+    let opsArray = [];
+    if (op) {
+        opsArray = Array.isArray(op) ? op : op.split(",").map(s => s.trim());
+        if (opsArray.length > 0) {
+            checkSql += ` AND pe.op IN (?)`;
+            params.push(opsArray);
+        }
+    }
+
+    const [lockedRows] = await connection.query(checkSql + " LIMIT 1", params);
+
+    if (lockedRows.length > 0) {
+      // JA ESTÁ BLOQUEADO!
+      await connection.rollback();
+      return res.status(409).json({ 
+        error: "Bloqueado", 
+        message: `Este pedido/OP está sendo usado por ${lockedRows[0].nome || 'outro usuário'} no momento.` 
+      });
+    }
+
+    // 2. Se está livre, realiza o BLOQUEIO (Update)
+    let updateSql = `
+      UPDATE pecas_engenharia 
+      SET locked_by = ?, locked_at = NOW()
+      WHERE empresa_id = ? AND pedido = ?
+    `;
+    const updateParams = [usuarioId, empresaId, pedido];
+
+    if (opsArray.length > 0) {
+      updateSql += ` AND op IN (?)`;
+      updateParams.push(opsArray);
+    }
+
+    await connection.query(updateSql, updateParams);
+
+    await connection.commit();
+    res.json({ message: "Reserva realizada com sucesso." });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error("Erro ao bloquear:", error);
+    res.status(500).json({ error: "Erro ao tentar reservar pedido." });
+  } finally {
+    connection.release();
+  }
+});
+
+// --- DESBLOQUEAR PEDIDOS ---
+app.post("/api/pedidos/unlock", authenticateToken, async (req, res) => {
+  const { pedido, op } = req.body;
+  const usuarioId = req.user.id;
+  const empresaId = req.user.empresa_id;
+
+  // Se não mandar pedido, desbloqueia TUDO desse usuário (útil para "Limpar Mesa" ou "Logout")
+  try {
+    let sql = `
+      UPDATE pecas_engenharia 
+      SET locked_by = NULL, locked_at = NULL
+      WHERE empresa_id = ? AND locked_by = ?
+    `;
+    const params = [empresaId, usuarioId];
+
+    if (pedido) {
+      sql += ` AND pedido = ?`;
+      params.push(pedido);
+    }
+    
+    // Se quiser desbloquear OP específica (opcional)
+    if (op) {
+        const opsArray = Array.isArray(op) ? op : op.split(",");
+        sql += ` AND op IN (?)`;
+        params.push(opsArray);
+    }
+
+    await db.query(sql, params);
+    res.json({ message: "Desbloqueado com sucesso." });
+
+  } catch (error) {
+    console.error("Erro ao desbloquear:", error);
+    res.status(500).json({ error: "Erro ao liberar pedido." });
   }
 });
 

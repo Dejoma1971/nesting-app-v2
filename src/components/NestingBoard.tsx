@@ -50,6 +50,18 @@ interface Size {
   height: number;
 }
 
+// Adicione esta interface para tipar o retorno do backend
+interface OpData {
+  name: string;
+  isLocked: boolean;
+  lockedBy: string | null;
+}
+
+interface AvailableOrder {
+  pedido: string;
+  ops: OpData[]; // Antes era string[], agora é lista de objetos
+}
+
 interface NestingBoardProps {
   initialParts: ImportedPart[];
   initialSearchQuery?: string;
@@ -481,10 +493,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const smartNestNewWorkerRef = useRef<Worker | null>(null);
   const smartNestV3WorkerRef = useRef<Worker | null>(null);
 
-  // --- NOVO: Estados para o Checklist de Pedidos ---
-  const [availableOrders, setAvailableOrders] = useState<string[]>([]);
-  const [loadingOrders, setLoadingOrders] = useState(false);
-
   useEffect(() => {
     collisionWorkerRef.current = new Worker(
       new URL("../workers/collision.worker.ts", import.meta.url),
@@ -637,7 +645,17 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // --- NOVO HOOK DE REGISTRO ---
   const { registerProduction } = useProductionRegister();
 
-  // Efeito para carregar a lista quando o modal abrir
+  // =========================================================
+  // --- INÍCIO DA LÓGICA DO NOVO MODAL DE BUSCA (Passos 1 e 2) ---
+  // =========================================================
+
+  // 1. ESTADOS (Substitua o antigo state do availableOrders por este bloco)
+  const [availableOrders, setAvailableOrders] = useState<AvailableOrder[]>([]); // Note a tipagem <AvailableOrder[]>
+  const [expandedOrders, setExpandedOrders] = useState<string[]>([]); // Controle do Accordion
+  const [selectedOps, setSelectedOps] = useState<string[]>([]); // Controle das OPs
+  const [loadingOrders, setLoadingOrders] = useState(false); // (Mantenha se já existir)
+
+  // 2. BUSCA DE DADOS (Substitua o useEffect antigo de busca)
   useEffect(() => {
     if (isSearchModalOpen && user?.token) {
       setLoadingOrders(true);
@@ -653,26 +671,105 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
   }, [isSearchModalOpen, user]);
 
-  // Função auxiliar para marcar/desmarcar pedidos
-  const toggleOrderSelection = (order: string) => {
-    // 1. Pega o que já está escrito no input e transforma em array
+  // Efeito para carregar a lista quando o modal abrir
+  useEffect(() => {
+    if (isSearchModalOpen && user?.token) {
+      setLoadingOrders(true);
+      fetch("http://localhost:3001/api/pedidos/disponiveis", {
+        headers: { Authorization: `Bearer ${user.token}` },
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          // O backend agora retorna [{ pedido: "...", ops: [...] }, ...]
+          if (Array.isArray(data)) setAvailableOrders(data);
+        })
+        .catch((err) => console.error("Erro ao carregar pedidos:", err))
+        .finally(() => setLoadingOrders(false));
+    }
+  }, [isSearchModalOpen, user]);
+
+  // --- LÓGICA DE SELEÇÃO HIERÁRQUICA ---
+
+  // 3. FUNÇÕES DE CONTROLE (Adicione estas funções)
+
+  // Expandir/Recolher lista de OPs
+  const toggleExpandOrder = (pedido: string) => {
+    setExpandedOrders((prev) =>
+      prev.includes(pedido)
+        ? prev.filter((p) => p !== pedido)
+        : [...prev, pedido],
+    );
+  };
+
+  // --- FUNÇÃO CORRIGIDA PARA EXTRAIR O NOME DA OP ---
+  const toggleOrderSelection = (pedidoStr: string) => {
+    const orderData = availableOrders.find((o) => o.pedido === pedidoStr);
+
+    // CORREÇÃO AQUI: Mapeamos para pegar apenas o NOME das OPs
+    // Se orderData.ops for undefined, retorna array vazio
+    const orderOpNames = orderData?.ops?.map((o) => o.name) || [];
+
     const currentList = searchQuery
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    const exists = currentList.includes(order);
+    const isSelected = currentList.includes(pedidoStr);
 
     let newList;
-    if (exists) {
-      // Se já tem, remove
-      newList = currentList.filter((s) => s !== order);
+    let newSelectedOps = [...selectedOps];
+
+    if (isSelected) {
+      // DESMARCAR: Remove o pedido da lista de busca
+      newList = currentList.filter((s) => s !== pedidoStr);
+      // Remove todas as OPs deste pedido da lista de OPs selecionadas
+      newSelectedOps = newSelectedOps.filter(
+        (opName) => !orderOpNames.includes(opName),
+      );
     } else {
-      // Se não tem, adiciona
-      newList = [...currentList, order];
+      // MARCAR: Adiciona o pedido
+      newList = [...currentList, pedidoStr];
+
+      // Adiciona todas as OPs do pedido (apenas se já não estiverem na lista)
+      orderOpNames.forEach((opName) => {
+        if (!newSelectedOps.includes(opName)) {
+          newSelectedOps.push(opName);
+        }
+      });
+
+      // Auto-expandir visualmente
+      if (!expandedOrders.includes(pedidoStr)) {
+        setExpandedOrders((prev) => [...prev, pedidoStr]);
+      }
     }
 
-    // 2. Atualiza o input de busca (separado por vírgula)
     setSearchQuery(newList.join(", "));
+    setSelectedOps(newSelectedOps);
+  };
+
+  // 3. Selecionar/Deselecionar OP (Filho)
+  const toggleOpSelection = (op: string, parentPedido: string) => {
+    // Atualiza lista de OPs
+    let newOpsList;
+    if (selectedOps.includes(op)) {
+      newOpsList = selectedOps.filter((o) => o !== op);
+    } else {
+      newOpsList = [...selectedOps, op];
+    }
+    setSelectedOps(newOpsList);
+
+    // LÓGICA DE VÍNCULO COM O PAI:
+    // Se selecionei uma OP, garanto que o Pedido Pai esteja marcado no input
+    const currentOrders = searchQuery
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (!currentOrders.includes(parentPedido)) {
+      const newOrders = [...currentOrders, parentPedido];
+      setSearchQuery(newOrders.join(", "));
+    }
+    // Nota: Se desmarcar todas as OPs, optamos por MANTER o pedido pai marcado
+    // para não causar confusão visual, mas o usuário pode desmarcar o pai se quiser.
   };
 
   const { isBinSaved, markBinAsSaved, resetAllSaveStatus } =
@@ -1462,12 +1559,32 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
   }, [currentPlacedParts, parts, binSize]);
 
-  const handleClearTable = useCallback(() => {
+  // --- FUNÇÃO PARA LIMPAR MESA E DESBLOQUEAR PEDIDOS ---
+  const handleClearTable = useCallback(async () => {
     if (
       window.confirm(
-        "ATENÇÃO: Isso limpará a mesa de corte E O BANCO DE PEÇAS. Deseja reiniciar?",
+        "ATENÇÃO: Isso limpará a mesa de corte, O BANCO DE PEÇAS e LIBERARÁ os pedidos para outros usuários. Deseja reiniciar?",
       )
     ) {
+      // 1. CHAMA O DESBLOQUEIO NO SERVIDOR (Silent call - não bloqueia a UI se falhar)
+      if (user && user.token) {
+        try {
+          await fetch("http://localhost:3001/api/pedidos/unlock", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${user.token}`,
+            },
+            // Body vazio = Desbloqueia TUDO que estiver preso no meu nome
+            body: JSON.stringify({}), 
+          });
+          console.log("🔓 Pedidos liberados com sucesso.");
+        } catch (error) {
+          console.error("Erro ao liberar pedidos:", error);
+        }
+      }
+
+      // 2. LIMPEZA LOCAL (O que já existia)
       resetNestingResult([]);
       setParts([]);
       clearSavedState();
@@ -1479,9 +1596,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       setSearchQuery("");
       resetProduction();
       resetAllSaveStatus();
-      // --- ALTERAÇÃO AQUI: Limpa as linhas de corte ---
       if (setCropLines) setCropLines([]);
-      // ------------------------------------------------
+      
+      // Limpa seleções do modal também, por garantia
+      setSelectedOps([]);
     }
   }, [
     resetNestingResult,
@@ -1492,6 +1610,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     setParts,
     setCropLines,
     clearSavedState,
+    user, // <--- Adicione user nas dependências
   ]);
 
   // ⬇️ --- SUBSTITUIR ESTA FUNÇÃO INTEIRA --- ⬇️
@@ -1559,37 +1678,78 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // --- FUNÇÃO DE BUSCA MANUAL BLINDADA ---
   const handleDBSearch = async () => {
     if (!searchQuery) return;
-
     // SEGURANÇA: Bloqueia busca sem login
     if (!user || !user.token) {
-      alert(
-        "Erro de segurança: Você precisa estar logado para buscar no banco.",
-      );
+      alert("Erro de segurança: Você precisa estar logado para buscar no banco.");
       return;
     }
 
     setIsSearching(true);
     try {
+      // =================================================================
+      // 1. INSERIR ESTE BLOCO NOVO AQUI (ANTES DE MONTAR OS PARAMS)
+      // =================================================================
+      const lockResponse = await fetch("http://localhost:3001/api/pedidos/lock", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${user.token}`,
+        },
+        body: JSON.stringify({
+          pedido: searchQuery,
+          op: selectedOps.length > 0 ? selectedOps : undefined 
+        })
+      });
+
+      // --- AQUI ESTÁ A CORREÇÃO DO RETURN ---
+      if (lockResponse.status === 409) {
+        const errorData = await lockResponse.json();
+        
+        // 1. Mostra o alerta
+        alert(`🚫 PEDIDO BLOQUEADO:\n\n${errorData.message}`);
+        
+        // 2. Para o loading
+        setIsSearching(false); 
+        
+        // 3. O RETURN QUE CANCELA TUDO
+        return; // <--- SE ESTIVER BLOQUEADO, O CÓDIGO PARA AQUI E NÃO EXECUTA O GET ABAIXO
+      }
+
+      if (!lockResponse.ok) throw new Error("Erro ao tentar reservar pedidos.");
+      // =================================================================
+
+
+      // DAQUI PARA BAIXO SEGUE O CÓDIGO QUE JÁ EXISTIA NO ARQUIVO [cite: 129]
       const params = new URLSearchParams();
       params.append("pedido", searchQuery);
+      
+      if (selectedOps.length > 0) {
+        params.append("op", selectedOps.join(","));
+      }
+      
       const response = await fetch(
         `http://localhost:3001/api/pecas/buscar?${params.toString()}`,
         {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${user.token}`, // <--- TOKEN ADICIONADO
+            Authorization: `Bearer ${user.token}`,
           },
         },
       );
+
       if (response.status === 404) {
         alert("Nenhum pedido encontrado.");
         setIsSearching(false);
         return;
       }
+      
       if (!response.ok) throw new Error("Erro ao buscar.");
+      
       const data = await response.json();
+      
       if (Array.isArray(data) && data.length > 0) {
+        // ... (Mantenha o restante do seu código de mapeamento das peças igual ao original [cite: 135-142])
         const dbParts: ImportedPart[] = data.map((item: any) => ({
           id: item.id,
           name: item.name,
@@ -1598,9 +1758,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           width: Number(item.width),
           height: Number(item.height),
           grossArea: Number(item.grossArea),
-          // Tenta calcular a área real. Se der 0 (erro ou geometria vazia), usa a grossArea como reserva.
-          netArea:
-            calculatePartNetArea(item.entities) || Number(item.grossArea),
+          netArea: calculatePartNetArea(item.entities) || Number(item.grossArea),
           quantity: Number(item.quantity) || 1,
           pedido: item.pedido,
           op: item.op,
@@ -1635,10 +1793,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         }
         setSearchQuery("");
         setIsSearchModalOpen(false);
+        // Limpar seleção de OPs após importar
+        setSelectedOps([]); 
       }
     } catch (err) {
       console.error(err);
-      alert("Erro de conexão.");
+      alert("Erro de conexão ou bloqueio.");
     } finally {
       setIsSearching(false);
     }
@@ -2036,6 +2196,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         </div>
       )}
 
+      {/* ========================================================= */}
+      {/* INÍCIO DO MODAL DE BUSCA (ATUALIZADO E CORRIGIDO)         */}
+      {/* ========================================================= */}
       {isSearchModalOpen && (
         <div
           style={{
@@ -2057,8 +2220,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               backgroundColor: theme.panelBg,
               padding: "25px",
               borderRadius: "8px",
-              width: "400px", // Aumentei um pouco a largura
-              maxHeight: "85vh", // Limite de altura para telas pequenas
+              width: "450px", // Levemente mais largo para acomodar a árvore
+              maxHeight: "85vh",
               display: "flex",
               flexDirection: "column",
               border: `1px solid ${theme.border}`,
@@ -2066,6 +2229,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             }}
             onClick={(e) => e.stopPropagation()}
           >
+            {/* CABEÇALHO DO MODAL */}
             <div
               style={{
                 display: "flex",
@@ -2091,7 +2255,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               </button>
             </div>
 
-            {/* --- LISTA DE CHECKBOX (ESTILO EXCEL) --- */}
+            {/* ÁREA DA LISTA (SCROLLÁVEL) */}
             <div
               style={{
                 marginBottom: "15px",
@@ -2120,15 +2284,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   border: `1px solid ${theme.border}`,
                   borderRadius: "4px",
                   padding: "5px",
-                  minHeight: "150px", // Altura mínima para a lista
-                  maxHeight: "250px", // Altura máxima antes de scrollar
+                  minHeight: "200px",
                 }}
               >
+                {/* --- LÓGICA DE RENDERIZAÇÃO DA ÁRVORE --- */}
                 {loadingOrders ? (
                   <div
                     style={{ padding: 10, fontSize: 12, color: theme.label }}
                   >
-                    Carregando lista...
+                    Carregando estrutura de pedidos...
                   </div>
                 ) : availableOrders.length === 0 ? (
                   <div
@@ -2137,40 +2301,171 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                     Nenhum pedido encontrado no banco.
                   </div>
                 ) : (
-                  availableOrders.map((order) => {
-                    // Verifica se este pedido está no input de texto
-                    const isChecked = searchQuery
+                  availableOrders.map((orderData) => {
+                    // Verifica se o Pedido está marcado no input
+                    const isOrderChecked = searchQuery
                       .split(",")
                       .map((s) => s.trim())
-                      .includes(order);
+                      .includes(orderData.pedido);
+
+                    const isExpanded = expandedOrders.includes(
+                      orderData.pedido,
+                    );
+                    const hasOps = orderData.ops && orderData.ops.length > 0;
+
                     return (
-                      <label
-                        key={order}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          padding: "6px",
-                          cursor: "pointer",
-                          borderBottom: `1px solid ${theme.hoverRow}`,
-                          fontSize: "13px",
-                          color: theme.text,
-                        }}
+                      <div
+                        key={orderData.pedido}
+                        style={{ borderBottom: `1px solid ${theme.hoverRow}` }}
                       >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => toggleOrderSelection(order)}
-                          style={{ marginRight: "8px" }}
-                        />
-                        {order}
-                      </label>
+                        {/* LINHA DO PEDIDO (PAI) */}
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            padding: "8px",
+                            background: isOrderChecked
+                              ? "rgba(0,123,255,0.05)"
+                              : "transparent",
+                          }}
+                        >
+                          {/* Botão Expandir */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleExpandOrder(orderData.pedido);
+                            }}
+                            style={{
+                              marginRight: "8px",
+                              border: "none",
+                              background: "transparent",
+                              cursor: "pointer",
+                              fontWeight: "bold",
+                              color: theme.label,
+                              visibility: hasOps ? "visible" : "hidden",
+                              width: "20px",
+                              fontSize: "10px",
+                            }}
+                          >
+                            {isExpanded ? "▼" : "▶"}
+                          </button>
+
+                          {/* Checkbox Pedido */}
+                          <input
+                            type="checkbox"
+                            checked={isOrderChecked}
+                            onChange={() =>
+                              toggleOrderSelection(orderData.pedido)
+                            }
+                            style={{ marginRight: "8px", cursor: "pointer" }}
+                          />
+
+                          <span
+                            style={{
+                              fontWeight: "bold",
+                              fontSize: "13px",
+                              cursor: "pointer",
+                              flex: 1,
+                              color: theme.text,
+                            }}
+                            onClick={() => toggleExpandOrder(orderData.pedido)}
+                          >
+                            Pedido {orderData.pedido}
+                            <span
+                              style={{
+                                fontSize: "11px",
+                                fontWeight: "normal",
+                                marginLeft: "6px",
+                                opacity: 0.7,
+                              }}
+                            >
+                              ({orderData.ops.length} OPs)
+                            </span>
+                          </span>
+                        </div>
+
+                        {/* LISTA DE OPs (FILHOS) */}
+                        {isExpanded && hasOps && (
+                          <div
+                            style={{
+                              paddingLeft: "45px",
+                              paddingBottom: "5px",
+                              background: theme.inputBg,
+                            }}
+                          >
+                            {orderData.ops.map((opObj) => {
+                              // 1. EXTRAÇÃO SEGURA (Isso resolve o erro "isLocked defined but never used")
+                              const opName = opObj.name;
+                              const isLocked = opObj.isLocked;
+                              const lockerName = opObj.lockedBy;
+
+                              const isOpChecked = selectedOps.includes(opName);
+
+                              return (
+                                <div
+                                  key={opName} // Resolve erro de chave
+                                  title={
+                                    isLocked
+                                      ? `Bloqueado por ${lockerName}`
+                                      : "Disponível"
+                                  }
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    padding: "4px 0",
+                                    opacity: isLocked ? 0.6 : 1,
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isOpChecked}
+                                    disabled={isLocked} // Bloqueia o clique se outro usuário estiver usando
+                                    onChange={() =>
+                                      // CORREÇÃO: Usa 'opName' em vez de 'op' (que não existe mais)
+                                      toggleOpSelection(
+                                        opName,
+                                        orderData.pedido,
+                                      )
+                                    }
+                                    style={{
+                                      marginRight: "8px",
+                                      cursor: isLocked
+                                        ? "not-allowed"
+                                        : "pointer",
+                                    }}
+                                  />
+                                  <span
+                                    style={{
+                                      fontSize: "12px",
+                                      color: isLocked ? "#dc3545" : theme.text,
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "5px",
+                                    }}
+                                  >
+                                    {isLocked && <span>🔒</span>}
+                                    OP: {opName}{" "}
+                                    {/* CORREÇÃO: Usa 'opName' aqui também */}
+                                    {isLocked && (
+                                      <span style={{ fontSize: "10px" }}>
+                                        ({lockerName})
+                                      </span>
+                                    )}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     );
                   })
                 )}
+                {/* --- FIM DA LÓGICA DA ÁRVORE --- */}
               </div>
             </div>
 
-            {/* INPUT MANUAL (Mantido para ver o resultado ou digitar avulso) */}
+            {/* INPUT MANUAL (READONLY PARA FEEDBACK VISUAL) */}
             <div style={{ marginBottom: 15 }}>
               <span
                 style={{
@@ -2180,12 +2475,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   color: theme.label,
                 }}
               >
-                SELEÇÃO ATUAL:
+                PEDIDOS SELECIONADOS:
               </span>
               <input
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Selecione acima ou digite (Ex: 35040, 35041)"
+                readOnly // Recomendado: deixar readonly pois a seleção é via árvore
+                placeholder="Selecione na lista acima..."
                 style={{
                   width: "100%",
                   padding: "10px",
@@ -2200,7 +2495,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               />
             </div>
 
-            {/* OPÇÕES DE MODO */}
+            {/* OPÇÕES DE MODO (LIMPAR / ADICIONAR) */}
             <div
               style={{
                 marginBottom: "20px",
@@ -2261,7 +2556,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               </label>
             </div>
 
-            {/* BOTÕES DE AÇÃO */}
+            {/* BOTÃO DE AÇÃO */}
             <div
               style={{
                 display: "flex",
@@ -2270,7 +2565,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               }}
             >
               <button
-                onClick={handleDBSearch} // Chama a função original
+                onClick={handleDBSearch}
                 disabled={isSearching || !searchQuery}
                 style={{
                   padding: "10px 20px",
@@ -2278,9 +2573,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   border: "none",
                   color: "white",
                   borderRadius: "4px",
-                  cursor: "pointer",
+                  cursor:
+                    isSearching || !searchQuery ? "not-allowed" : "pointer",
                   fontWeight: "bold",
                   width: "100%",
+                  opacity: isSearching || !searchQuery ? 0.6 : 1,
                 }}
               >
                 {isSearching ? "Buscando Peças..." : "📥 Importar Selecionados"}
@@ -2289,6 +2586,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           </div>
         </div>
       )}
+      {/* ========================================================= */}
+      {/* FIM DO MODAL DE BUSCA                                     */}
+      {/* ========================================================= */}
 
       {contextMenu && contextMenu.visible && selectedPartIds.length > 0 && (
         <ContextControl
