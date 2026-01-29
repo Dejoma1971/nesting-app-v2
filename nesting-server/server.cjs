@@ -478,8 +478,9 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
     const sql = `
       INSERT INTO pecas_engenharia 
       (id, usuario_id, empresa_id, nome_arquivo, pedido, op, material, espessura, autor, quantidade, cliente, 
-      largura, altura, area_bruta, geometria, blocos_def, status, tipo_producao)
-      VALUES ? `;
+      largura, altura, area_bruta, geometria, blocos_def, status, tipo_producao, is_rotation_locked)
+      VALUES ?
+    `;
 
     const values = parts.map((p) => [
       crypto.randomUUID(),
@@ -500,6 +501,7 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
       JSON.stringify(p.blocks || {}),
       "AGUARDANDO",
       p.tipo_producao || "NORMAL",
+      p.isRotationLocked ? 1 : 0, // <--- AQUI ESTA A CORREÇÃO
     ]);
 
     const [result] = await db.query(sql, [values]);
@@ -555,12 +557,18 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
 
   if (!pedido) return res.status(400).json({ error: "Falta pedido." });
 
-  const pedidosArray = pedido.split(",").map((p) => p.trim()).filter(Boolean);
-  
+  const pedidosArray = pedido
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+
   // Tratamento das OPs (se vierem)
   let opsArray = [];
   if (op) {
-    opsArray = op.split(",").map((o) => o.trim()).filter(Boolean);
+    opsArray = op
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean);
   }
 
   try {
@@ -601,6 +609,7 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
           : row.blocos_def || {},
       dataCadastro: row.data_cadastro,
       tipo_producao: row.tipo_producao,
+      isRotationLocked: !!row.is_rotation_locked, // <--- ADICIONE ESTA LINHA
     }));
 
     res.json(formattedParts);
@@ -613,7 +622,7 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
 app.get("/api/pedidos/disponiveis", authenticateToken, async (req, res) => {
   const empresaId = req.user.empresa_id;
   const usuarioId = req.user.id;
-  
+
   // Tempo limite em minutos para considerar um bloqueio "expirado" (ex: 30 min)
   const LOCK_TIMEOUT_MINUTES = 30;
 
@@ -671,25 +680,31 @@ app.get("/api/pedidos/disponiveis", authenticateToken, async (req, res) => {
 
       // Adicionamos a OP com seu status individual
       if (row.op) {
-        mapaPedidos[row.pedido].ops.add(JSON.stringify({
-          name: row.op,
-          isLocked: isLocked,
-          lockedBy: lockedByInfo
-        }));
+        mapaPedidos[row.pedido].ops.add(
+          JSON.stringify({
+            name: row.op,
+            isLocked: isLocked,
+            lockedBy: lockedByInfo,
+          }),
+        );
       }
     });
 
     // 3. Convertemos para array final
     const resultado = Object.keys(mapaPedidos).map((pedido) => {
-      const opsData = Array.from(mapaPedidos[pedido].ops).map(s => JSON.parse(s));
+      const opsData = Array.from(mapaPedidos[pedido].ops).map((s) =>
+        JSON.parse(s),
+      );
       return {
         pedido,
-        ops: opsData // Agora é uma lista de objetos: { name: "OP1", isLocked: true... }
+        ops: opsData, // Agora é uma lista de objetos: { name: "OP1", isLocked: true... }
       };
     });
-    
+
     // Ordena
-    resultado.sort((a, b) => b.pedido.localeCompare(a.pedido, undefined, { numeric: true }));
+    resultado.sort((a, b) =>
+      b.pedido.localeCompare(a.pedido, undefined, { numeric: true }),
+    );
 
     res.json(resultado);
   } catch (error) {
@@ -711,6 +726,7 @@ app.post("/api/pedidos/lock", authenticateToken, async (req, res) => {
     await connection.beginTransaction();
 
     // 1. Verifica se já existe algo bloqueado por OUTRA pessoa recentemente
+   // 1. DEFINIÇÃO DA QUERY (REMOVA O 'FOR UPDATE' DAQUI DE DENTRO)
     let checkSql = `
       SELECT locked_by, locked_at, u.nome 
       FROM pecas_engenharia pe
@@ -723,25 +739,27 @@ app.post("/api/pedidos/lock", authenticateToken, async (req, res) => {
     `;
     
     const params = [empresaId, pedido, usuarioId];
-    
+
     // Se tiver OPs específicas, filtra também
     let opsArray = [];
     if (op) {
         opsArray = Array.isArray(op) ? op : op.split(",").map(s => s.trim());
         if (opsArray.length > 0) {
-            checkSql += ` AND pe.op IN (?)`;
+            checkSql += ` AND pe.op IN (?)`; 
             params.push(opsArray);
         }
     }
 
-    const [lockedRows] = await connection.query(checkSql + " LIMIT 1", params);
+    // 2. EXECUÇÃO (O 'FOR UPDATE' DEVE ENTRAR AQUI, NO FINAL DA STRING)
+    // A ordem obrigatória do MySQL é: WHERE ... LIMIT ... FOR UPDATE
+    const [lockedRows] = await connection.query(checkSql + " LIMIT 1 FOR UPDATE", params);
 
     if (lockedRows.length > 0) {
       // JA ESTÁ BLOQUEADO!
       await connection.rollback();
-      return res.status(409).json({ 
-        error: "Bloqueado", 
-        message: `Este pedido/OP está sendo usado por ${lockedRows[0].nome || 'outro usuário'} no momento.` 
+      return res.status(409).json({
+        error: "Bloqueado",
+        message: `Este pedido/OP está sendo usado por ${lockedRows[0].nome || "outro usuário"} no momento.`,
       });
     }
 
@@ -762,7 +780,6 @@ app.post("/api/pedidos/lock", authenticateToken, async (req, res) => {
 
     await connection.commit();
     res.json({ message: "Reserva realizada com sucesso." });
-
   } catch (error) {
     await connection.rollback();
     console.error("Erro ao bloquear:", error);
@@ -791,17 +808,16 @@ app.post("/api/pedidos/unlock", authenticateToken, async (req, res) => {
       sql += ` AND pedido = ?`;
       params.push(pedido);
     }
-    
+
     // Se quiser desbloquear OP específica (opcional)
     if (op) {
-        const opsArray = Array.isArray(op) ? op : op.split(",");
-        sql += ` AND op IN (?)`;
-        params.push(opsArray);
+      const opsArray = Array.isArray(op) ? op : op.split(",");
+      sql += ` AND op IN (?)`;
+      params.push(opsArray);
     }
 
     await db.query(sql, params);
     res.json({ message: "Desbloqueado com sucesso." });
-
   } catch (error) {
     console.error("Erro ao desbloquear:", error);
     res.status(500).json({ error: "Erro ao liberar pedido." });
@@ -1230,12 +1246,11 @@ app.delete("/api/thicknesses/:id", authenticateToken, async (req, res) => {
   }
 });
 
-
 // ROTA TEMPORÁRIA PARA CORRIGIR ESPESSURAS
 app.get("/api/fix-database", async (req, res) => {
   try {
     const connection = await db.getConnection();
-    
+
     // 1. Busca todos os registros zerados vinculados à engenharia
     const [rows] = await connection.query(`
       SELECT ph.id, pe.espessura as texto_original 
@@ -1250,19 +1265,19 @@ app.get("/api/fix-database", async (req, res) => {
     // 2. Processa um por um usando JavaScript
     for (const row of rows) {
       const texto = String(row.texto_original);
-      
+
       // Regex que procura por "numero,numero" ou "numero.numero" (Ex: 0,60 ou 1.5)
       // Ignora números inteiros isolados como o "24" de "Chapa #24"
       const match = texto.match(/(\d+[.,]\d+)/);
-      
+
       if (match) {
         // Pega o valor encontrado (ex: "0,60"), troca vírgula por ponto e converte
-        const valorLimpo = parseFloat(match[0].replace(',', '.'));
+        const valorLimpo = parseFloat(match[0].replace(",", "."));
 
         if (!isNaN(valorLimpo) && valorLimpo > 0) {
           await connection.query(
             "UPDATE producao_historico SET espessura = ? WHERE id = ?",
-            [valorLimpo, row.id]
+            [valorLimpo, row.id],
           );
           corrigidos++;
         }
@@ -1270,8 +1285,9 @@ app.get("/api/fix-database", async (req, res) => {
     }
 
     connection.release();
-    res.json({ message: `Processo finalizado. Registros corrigidos: ${corrigidos}` });
-
+    res.json({
+      message: `Processo finalizado. Registros corrigidos: ${corrigidos}`,
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error.message });
