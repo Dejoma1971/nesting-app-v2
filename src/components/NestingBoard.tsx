@@ -1661,7 +1661,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   );
   // ⬆️ -------------------------------------- ⬆️
 
- // --- NOVA FUNÇÃO: Navegação Segura para Home (COM DESBLOQUEIO) ---
+  // --- NOVA FUNÇÃO: Navegação Segura para Home (COM DESBLOQUEIO) ---
   const handleSafeHomeExit = useCallback(async () => {
     const hasWorkInProgress = parts.length > 0 || nestingResult.length > 0;
 
@@ -1671,7 +1671,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         try {
           // Usa sendBeacon se possível para garantir envio ao fechar, ou fetch normal
           // Aqui usaremos fetch para manter padrão, mas 'no-await' para não segurar demais
-           await fetch("http://localhost:3001/api/pedidos/unlock", {
+          await fetch("http://localhost:3001/api/pedidos/unlock", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -1691,13 +1691,24 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     };
 
     if (hasWorkInProgress) {
-      if (window.confirm("Atenção: Você tem um trabalho em andamento.\n\nSe sair agora, o pedido será liberado e o progresso não salvo será perdido. Continuar?")) {
+      if (
+        window.confirm(
+          "Atenção: Você tem um trabalho em andamento.\n\nSe sair agora, o pedido será liberado e o progresso não salvo será perdido. Continuar?",
+        )
+      ) {
         await performExit();
       }
     } else {
       await performExit();
     }
-  }, [parts.length, nestingResult.length, clearSavedState, onNavigate, onBack, user]);
+  }, [
+    parts.length,
+    nestingResult.length,
+    clearSavedState,
+    onNavigate,
+    onBack,
+    user,
+  ]);
 
   // Função para o botão do Menu de Contexto
   const handleContextDelete = useCallback(() => {
@@ -1857,7 +1868,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       if (hasLockedParts) {
         // Opcional: Pode remover este alert se ficar muito intrusivo,
         // pois a função rotatePartsGroup já ignora silenciosamente as travadas.
-        alert("⚠️ Algumas peças possuem trava de rotação e não serão movidas.");
+        alert("⚠️ Trava de rotação para manter o sentido do escovado.");
       }
 
       // 2. Chama a função utilitária para calcular a rotação em GRUPO
@@ -3354,7 +3365,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 flexDirection: "column",
                 alignItems: "center",
                 gap: "5px",
-                background: "rgba(30, 30, 30, 0.85)",
+                background: theme.buttonBg,
                 color: theme.text,
                 border: isCurrentSheetSaved
                   ? "1px solid #28a745"
@@ -3977,7 +3988,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
                       {part.isRotationLocked && (
                         <div
-                          title="Rotação Travada - Sentido Escovado"
+                          title="Rotação Travada no Sentido Escovado"
                           style={{
                             position: "absolute",
                             top: 35, // Coloquei 35 para ficar logo abaixo do checkbox
