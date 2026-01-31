@@ -976,11 +976,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       };
 
       // Adiciona as etiquetas
-      addLabelVector(state.white, "#FFFFFF", "white");
+      addLabelVector(state.white, theme.partLabel, "white");
       addLabelVector(state.pink, "#FF00FF", "pink");
       return { ...part, entities: newEntities };
     });
-  }, [parts, filters, labelStates]);
+  }, [parts, filters, labelStates, theme]);
 
   const currentPlacedParts = useMemo(
     () => nestingResult.filter((p) => p.binId === currentBinIndex),
@@ -1353,7 +1353,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     // 4. Se houver conflito, reseta tudo
     if (materialConflict || thicknessConflict) {
       console.log("♻️ Filtro alterado: Limpando mesa incompatível...");
-      
+
       resetNestingResult([]);
       setTotalBins(1);
       setCurrentBinIndex(0);
@@ -1371,7 +1371,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     setTotalBins,
     setCurrentBinIndex,
     resetAllSaveStatus,
-    setCropLines
+    setCropLines,
   ]);
 
   const handleSaveClick = async () => {
@@ -4024,6 +4024,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                         partId={part.id}
                         labelState={labelStates}
                         onTogglePartFlag={togglePartFlag}
+                        theme={theme}
                       />
 
                       <div

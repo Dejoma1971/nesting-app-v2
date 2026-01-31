@@ -466,9 +466,11 @@ const PartElement = React.memo(
           }) translate(${-transformData.centerX}, ${-transformData.centerY})`
         : "";
 
-      let strokeColor = theme.text === "#e0e0e0" ? "#007bff" : "#007bff";
-      if (isSelected) strokeColor = "#01ff3cff"; // Verde Neon
+      // --- ALTERAÇÃO AQUI: Usando as cores definidas no theme.ts ---
+      let strokeColor = theme.partLine; 
+      if (isSelected) strokeColor = theme.partSelectedLine; 
       if (isColliding) strokeColor = "#ff0000";
+      // -----------------------------------------------------------
 
       const fillColor = isColliding ? "rgba(255, 0, 0, 0.3)" : "none";
 
@@ -1155,7 +1157,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     getSVGPoint,
     calculateSnap,
     onLabelDrag,
-    onPartReturn,
+    // onPartReturn,
     onPartsMove,
     draggingLabel,
     draggingLine,
