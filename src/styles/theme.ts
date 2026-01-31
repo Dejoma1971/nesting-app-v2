@@ -19,6 +19,9 @@ export interface AppTheme {
     buttonBg: string;
     buttonBorder: string;
     buttonText: string;
+    // --- NOVAS PROPRIEDADES DE CONTORNO ---
+    partLine: string;         // Cor normal da peça na mesa
+    partSelectedLine: string; // Cor quando selecionada
 }
 
 export const getTheme = (isDark: boolean): AppTheme => ({
@@ -42,4 +45,10 @@ export const getTheme = (isDark: boolean): AppTheme => ({
     buttonBg: isDark ? 'rgba(40,40,40,0.9)' : 'rgba(255,255,255,0.9)',
     buttonBorder: isDark ? '#555' : '#999',
     buttonText: isDark ? '#fff' : '#000',
+
+    // --- DEFINIÇÃO DAS CORES DO PEDIDO ---
+    // Modo Escuro: Mantém claro (branco/cinza) para contraste
+    // Modo Claro: Usa o Azul Escuro e Verde Escuro que você pediu
+    partLine: isDark ? '#e0e0e0' : '#002060', // Azul Marinho Profundo no modo claro
+    partSelectedLine: isDark ? '#00ff00' : '#006400', // Verde Escuro no modo claro
 });

@@ -1069,6 +1069,39 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     return ids;
   }, [selectedPartIds, nestingResult]);
 
+  // ... (outros useEffects)
+
+  // =====================================================================
+  // --- NOVO: SINCRONIZAR FILTRO COM A MESA DE CORTE ---
+  // Se houver peças na mesa (nestingResult), forçamos o filtro a assumir
+  // o material e espessura dessas peças para evitar misturas.
+  // =====================================================================
+  useEffect(() => {
+    // 1. Verifica se há peças posicionadas na mesa
+    if (nestingResult.length > 0) {
+      // Pega a primeira peça da mesa para usar como referência
+      // (Assumimos que não se deve misturar materiais na mesma chapa)
+      const firstPlaced = nestingResult[0];
+      const partInfo = parts.find((p) => p.id === firstPlaced.partId);
+
+      if (partInfo) {
+        setFilters((prev) => {
+          // Só atualiza se for diferente para evitar loops de renderização
+          if (
+            prev.material !== partInfo.material ||
+            prev.espessura !== partInfo.espessura
+          ) {
+            return {
+              ...prev,
+              material: partInfo.material,
+              espessura: partInfo.espessura,
+            };
+          }
+          return prev;
+        });
+      }
+    }
+  }, [nestingResult, parts]); // Executa toda vez que o arranjo na mesa muda
   // --- 4. EFEITOS (COM SEGURANÇA AGORA) ---
   useEffect(() => {
     if (initialSearchQuery && parts.length === 0) {
@@ -1295,6 +1328,51 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [undo, redo, selectedPartIds, handleReturnToBank]);
+
+  // ... (outros useEffects)
+
+  // =====================================================================
+  // --- CORREÇÃO: RESETAR MESA AO MUDAR O FILTRO ---
+  // =====================================================================
+  useEffect(() => {
+    // 1. Se a mesa já está vazia, não precisa fazer nada
+    if (nestingResult.length === 0) return;
+
+    // 2. Descobre o material das peças que estão atualmente na mesa
+    const firstPlaced = nestingResult[0];
+    const partOnTable = parts.find((p) => p.id === firstPlaced.partId);
+
+    if (!partOnTable) return;
+
+    // 3. Verifica se houve um conflito
+    const materialConflict =
+      filters.material && filters.material !== partOnTable.material;
+    const thicknessConflict =
+      filters.espessura && filters.espessura !== partOnTable.espessura;
+
+    // 4. Se houver conflito, reseta tudo
+    if (materialConflict || thicknessConflict) {
+      console.log("♻️ Filtro alterado: Limpando mesa incompatível...");
+      
+      resetNestingResult([]);
+      setTotalBins(1);
+      setCurrentBinIndex(0);
+      setFailedCount(0);
+      resetAllSaveStatus();
+      if (setCropLines) setCropLines([]);
+    }
+  }, [
+    filters.material,
+    filters.espessura,
+    // --- Dependências exigidas pelo ESLint abaixo ---
+    nestingResult,
+    parts,
+    resetNestingResult,
+    setTotalBins,
+    setCurrentBinIndex,
+    resetAllSaveStatus,
+    setCropLines
+  ]);
 
   const handleSaveClick = async () => {
     // Validação básica se tem peças
