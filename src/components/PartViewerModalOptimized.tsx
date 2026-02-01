@@ -181,11 +181,13 @@ export const PartViewerModalOptimized: React.FC<PartViewerModalProps> = ({
   const [activeSnap, setActiveSnap] = useState<SnapPoint | null>(null);
   const [currentMousePos, setCurrentMousePos] = useState({ x: 0, y: 0 });
 
-  // Mapeamento de SnapPoints (useMemo para performance)
   const snapPoints = useMemo(() => {
-    if (part && part.entities) return getSnapPoints(part.entities);
+    if (part && part.entities) {
+      // AGORA PASSAMOS part.blocks TAMBÉM
+      return getSnapPoints(part.entities, part.blocks);
+    }
     return [];
-  }, [part]);
+  }, [part]); // Recalcula se a peça ou seus blocos mudarem
 
   // ⬇️ --- [INSERÇÃO 2] SUBSTITUIR ESTE BLOCO INTEIRO --- ⬇️
   // Define o tamanho visual fixo (em pixels) para os elementos
@@ -287,7 +289,11 @@ export const PartViewerModalOptimized: React.FC<PartViewerModalProps> = ({
 
       // Se já temos o primeiro ponto, calculamos os perpendiculares em relação a ele
       if (measureStart) {
-        const perpSnaps = getPerpendicularSnaps(part.entities, measureStart);
+        const perpSnaps = getPerpendicularSnaps(
+          part.entities,
+          measureStart,
+          part.blocks,
+        );
         // Fundimos as listas
         candidatePoints = [...snapPoints, ...perpSnaps];
       }
