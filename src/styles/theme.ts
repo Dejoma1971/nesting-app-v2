@@ -23,6 +23,7 @@ export interface AppTheme {
   partLine: string; // Cor normal da peça na mesa
   partSelectedLine: string; // Cor quando selecionada
   partLabel: string; 
+  checkboxBg: string;
 }
 
 
@@ -54,4 +55,5 @@ export const getTheme = (isDark: boolean): AppTheme => ({
   partLine: isDark ? "#007bff" : "#002060", // Azul Marinho Profundo no modo claro
   partSelectedLine: isDark ? "#00ff00" : "#019901", // Verde Escuro no modo claro
   partLabel: isDark ? '#FFFFFF' : '#000000',
+  checkboxBg: isDark ? 'rgba(255, 255, 255, 0.7)' : '#E0E0E0',
 });

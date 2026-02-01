@@ -3228,7 +3228,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             type="checkbox"
             checked={showDebug}
             onChange={(e) => setShowDebug(e.target.checked)}
-            style={{ marginRight: "5px" }}
+            style={{ marginRight: "5px", backgroundColor: theme.checkboxBg }}
           />{" "}
           Ver Box
         </label>
@@ -3917,7 +3917,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   checked={isAllEnabled}
                   onChange={handleToggleAll}
                   disabled={parts.length === 0}
-                  style={{ cursor: "pointer" }}
+                  style={{
+                    cursor: "pointer",
+                    backgroundColor: theme.checkboxBg,
+                  }}
                 />
                 Selecionar Todos
               </label>
@@ -4033,7 +4036,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                           top: 5,
                           left: 8,
                           zIndex: 1000,
-                          background: "rgba(255,255,255,0.7)",
+                          background: theme.checkboxBg,
                           borderRadius: "4px",
                           padding: "2px",
                           display: "flex",

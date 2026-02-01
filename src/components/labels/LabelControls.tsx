@@ -7,6 +7,7 @@ interface ThemeProps {
   headerBg: string;
   text: string;
   partLabel: string;
+  checkboxBg: string;
 }
 
 // --- COMPONENTE 1: PAINEL GLOBAL ---
@@ -59,7 +60,13 @@ export const GlobalLabelPanel: React.FC<GlobalLabelPanelProps> = ({
           type="checkbox"
           checked={showWhite}
           onChange={onToggleWhite}
-          style={{ marginRight: "6px" }}
+          style={{ 
+            marginRight: "6px",
+            // Força a cor de fundo (se o navegador suportar) e a cor de destaque
+            backgroundColor: theme.checkboxBg || "#E0E0E0", 
+            accentColor: "#007bff", // Garante azul quando marcado
+            cursor: "pointer"
+          }}
         />
         <span
           style={{
@@ -81,7 +88,12 @@ export const GlobalLabelPanel: React.FC<GlobalLabelPanelProps> = ({
           type="checkbox"
           checked={showPink}
           onChange={onTogglePink}
-          style={{ marginRight: "6px" }}
+          style={{ 
+            marginRight: "6px",
+            backgroundColor: theme.checkboxBg || "#E0E0E0", 
+            accentColor: "#007bff",
+            cursor: "pointer"
+          }}
         />
         <span
           style={{
