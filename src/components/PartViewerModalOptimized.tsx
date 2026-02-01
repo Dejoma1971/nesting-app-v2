@@ -197,21 +197,45 @@ export const PartViewerModalOptimized: React.FC<PartViewerModalProps> = ({
   }, [matrixScale]);
   // ⬆️ -------------------------------------------------- ⬆️
 
-  // --- ZOOM ORIGINAL (Mantido) ---
+  // ⬇️ --- [CORREÇÃO] ZOOM DIRECIONADO AO PONTEIRO --- ⬇️
   const handleWheel = (e: React.WheelEvent) => {
     e.stopPropagation();
     e.preventDefault();
+
+    // 1. Define o fator de zoom (Inverter se quiser mudar a direção do scroll)
     const factor = e.deltaY > 0 ? 1.1 : 0.9;
+
+    // 2. Obtém as dimensões atuais da tela
     const rect = svgRef.current!.getBoundingClientRect();
+
+    // 3. Calcula a posição relativa do mouse (0 a 1)
     const ratioX = (e.clientX - rect.left) / rect.width;
-    const ratioY = (e.clientY - rect.top) / rect.height;
-    setViewBox((old) => ({
-      x: old.x - (old.w * factor - old.w) * ratioX,
-      y: old.y - (old.h * factor - old.h) * ratioY,
-      w: old.w * factor,
-      h: old.h * factor,
-    }));
+
+    // IMPORTANTE: Como o SVG tem scale(1, -1), o eixo Y é invertido.
+    // O 'Zero' do desenho é embaixo, mas o 'Zero' da tela é em cima.
+    // Então, quanto mais para baixo o mouse (maior clientY), mais perto do zero Y do desenho.
+    // Usamos (1 - ratio) para pegar a distância a partir de BAIXO.
+    const ratioY = 1 - (e.clientY - rect.top) / rect.height;
+
+    setViewBox((prev) => {
+      // Novas dimensões
+      const newW = prev.w * factor;
+      const newH = prev.h * factor;
+
+      // Diferença de tamanho (O quanto cresceu ou encolheu)
+      const dx = newW - prev.w;
+      const dy = newH - prev.h;
+
+      return {
+        // Movemos a origem (X, Y) na direção oposta ao mouse para compensar o zoom
+        x: prev.x - dx * ratioX,
+        y: prev.y - dy * ratioY,
+        w: newW,
+        h: newH,
+      };
+    });
   };
+  // ⬆️ ------------------------------------------------ ⬆️
 
   // --- PAN ORIGINAL (Mantido) ---
   useEffect(() => {
