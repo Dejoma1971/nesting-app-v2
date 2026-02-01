@@ -976,11 +976,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       };
 
       // Adiciona as etiquetas
-      addLabelVector(state.white, "#FFFFFF", "white");
+      addLabelVector(state.white, theme.partLabel, "white");
       addLabelVector(state.pink, "#FF00FF", "pink");
       return { ...part, entities: newEntities };
     });
-  }, [parts, filters, labelStates]);
+  }, [parts, filters, labelStates, theme]);
 
   const currentPlacedParts = useMemo(
     () => nestingResult.filter((p) => p.binId === currentBinIndex),
@@ -1069,6 +1069,39 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     return ids;
   }, [selectedPartIds, nestingResult]);
 
+  // ... (outros useEffects)
+
+  // =====================================================================
+  // --- NOVO: SINCRONIZAR FILTRO COM A MESA DE CORTE ---
+  // Se houver peças na mesa (nestingResult), forçamos o filtro a assumir
+  // o material e espessura dessas peças para evitar misturas.
+  // =====================================================================
+  useEffect(() => {
+    // 1. Verifica se há peças posicionadas na mesa
+    if (nestingResult.length > 0) {
+      // Pega a primeira peça da mesa para usar como referência
+      // (Assumimos que não se deve misturar materiais na mesma chapa)
+      const firstPlaced = nestingResult[0];
+      const partInfo = parts.find((p) => p.id === firstPlaced.partId);
+
+      if (partInfo) {
+        setFilters((prev) => {
+          // Só atualiza se for diferente para evitar loops de renderização
+          if (
+            prev.material !== partInfo.material ||
+            prev.espessura !== partInfo.espessura
+          ) {
+            return {
+              ...prev,
+              material: partInfo.material,
+              espessura: partInfo.espessura,
+            };
+          }
+          return prev;
+        });
+      }
+    }
+  }, [nestingResult, parts]); // Executa toda vez que o arranjo na mesa muda
   // --- 4. EFEITOS (COM SEGURANÇA AGORA) ---
   useEffect(() => {
     if (initialSearchQuery && parts.length === 0) {
@@ -1295,6 +1328,51 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [undo, redo, selectedPartIds, handleReturnToBank]);
+
+  // ... (outros useEffects)
+
+  // =====================================================================
+  // --- CORREÇÃO: RESETAR MESA AO MUDAR O FILTRO ---
+  // =====================================================================
+  useEffect(() => {
+    // 1. Se a mesa já está vazia, não precisa fazer nada
+    if (nestingResult.length === 0) return;
+
+    // 2. Descobre o material das peças que estão atualmente na mesa
+    const firstPlaced = nestingResult[0];
+    const partOnTable = parts.find((p) => p.id === firstPlaced.partId);
+
+    if (!partOnTable) return;
+
+    // 3. Verifica se houve um conflito
+    const materialConflict =
+      filters.material && filters.material !== partOnTable.material;
+    const thicknessConflict =
+      filters.espessura && filters.espessura !== partOnTable.espessura;
+
+    // 4. Se houver conflito, reseta tudo
+    if (materialConflict || thicknessConflict) {
+      console.log("♻️ Filtro alterado: Limpando mesa incompatível...");
+
+      resetNestingResult([]);
+      setTotalBins(1);
+      setCurrentBinIndex(0);
+      setFailedCount(0);
+      resetAllSaveStatus();
+      if (setCropLines) setCropLines([]);
+    }
+  }, [
+    filters.material,
+    filters.espessura,
+    // --- Dependências exigidas pelo ESLint abaixo ---
+    nestingResult,
+    parts,
+    resetNestingResult,
+    setTotalBins,
+    setCurrentBinIndex,
+    resetAllSaveStatus,
+    setCropLines,
+  ]);
 
   const handleSaveClick = async () => {
     // Validação básica se tem peças
@@ -1661,7 +1739,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   );
   // ⬆️ -------------------------------------- ⬆️
 
- // --- NOVA FUNÇÃO: Navegação Segura para Home (COM DESBLOQUEIO) ---
+  // --- NOVA FUNÇÃO: Navegação Segura para Home (COM DESBLOQUEIO) ---
   const handleSafeHomeExit = useCallback(async () => {
     const hasWorkInProgress = parts.length > 0 || nestingResult.length > 0;
 
@@ -1671,7 +1749,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         try {
           // Usa sendBeacon se possível para garantir envio ao fechar, ou fetch normal
           // Aqui usaremos fetch para manter padrão, mas 'no-await' para não segurar demais
-           await fetch("http://localhost:3001/api/pedidos/unlock", {
+          await fetch("http://localhost:3001/api/pedidos/unlock", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -1691,13 +1769,24 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     };
 
     if (hasWorkInProgress) {
-      if (window.confirm("Atenção: Você tem um trabalho em andamento.\n\nSe sair agora, o pedido será liberado e o progresso não salvo será perdido. Continuar?")) {
+      if (
+        window.confirm(
+          "Atenção: Você tem um trabalho em andamento.\n\nSe sair agora, o pedido será liberado e o progresso não salvo será perdido. Continuar?",
+        )
+      ) {
         await performExit();
       }
     } else {
       await performExit();
     }
-  }, [parts.length, nestingResult.length, clearSavedState, onNavigate, onBack, user]);
+  }, [
+    parts.length,
+    nestingResult.length,
+    clearSavedState,
+    onNavigate,
+    onBack,
+    user,
+  ]);
 
   // Função para o botão do Menu de Contexto
   const handleContextDelete = useCallback(() => {
@@ -1857,7 +1946,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       if (hasLockedParts) {
         // Opcional: Pode remover este alert se ficar muito intrusivo,
         // pois a função rotatePartsGroup já ignora silenciosamente as travadas.
-        alert("⚠️ Algumas peças possuem trava de rotação e não serão movidas.");
+        alert("⚠️ Trava de rotação para manter o sentido do escovado.");
       }
 
       // 2. Chama a função utilitária para calcular a rotação em GRUPO
@@ -3139,7 +3228,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             type="checkbox"
             checked={showDebug}
             onChange={(e) => setShowDebug(e.target.checked)}
-            style={{ marginRight: "5px" }}
+            style={{ marginRight: "5px", backgroundColor: theme.checkboxBg }}
           />{" "}
           Ver Box
         </label>
@@ -3354,7 +3443,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 flexDirection: "column",
                 alignItems: "center",
                 gap: "5px",
-                background: "rgba(30, 30, 30, 0.85)",
+                background: theme.buttonBg,
                 color: theme.text,
                 border: isCurrentSheetSaved
                   ? "1px solid #28a745"
@@ -3828,7 +3917,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   checked={isAllEnabled}
                   onChange={handleToggleAll}
                   disabled={parts.length === 0}
-                  style={{ cursor: "pointer" }}
+                  style={{
+                    cursor: "pointer",
+                    backgroundColor: theme.checkboxBg,
+                  }}
                 />
                 Selecionar Todos
               </label>
@@ -3935,6 +4027,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                         partId={part.id}
                         labelState={labelStates}
                         onTogglePartFlag={togglePartFlag}
+                        theme={theme}
                       />
 
                       <div
@@ -3943,7 +4036,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                           top: 5,
                           left: 8,
                           zIndex: 1000,
-                          background: "rgba(255,255,255,0.7)",
+                          background: theme.checkboxBg,
                           borderRadius: "4px",
                           padding: "2px",
                           display: "flex",
@@ -3977,7 +4070,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
                       {part.isRotationLocked && (
                         <div
-                          title="Rotação Travada - Sentido Escovado"
+                          title="Rotação Travada no Sentido Escovado"
                           style={{
                             position: "absolute",
                             top: 35, // Coloquei 35 para ficar logo abaixo do checkbox

@@ -1,14 +1,16 @@
 import React from "react";
 import type { LabelStateMap } from "./LabelTypes";
 
-// CORREÇÃO: Removido [key: string]: string para ser compatível com AppTheme
+// Interface do tema (compatível com AppTheme)
 interface ThemeProps {
   border: string;
   headerBg: string;
   text: string;
+  partLabel: string;
+  checkboxBg: string;
 }
 
-// --- COMPONENTE 1: PAINEL GLOBAL (Estilizado como Aba) ---
+// --- COMPONENTE 1: PAINEL GLOBAL ---
 interface GlobalLabelPanelProps {
   showWhite: boolean;
   showPink: boolean;
@@ -24,7 +26,6 @@ export const GlobalLabelPanel: React.FC<GlobalLabelPanelProps> = ({
   onTogglePink,
   theme,
 }) => {
-  // Estilo que imita a barra de abas (Tab Bar)
   const containerStyle: React.CSSProperties = {
     display: "flex",
     alignItems: "center",
@@ -44,26 +45,35 @@ export const GlobalLabelPanel: React.FC<GlobalLabelPanelProps> = ({
     fontWeight: 500,
   };
 
+  // Define a cor do indicador do painel global
+  const idColor = showWhite ? theme.partLabel : "transparent";
+
   return (
     <div style={containerStyle}>
       <span style={{ opacity: 0.7, fontWeight: "bold", marginRight: "5px" }}>
         Etiquetas:
       </span>
 
-      {/* Checkbox Mestre Branco */}
+      {/* Checkbox Mestre Identificação */}
       <label style={checkboxLabelStyle}>
         <input
           type="checkbox"
           checked={showWhite}
           onChange={onToggleWhite}
-          style={{ marginRight: "6px" }}
+          style={{ 
+            marginRight: "6px",
+            // Força a cor de fundo (se o navegador suportar) e a cor de destaque
+            backgroundColor: theme.checkboxBg || "#E0E0E0", 
+            accentColor: "#007bff", // Garante azul quando marcado
+            cursor: "pointer"
+          }}
         />
         <span
           style={{
             display: "inline-block",
             width: 10,
             height: 10,
-            background: showWhite ? "#FFFFFF" : "transparent",
+            background: idColor,
             border: `1px solid ${theme.text}`,
             borderRadius: "50%",
             marginRight: 6,
@@ -72,13 +82,18 @@ export const GlobalLabelPanel: React.FC<GlobalLabelPanelProps> = ({
         Identificação
       </label>
 
-      {/* Checkbox Mestre Rosa */}
+      {/* Checkbox Mestre Gravação */}
       <label style={checkboxLabelStyle}>
         <input
           type="checkbox"
           checked={showPink}
           onChange={onTogglePink}
-          style={{ marginRight: "6px" }}
+          style={{ 
+            marginRight: "6px",
+            backgroundColor: theme.checkboxBg || "#E0E0E0", 
+            accentColor: "#007bff",
+            cursor: "pointer"
+          }}
         />
         <span
           style={{
@@ -97,21 +112,27 @@ export const GlobalLabelPanel: React.FC<GlobalLabelPanelProps> = ({
   );
 };
 
-// --- COMPONENTE 2: FLAGS DA MINIATURA (Sem moldura) ---
+// --- COMPONENTE 2: FLAGS DA MINIATURA ---
 interface ThumbnailFlagsProps {
   partId: string;
   labelState?: LabelStateMap;
   onTogglePartFlag: (partId: string, type: "white" | "pink") => void;
+  theme?: ThemeProps; // Opcional para manter compatibilidade se não for passado
 }
 
 export const ThumbnailFlags: React.FC<ThumbnailFlagsProps> = ({
   partId,
   labelState,
   onTogglePartFlag,
+  theme,
 }) => {
   const partState = labelState?.[partId];
   const isWhiteActive = partState?.white?.active ?? false;
   const isPinkActive = partState?.pink?.active ?? false;
+
+  // --- CORREÇÃO DO ERRO ---
+  // Esta linha define idColor antes de ser usada no return
+  const idColor = theme ? theme.partLabel : "#FFFFFF";
 
   const dotStyle = (active: boolean, color: string): React.CSSProperties => ({
     width: "12px",
@@ -141,7 +162,7 @@ export const ThumbnailFlags: React.FC<ThumbnailFlagsProps> = ({
           e.stopPropagation();
           onTogglePartFlag(partId, "white");
         }}
-        style={dotStyle(isWhiteActive, "#FFFFFF")}
+        style={dotStyle(isWhiteActive, idColor)}
       />
 
       <div
