@@ -142,42 +142,39 @@ export const useEngineeringLogic = ({
     setBatchDefaults((prev) => ({ ...prev, [field]: value }));
   };
 
-  // Alteração: Agora aceita um segundo argumento opcional 'idsToUpdate'
-  const applyToAll = (field: keyof ImportedPart, idsToUpdate?: string[]) => {
-    const value = batchDefaults[field as keyof BatchDefaults];
-    if (value === undefined) return;
+  // Alteração: Adicionamos um terceiro parâmetro opcional 'forceSkipConfirm'
+const applyToAll = (
+  field: keyof ImportedPart, 
+  idsToUpdate?: string[], 
+  forceSkipConfirm: boolean = false // <--- NOVO PARÂMETRO
+) => {
+  const value = batchDefaults[field as keyof BatchDefaults];
+  if (value === undefined) return;
 
-    // CENÁRIO 1: Aplicação Seletiva (Usuário marcou checkboxes)
-    if (idsToUpdate && idsToUpdate.length > 0) {
-      if (
-        !window.confirm(
-          `Confirma a aplicação de "${value}" em ${field.toUpperCase()} apenas para as ${
-            idsToUpdate.length
-          } peças selecionadas?`,
-        )
-      )
+  // CENÁRIO 1: Aplicação Seletiva (Checkboxes marcados)
+  if (idsToUpdate && idsToUpdate.length > 0) {
+    // Só pergunta se NÃO foi forçado a pular (pelo sessionApprovals da UI)
+    if (!forceSkipConfirm) {
+      if (!window.confirm(`Confirma a aplicação de "${value}" em ${field.toUpperCase()} apenas para as ${idsToUpdate.length} peças selecionadas?`))
         return;
-
-      setParts((prev) =>
-        prev.map((p) =>
-          idsToUpdate.includes(p.id) ? { ...p, [field]: value } : p,
-        ),
-      );
-      return;
     }
 
-    // CENÁRIO 2: Aplicação Total (Ninguém selecionado, comportamento padrão)
-    if (
-      !window.confirm(
-        `Nenhuma seleção detectada.\n\nDeseja aplicar "${value}" em ${field.toUpperCase()} para TODAS as ${
-          parts.length
-        } peças da lista?`,
-      )
-    )
-      return;
+    setParts((prev) =>
+      prev.map((p) =>
+        idsToUpdate.includes(p.id) ? { ...p, [field]: value } : p,
+      ),
+    );
+    return;
+  }
 
-    setParts((prev) => prev.map((p) => ({ ...p, [field]: value })));
-  };
+  // CENÁRIO 2: Aplicação Total (Ninguém selecionado)
+  if (!forceSkipConfirm) {
+    if (!window.confirm(`Nenhuma seleção detectada.\n\nDeseja aplicar "${value}" em ${field.toUpperCase()} para TODAS as ${parts.length} peças da lista?`))
+      return;
+  }
+
+  setParts((prev) => prev.map((p) => ({ ...p, [field]: value })));
+};
 
   const handleRowChange = (id: string, field: string, value: any) => {
     setParts((prev) =>
@@ -197,19 +194,16 @@ export const useEngineeringLogic = ({
     }
   };
 
-  // --- NOVO: EXCLUSÃO EM MASSA (CORRIGIDO) ---
-  const handleBulkDelete = (idsToRemove: string[]) => {
-    if (idsToRemove.length === 0) return;
+  // 2. Ajuste no handleBulkDelete
+const handleBulkDelete = (idsToRemove: string[], forceSkipConfirm: boolean = false) => {
+  if (idsToRemove.length === 0) return;
 
-    if (
-      window.confirm(
-        `Tem certeza que deseja excluir ${idsToRemove.length} peças selecionadas?`,
-      )
-    ) {
-      const newParts = parts.filter((p) => !idsToRemove.includes(p.id));
-      setParts(newParts);
-    }
-  };
+  if (!forceSkipConfirm) {
+    if (!window.confirm(`Tem certeza que deseja excluir ${idsToRemove.length} peças selecionadas?`)) return;
+  }
+
+  setParts((prev) => prev.filter((p) => !idsToRemove.includes(p.id)));
+};
 
   const handleReset = () => {
     if (
@@ -255,35 +249,22 @@ export const useEngineeringLogic = ({
     );
   };
 
-  const handleConvertAllToBlocks = () => {
-    if (
-      !window.confirm(
-        `Isso irá converter TODAS as peças com múltiplas entidades em Blocos únicos. Deseja continuar?`,
-      )
-    )
-      return;
+  // 3. Ajuste no handleConvertAllToBlocks
+const handleConvertAllToBlocks = (forceSkipConfirm: boolean = false) => {
+  if (!forceSkipConfirm) {
+    if (!window.confirm("Deseja converter todas as peças em Blocos?")) return;
+  }
 
-    setParts((prev) =>
-      prev.map((p) => {
-        if (p.entities.length === 1 && p.entities[0].type === "INSERT")
-          return p;
-
-        const blockName = `BLOCK_${p.id.substring(0, 8).toUpperCase()}`;
-        const newBlocks = { ...p.blocks };
-        newBlocks[blockName] = { entities: p.entities };
-
-        const insertEntity = {
-          type: "INSERT",
-          name: blockName,
-          position: { x: 0, y: 0 },
-          scale: { x: 1, y: 1, z: 1 },
-          rotation: 0,
-        };
-
-        return { ...p, entities: [insertEntity], blocks: newBlocks };
-      }),
-    );
-  };
+  setParts((prev) =>
+    prev.map((p) => {
+      if (p.entities.length === 1 && p.entities[0].type === "INSERT") return p;
+      const blockName = `BLOCK_${p.id.substring(0, 8).toUpperCase()}`;
+      const newBlocks = { ...p.blocks };
+      newBlocks[blockName] = { entities: p.entities };
+      return { ...p, entities: [{ type: "INSERT", name: blockName, position: { x: 0, y: 0 }, scale: { x: 1, y: 1, z: 1 }, rotation: 0 }], blocks: newBlocks };
+    })
+  );
+};
 
   const savePartsToDB = async (silent: boolean = false): Promise<boolean> => {
     if (parts.length === 0) {

@@ -360,7 +360,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
       "bulkDelete",
       `Tem certeza que deseja excluir ${selectedIds.length} itens selecionados?`,
       () => {
-        handleBulkDelete(selectedIds);
+        handleBulkDelete(selectedIds, true);
         setSelectedIds([]); // Limpa a seleção
       },
     );
@@ -819,7 +819,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   selectedIds.length > 0
                     ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
                     : "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("pedido", selectedIds), // <--- AQUI ESTÁ O SEGREDO
+                  () => applyToAll("pedido", selectedIds, true), // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
@@ -846,7 +846,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   selectedIds.length > 0
                     ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
                     : "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("op", selectedIds), // <--- AQUI ESTÁ O SEGREDO
+                  () => applyToAll("op", selectedIds, true), // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
@@ -875,7 +875,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   selectedIds.length > 0
                     ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
                     : "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("tipo_producao", selectedIds), // <--- AQUI ESTÁ O SEGREDO
+                  () => applyToAll("tipo_producao", selectedIds, true), // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
@@ -917,7 +917,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   selectedIds.length > 0
                     ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
                     : "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("material", selectedIds), // <--- AQUI ESTÁ O SEGREDO
+                  () => applyToAll("material", selectedIds, true), // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
@@ -986,7 +986,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   selectedIds.length > 0
                     ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
                     : "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("espessura", selectedIds), // <--- AQUI ESTÁ O SEGREDO
+                  () => applyToAll("espessura", selectedIds, true), // <--- AQUI ESTÁ O SEGREDO
                 )
               }
             >
@@ -1033,7 +1033,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             executeWithSessionConfirmation(
               "convertBlock",
               "Deseja converter todas as geometrias complexas em Blocos/Inserts?",
-              handleConvertAllToBlocks,
+              () => handleConvertAllToBlocks(true),
             )
           }
           title="Converte todas as peças complexas em blocos únicos"
