@@ -573,7 +573,7 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
 
   try {
     // Nova query: Seleciona apenas o registro mais recente de cada arquivo para evitar duplicidade de quantidade
-   let sql = `
+    let sql = `
       SELECT * FROM pecas_engenharia 
       WHERE pedido IN (?) 
         AND empresa_id = ? 
@@ -656,10 +656,16 @@ app.get("/api/pedidos/disponiveis", authenticateToken, async (req, res) => {
         AND pe.status = 'AGUARDANDO' 
         AND pe.pedido IS NOT NULL 
         AND pe.pedido != '' 
+        AND (pe.nome_arquivo, pe.data_cadastro) IN (
+            SELECT nome_arquivo, MAX(data_cadastro)
+            FROM pecas_engenharia
+            WHERE empresa_id = ?
+            GROUP BY nome_arquivo
+        )
       ORDER BY pe.pedido DESC, pe.op ASC
     `;
 
-    const [rows] = await db.query(sql, [empresaId]);
+    const [rows] = await db.query(sql, [empresaId, empresaId]);
 
     // 2. Agrupamos e verificamos a validade do bloqueio
     const mapaPedidos = {};
