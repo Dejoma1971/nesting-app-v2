@@ -572,10 +572,25 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
   }
 
   try {
-    let sql = `SELECT * FROM pecas_engenharia WHERE pedido IN (?) AND empresa_id = ? AND status = 'AGUARDANDO'`;
-    const params = [pedidosArray, empresaId];
+    // Nova query: Seleciona apenas o registro mais recente de cada arquivo para evitar duplicidade de quantidade
+    let sql = `
+      SELECT * FROM pecas_engenharia 
+      WHERE pedido IN (?) 
+        AND empresa_id = ? 
+        AND status = 'AGUARDANDO'
+        AND (nome_arquivo, data_cadastro) IN (
+          SELECT nome_arquivo, MAX(data_cadastro) 
+          FROM pecas_engenharia 
+          WHERE pedido IN (?) 
+          AND empresa_id = ?  /* <--- CORREÇÃO AQUI */
+          GROUP BY nome_arquivo
+        )
+    `;
 
-    // Se o usuário selecionou OPs específicas, adicionamos o filtro
+    // Note que passamos 'pedidosArray' duas vezes: uma para a query principal e outra para a subquery
+    const params = [pedidosArray, empresaId, pedidosArray, empresaId];
+
+    // Mantém o filtro de OPs se elas existirem
     if (opsArray.length > 0) {
       sql += ` AND op IN (?)`;
       params.push(opsArray);
@@ -641,10 +656,16 @@ app.get("/api/pedidos/disponiveis", authenticateToken, async (req, res) => {
         AND pe.status = 'AGUARDANDO' 
         AND pe.pedido IS NOT NULL 
         AND pe.pedido != '' 
+        AND (pe.nome_arquivo, pe.data_cadastro) IN (
+            SELECT nome_arquivo, MAX(data_cadastro)
+            FROM pecas_engenharia
+            WHERE empresa_id = ?
+            GROUP BY nome_arquivo
+        )
       ORDER BY pe.pedido DESC, pe.op ASC
     `;
 
-    const [rows] = await db.query(sql, [empresaId]);
+    const [rows] = await db.query(sql, [empresaId, empresaId]);
 
     // 2. Agrupamos e verificamos a validade do bloqueio
     const mapaPedidos = {};
@@ -726,7 +747,7 @@ app.post("/api/pedidos/lock", authenticateToken, async (req, res) => {
     await connection.beginTransaction();
 
     // 1. Verifica se já existe algo bloqueado por OUTRA pessoa recentemente
-   // 1. DEFINIÇÃO DA QUERY (REMOVA O 'FOR UPDATE' DAQUI DE DENTRO)
+    // 1. DEFINIÇÃO DA QUERY (REMOVA O 'FOR UPDATE' DAQUI DE DENTRO)
     let checkSql = `
       SELECT locked_by, locked_at, u.nome 
       FROM pecas_engenharia pe
@@ -737,22 +758,25 @@ app.post("/api/pedidos/lock", authenticateToken, async (req, res) => {
         AND pe.locked_by != ?
         AND pe.locked_at > DATE_SUB(NOW(), INTERVAL 30 MINUTE)
     `;
-    
+
     const params = [empresaId, pedido, usuarioId];
 
     // Se tiver OPs específicas, filtra também
     let opsArray = [];
     if (op) {
-        opsArray = Array.isArray(op) ? op : op.split(",").map(s => s.trim());
-        if (opsArray.length > 0) {
-            checkSql += ` AND pe.op IN (?)`; 
-            params.push(opsArray);
-        }
+      opsArray = Array.isArray(op) ? op : op.split(",").map((s) => s.trim());
+      if (opsArray.length > 0) {
+        checkSql += ` AND pe.op IN (?)`;
+        params.push(opsArray);
+      }
     }
 
     // 2. EXECUÇÃO (O 'FOR UPDATE' DEVE ENTRAR AQUI, NO FINAL DA STRING)
     // A ordem obrigatória do MySQL é: WHERE ... LIMIT ... FOR UPDATE
-    const [lockedRows] = await connection.query(checkSql + " LIMIT 1 FOR UPDATE", params);
+    const [lockedRows] = await connection.query(
+      checkSql + " LIMIT 1 FOR UPDATE",
+      params,
+    );
 
     if (lockedRows.length > 0) {
       // JA ESTÁ BLOQUEADO!

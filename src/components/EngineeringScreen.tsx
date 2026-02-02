@@ -121,7 +121,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     handleBulkDelete,
     handleReset,
     handleConvertAllToBlocks,
-    handleStorageDB,
     handleDirectNesting,
     handleGoToNestingEmpty,
     handleRotatePart,
@@ -462,6 +461,127 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     }
   };
 
+  // ⬇️ --- [INSERÇÃO] NOVA FUNÇÃO DE SALVAMENTO INTELIGENTE (Mão Invisível) --- ⬇️
+  const handleSmartSave = async () => {
+    // 1. Validações Básicas
+    if (!parts || parts.length === 0) return alert("Lista vazia!");
+    if (!user || !user.token)
+      return alert("Erro de autenticação. Faça login novamente.");
+
+    // Feedback visual simples (pode melhorar se quiser)
+    const originalText = document.title;
+    document.title = "Salvando...";
+
+    try {
+      // 2. Preparar payload para verificação
+      const itensParaVerificar = parts.map((p: any) => ({
+        pedido: p.pedido,
+        nome: p.name, // Nome original
+      }));
+
+      // 3. Consultar o Banco sobre Duplicidades
+      const resVerify = await fetch(
+        "http://localhost:3001/api/pecas/verificar-existencia",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${user.token}`,
+          },
+          body: JSON.stringify({ itens: itensParaVerificar }),
+        },
+      );
+      const dataVerify = await resVerify.json();
+      const duplicadasNoBanco = dataVerify.duplicadas || []; // [{ pedido, nome_arquivo }]
+
+      // 4. Processar e Renomear (Deep Copy para não afetar o estado visual imediatamente se der erro)
+      const partsToSave = JSON.parse(JSON.stringify(parts));
+
+      // Rastreador de nomes usados NESTE lote para evitar colisão interna (ex: peças espelhadas)
+      // Chave: "PEDIDO|NOME" -> Valor: Quantidade de vezes que apareceu
+      const nameTracker: Record<string, number> = {};
+
+      const partsFinal = partsToSave.map((part: any) => {
+        const key = `${part.pedido}|${part.name}`;
+
+        // Verifica se conflita com o banco
+        const existsInDb = duplicadasNoBanco.some(
+          (d: any) => d.pedido === part.pedido && d.nome_arquivo === part.name,
+        );
+
+        // Verifica quantas vezes já vimos esse nome neste lote (0 = primeira vez)
+        const localCount = nameTracker[key] || 0;
+
+        // Se existe conflito (Banco ou Local), precisamos renomear
+        if (existsInDb || localCount > 0) {
+          // Se existe no banco, começamos do sufixo (1).
+          // Se é só colisão local, o localCount já vai incrementar.
+          // Fórmula: Base + (FlagBanco + ContagemLocal)
+          const suffixIndex = (existsInDb ? 1 : 0) + localCount;
+
+          if (suffixIndex > 0) {
+            // EX: "Lateral.dxf" -> "Lateral (1).dxf"
+            // Detecta extensão para inserir o número antes dela
+            const lastDotIndex = part.name.lastIndexOf(".");
+            if (lastDotIndex !== -1) {
+              const name = part.name.substring(0, lastDotIndex);
+              const ext = part.name.substring(lastDotIndex);
+              part.name = `${name} (${suffixIndex})${ext}`;
+            } else {
+              part.name = `${part.name} (${suffixIndex})`;
+            }
+          }
+        }
+
+        // Incrementa o rastreador para a próxima peça igual
+        nameTracker[key] = localCount + 1;
+
+        return part;
+      });
+
+      // 5. Enviar a lista corrigida para o Banco
+      const resSave = await fetch("http://localhost:3001/api/pecas", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${user.token}`,
+        },
+        body: JSON.stringify(partsFinal),
+      });
+
+      if (!resSave.ok) {
+        const errData = await resSave.json();
+        // Se ainda der erro 409, é porque nossa lógica de sufixo colidiu com algo manual antigo.
+        // Mas a "Mão Invisível" resolve 99% dos casos.
+        if (resSave.status === 409) {
+          alert(`Erro de Duplicidade Complexa:\n${errData.message}`);
+        } else {
+          throw new Error(errData.error || "Erro ao salvar");
+        }
+        return;
+      }
+
+      const dataSave = await resSave.json();
+
+      // 6. Sucesso!
+      alert(
+        `✅ Sucesso! ${dataSave.count} peças salvas.\n\nDuplicidades foram renomeadas automaticamente.`,
+      );
+
+      // Opcional: Atualizar a lista visual ou limpar
+      // Se tiver acesso a refreshData ou reset, chame aqui.
+      if (typeof handleReset === "function") {
+        // handleReset(); // Descomente se quiser limpar a tela após salvar
+      }
+    } catch (error: any) {
+      console.error("Erro no Smart Save:", error);
+      alert("Erro ao processar salvamento: " + error.message);
+    } finally {
+      document.title = originalText || "Nesting App";
+    }
+  };
+  // ⬆️ ------------------------------------------------------------------------- ⬆️
+
   // --- STYLES ---
   const containerStyle: React.CSSProperties = {
     display: "flex",
@@ -739,7 +859,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             ✨ Nova Lista
           </button>
           <button
-            onClick={isTrial ? undefined : handleStorageDB}
+            onClick={isTrial ? undefined : handleSmartSave} // <--- Alterado para a nova função
             title={
               isTrial
                 ? "Indisponível no modo Trial"

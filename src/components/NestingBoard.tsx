@@ -2606,8 +2606,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               </span>
               <input
                 value={searchQuery}
-                readOnly // Recomendado: deixar readonly pois a seleção é via árvore
-                placeholder="Selecione na lista acima..."
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Ex: PED-100, PED-101..."
                 style={{
                   width: "100%",
                   padding: "10px",
