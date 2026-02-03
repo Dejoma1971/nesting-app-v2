@@ -429,7 +429,7 @@ app.delete("/api/team/:id", authenticateToken, async (req, res) => {
   }
 });
 
-// --- SALVAR PEÇAS (COM BLOQUEIO DE DUPLICIDADE DE PEDIDO) ---
+// --- SALVAR PEÇAS (COM BLOQUEIO PARA 'NORMAL' E SUBSTITUIÇÃO CIRÚRGICA PARA 'EDIÇÃO') ---
 app.post("/api/pecas", authenticateToken, async (req, res) => {
   const parts = req.body;
   const usuarioId = req.user.id;
@@ -438,60 +438,78 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
   if (!Array.isArray(parts) || parts.length === 0)
     return res.status(400).json({ error: "Lista vazia." });
 
-  // Obtemos uma conexão dedicada para usar transações
   const connection = await db.getConnection();
 
   try {
-    // Inicia a transação: ou salva tudo, ou não salva nada
     await connection.beginTransaction();
 
     // =================================================================
-    // 0. NOVA VALIDAÇÃO DE REGRA DE NEGÓCIO (DUPLICIDADE DE PEDIDO)
+    // 1. BLOQUEIO DE SEGURANÇA (APENAS PARA TIPO 'NORMAL')
     // =================================================================
+    // Regra: Um pedido não pode ter duplicidade de produção 'NORMAL'.
+    // Se o usuário tenta salvar 'NORMAL', verificamos se o pedido já existe ativo.
 
-    // Filtra apenas as peças que estão tentando entrar como "NORMAL"
-    // (Se tipo_producao for nulo/undefined, assume 'NORMAL' conforme padrão do banco)
     const pecasNormais = parts.filter(
       (p) => !p.tipo_producao || p.tipo_producao === "NORMAL",
     );
 
     if (pecasNormais.length > 0) {
-      // Extrai os números dos pedidos únicos para consulta (Ex: ['777', '888'])
-      const pedidosParaVerificar = [
+      // Extrai os pedidos únicos que estão sendo salvos como NORMAL
+      const pedidosCheck = [
         ...new Set(pecasNormais.map((p) => p.pedido).filter(Boolean)),
       ];
 
-      if (pedidosParaVerificar.length > 0) {
-        // Busca no banco se já existe ALGUMA peça "NORMAL" ativa para estes pedidos
-        // Ignoramos peças com status 'SUBSTITUIDO' ou 'CANCELADO' (ajuste conforme seu fluxo)
+      if (pedidosCheck.length > 0) {
         const [conflitos] = await connection.query(
           `SELECT DISTINCT pedido 
            FROM pecas_engenharia 
            WHERE empresa_id = ? 
              AND tipo_producao = 'NORMAL' 
-             AND status NOT IN ('SUBSTITUIDO', 'CANCELADO')
+             AND status IN ('AGUARDANDO', 'EM PRODUÇÃO')
              AND pedido IN (?)`,
-          [empresaId, pedidosParaVerificar],
+          [empresaId, pedidosCheck],
         );
 
-        // Se o banco retornar algo, temos um conflito!
         if (conflitos.length > 0) {
-          const pedidosConflitantes = conflitos.map((c) => c.pedido).join(", ");
-
-          // Cancela a transação e retorna erro
           await connection.rollback();
           connection.release();
-
           return res.status(409).json({
-            error: "Violação de Regra de Negócio",
-            message: `O pedido(s) "${pedidosConflitantes}" já possui produção 'NORMAL' cadastrada.\n\nPara ajustar quantidades, edite o cadastro existente ou altere o tipo para 'RETRABALHO' ou 'EDITAR CADASTRO'.`,
+            error: "Bloqueio de Segurança",
+            message: `O pedido ${conflitos[0].pedido} já possui produção 'NORMAL' cadastrada.\n\nSe você deseja corrigir ou adicionar peças a este pedido, altere o Tipo de Produção para 'EDITAR CADASTRO', 'ERRO DE PROJETO' ou 'RETRABALHO'.`,
           });
         }
       }
     }
-    // =================================================================
 
-    // 1. Verificações de Plano (Adaptado para usar 'connection')
+    // =================================================================
+    // 2. SUBSTITUIÇÃO CIRÚRGICA (PARA RETRABALHOS E EDIÇÕES)
+    // =================================================================
+    // Regra: Se a peça NÃO é Normal (é uma correção), devemos "aposentar"
+    // a versão anterior dela (se estiver Aguardando) para não duplicar no Nesting.
+
+    const pecasCorrecao = parts.filter(
+      (p) => p.tipo_producao && p.tipo_producao !== "NORMAL",
+    );
+
+    // Processamos uma a uma para garantir a precisão (Nome + Pedido)
+    for (const p of pecasCorrecao) {
+      if (p.pedido && p.name) {
+        // "Mata" a peça antiga específica daquele pedido que ainda não foi produzida
+        await connection.query(
+          `UPDATE pecas_engenharia 
+           SET status = 'SUBSTITUIDO' 
+           WHERE empresa_id = ? 
+             AND pedido = ? 
+             AND nome_arquivo = ? 
+             AND status = 'AGUARDANDO'`,
+          [empresaId, p.pedido, p.name],
+        );
+      }
+    }
+
+    // =================================================================
+    // 3. VERIFICAÇÕES DE PLANO (TRIAL / LIMITES)
+    // =================================================================
     const [empRows] = await connection.query(
       "SELECT trial_start_date, subscription_status, max_parts FROM empresas WHERE id = ?",
       [empresaId],
@@ -502,8 +520,7 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
     if (empresa.subscription_status === "trial") {
       const now = new Date();
       const start = new Date(empresa.trial_start_date);
-      const diffTime = Math.abs(now - start);
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const diffDays = Math.ceil(Math.abs(now - start) / (1000 * 60 * 60 * 24));
       if (diffDays > 30) {
         await connection.rollback();
         connection.release();
@@ -517,18 +534,19 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
         "SELECT COUNT(*) as total FROM pecas_engenharia WHERE empresa_id = ?",
         [empresaId],
       );
-      const currentTotal = countRows[0].total;
-      if (currentTotal + parts.length > empresa.max_parts) {
+      if (countRows[0].total + parts.length > empresa.max_parts) {
         await connection.rollback();
         connection.release();
         return res.status(409).json({
           error: "CAPACIDADE ATINGIDA!",
-          message: `Seu plano permite ${empresa.max_parts} peças. Você já tem ${currentTotal}.`,
+          message: `Plano excedido. Limite: ${empresa.max_parts}. Atual: ${countRows[0].total}.`,
         });
       }
     }
 
-    // 2. Inserção no Banco
+    // =================================================================
+    // 4. INSERÇÃO DAS NOVAS PEÇAS
+    // =================================================================
     const sql = `
       INSERT INTO pecas_engenharia 
       (id, usuario_id, empresa_id, nome_arquivo, pedido, op, material, espessura, autor, quantidade, cliente, 
@@ -537,7 +555,7 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
     `;
 
     const values = parts.map((p) => [
-      crypto.randomUUID(),
+      crypto.randomUUID(), // Gera novo ID único para a nova versão
       usuarioId,
       empresaId,
       p.name,
@@ -553,35 +571,29 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
       p.grossArea,
       JSON.stringify(p.entities),
       JSON.stringify(p.blocks || {}),
-      "AGUARDANDO",
+      "AGUARDANDO", // Sempre entra como AGUARDANDO (a antiga virou SUBSTITUIDO)
       p.tipo_producao || "NORMAL",
       p.isRotationLocked ? 1 : 0,
     ]);
 
     const [result] = await connection.query(sql, [values]);
 
-    // Confirma a gravação
     await connection.commit();
-
-    res
-      .status(201)
-      .json({ message: "Peças salvas!", count: result.affectedRows });
+    res.status(201).json({
+      message: "Peças salvas com sucesso!",
+      count: result.affectedRows,
+    });
   } catch (error) {
-    // Se der qualquer erro, desfaz tudo
     await connection.rollback();
-    console.error(error);
-
+    console.error("Erro ao salvar peças:", error);
     if (error.code === "ER_DUP_ENTRY") {
       return res.status(409).json({
-        error: "Duplicidade Detectada!",
-        message:
-          "Esta peça já existe neste pedido com este mesmo Tipo de Produção (Trava de Segurança do Banco).",
+        error: "Conflito de Dados",
+        message: "Erro de duplicidade interna. Tente novamente.",
       });
     }
-
-    res.status(500).json({ error: "Erro interno ao salvar peças." });
+    res.status(500).json({ error: "Erro interno ao processar salvamento." });
   } finally {
-    // Libera a conexão de volta para o pool
     if (connection) connection.release();
   }
 });
@@ -614,8 +626,9 @@ app.post(
 );
 
 // --- BUSCAR PEÇAS (COM FILTRO DE OP) ---
+// [server.cjs] - BUSCAR PEÇAS (COM DEDUPLICAÇÃO FORÇADA E NORMALIZADA)
 app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
-  const { pedido, op } = req.query; // <--- Agora aceita 'op'
+  const { pedido, op } = req.query;
   const empresaId = req.user.empresa_id;
 
   if (!pedido) return res.status(400).json({ error: "Falta pedido." });
@@ -625,7 +638,6 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
     .map((p) => p.trim())
     .filter(Boolean);
 
-  // Tratamento das OPs (se vierem)
   let opsArray = [];
   if (op) {
     opsArray = op
@@ -635,40 +647,65 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
   }
 
   try {
-    // Nova query: Seleciona apenas o registro mais recente de cada arquivo para evitar duplicidade de quantidade
+    // 1. Busca TUDO que está 'AGUARDANDO' (sem filtros complicados no SQL)
     let sql = `
       SELECT * FROM pecas_engenharia 
       WHERE pedido IN (?) 
         AND empresa_id = ? 
         AND status = 'AGUARDANDO'
-        AND (pedido, data_cadastro) IN (
-          SELECT 
-            pedido, MAX(data_cadastro) 
-          FROM pecas_engenharia 
-          WHERE pedido IN (?) 
-          AND empresa_id = ?
-          AND status = 'AGUARDANDO'
-          GROUP BY pedido
-        )
     `;
 
-    // Parâmetros mapeados para os (?) na ordem exata da query
-    const params = [pedidosArray, empresaId, pedidosArray, empresaId];
+    const params = [pedidosArray, empresaId];
 
-    // Mantém o filtro de OPs se elas existirem
     if (opsArray.length > 0) {
       sql += ` AND op IN (?)`;
       params.push(opsArray);
     }
 
+    // Trazemos tudo para o JavaScript decidir quem fica
+    sql += ` ORDER BY data_cadastro DESC`;
+
     const [rows] = await db.query(sql, params);
 
     if (rows.length === 0)
-      return res.status(404).json({ message: "Não encontrado" });
+      return res
+        .status(404)
+        .json({ message: "Não encontrado ou já produzido." });
 
-    const formattedParts = rows.map((row) => ({
+    // ==================================================================
+    // 2. O HIGHLANDER (SÓ PODE HAVER UM)
+    // ==================================================================
+
+    const pecasUnicas = {};
+
+    rows.forEach((row) => {
+      // NORMALIZAÇÃO: Remove espaços e força minúsculas para garantir igualdade
+      // Ex: "Lateral.dxf " vira "lateral.dxf"
+      const nomeLimpo = row.nome_arquivo.trim().toLowerCase();
+      const pedidoLimpo = row.pedido.trim();
+
+      // Cria a chave única
+      const chave = `${pedidoLimpo}|${nomeLimpo}`;
+
+      // Lógica: Como a lista veio ordenada por DATA DECRESCENTE (do mais novo para o mais velho),
+      // o primeiro registro que aparecer para essa chave É O MAIS RECENTE.
+      // Se a chave já existir no objeto, significa que encontramos uma versão mais velha (duplicada).
+      // Nós simplesmente a ignoramos.
+
+      if (!pecasUnicas[chave]) {
+        pecasUnicas[chave] = row;
+      }
+      // Se cair no else, é lixo/duplicidade antiga e será descartada.
+    });
+
+    // Converte o objeto de volta para array
+    const rowsFiltradas = Object.values(pecasUnicas);
+
+    // ==================================================================
+
+    const formattedParts = rowsFiltradas.map((row) => ({
       id: row.id,
-      name: row.nome_arquivo,
+      name: row.nome_arquivo, // Mantém o nome original (Bonito) para exibir
       pedido: row.pedido,
       op: row.op,
       material: row.material,
@@ -689,11 +726,12 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
           : row.blocos_def || {},
       dataCadastro: row.data_cadastro,
       tipo_producao: row.tipo_producao,
-      isRotationLocked: !!row.is_rotation_locked, // <--- ADICIONE ESTA LINHA
+      isRotationLocked: !!row.is_rotation_locked,
     }));
 
     res.json(formattedParts);
   } catch (error) {
+    console.error("Erro na busca:", error);
     res.status(500).json({ error: error.message });
   }
 });
