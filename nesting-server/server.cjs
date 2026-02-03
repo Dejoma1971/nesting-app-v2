@@ -429,11 +429,7 @@ app.delete("/api/team/:id", authenticateToken, async (req, res) => {
   }
 });
 
-// ==========================================
-// 4. ROTAS DE ENGENHARIA E PEÇAS
-// ==========================================
-
-// --- SALVAR PEÇAS ---
+// --- SALVAR PEÇAS (COM BLOQUEIO DE DUPLICIDADE DE PEDIDO) ---
 app.post("/api/pecas", authenticateToken, async (req, res) => {
   const parts = req.body;
   const usuarioId = req.user.id;
@@ -442,8 +438,61 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
   if (!Array.isArray(parts) || parts.length === 0)
     return res.status(400).json({ error: "Lista vazia." });
 
+  // Obtemos uma conexão dedicada para usar transações
+  const connection = await db.getConnection();
+
   try {
-    const [empRows] = await db.query(
+    // Inicia a transação: ou salva tudo, ou não salva nada
+    await connection.beginTransaction();
+
+    // =================================================================
+    // 0. NOVA VALIDAÇÃO DE REGRA DE NEGÓCIO (DUPLICIDADE DE PEDIDO)
+    // =================================================================
+
+    // Filtra apenas as peças que estão tentando entrar como "NORMAL"
+    // (Se tipo_producao for nulo/undefined, assume 'NORMAL' conforme padrão do banco)
+    const pecasNormais = parts.filter(
+      (p) => !p.tipo_producao || p.tipo_producao === "NORMAL",
+    );
+
+    if (pecasNormais.length > 0) {
+      // Extrai os números dos pedidos únicos para consulta (Ex: ['777', '888'])
+      const pedidosParaVerificar = [
+        ...new Set(pecasNormais.map((p) => p.pedido).filter(Boolean)),
+      ];
+
+      if (pedidosParaVerificar.length > 0) {
+        // Busca no banco se já existe ALGUMA peça "NORMAL" ativa para estes pedidos
+        // Ignoramos peças com status 'SUBSTITUIDO' ou 'CANCELADO' (ajuste conforme seu fluxo)
+        const [conflitos] = await connection.query(
+          `SELECT DISTINCT pedido 
+           FROM pecas_engenharia 
+           WHERE empresa_id = ? 
+             AND tipo_producao = 'NORMAL' 
+             AND status NOT IN ('SUBSTITUIDO', 'CANCELADO')
+             AND pedido IN (?)`,
+          [empresaId, pedidosParaVerificar],
+        );
+
+        // Se o banco retornar algo, temos um conflito!
+        if (conflitos.length > 0) {
+          const pedidosConflitantes = conflitos.map((c) => c.pedido).join(", ");
+
+          // Cancela a transação e retorna erro
+          await connection.rollback();
+          connection.release();
+
+          return res.status(409).json({
+            error: "Violação de Regra de Negócio",
+            message: `O pedido(s) "${pedidosConflitantes}" já possui produção 'NORMAL' cadastrada.\n\nPara ajustar quantidades, edite o cadastro existente ou altere o tipo para 'RETRABALHO' ou 'EDITAR CADASTRO'.`,
+          });
+        }
+      }
+    }
+    // =================================================================
+
+    // 1. Verificações de Plano (Adaptado para usar 'connection')
+    const [empRows] = await connection.query(
       "SELECT trial_start_date, subscription_status, max_parts FROM empresas WHERE id = ?",
       [empresaId],
     );
@@ -455,19 +504,23 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
       const start = new Date(empresa.trial_start_date);
       const diffTime = Math.abs(now - start);
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      if (diffDays > 30)
+      if (diffDays > 30) {
+        await connection.rollback();
+        connection.release();
         return res.status(403).json({ error: "SEU TRIAL EXPIROU!" });
+      }
     }
 
     // Validação Limite Peças
     if (empresa.max_parts !== null) {
-      const [countRows] = await db.query(
+      const [countRows] = await connection.query(
         "SELECT COUNT(*) as total FROM pecas_engenharia WHERE empresa_id = ?",
         [empresaId],
       );
       const currentTotal = countRows[0].total;
       if (currentTotal + parts.length > empresa.max_parts) {
-        // Use 409 (Conflict) ou 429 (Too Many Requests) para NÃO deslogar o usuário
+        await connection.rollback();
+        connection.release();
         return res.status(409).json({
           error: "CAPACIDADE ATINGIDA!",
           message: `Seu plano permite ${empresa.max_parts} peças. Você já tem ${currentTotal}.`,
@@ -475,6 +528,7 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
       }
     }
 
+    // 2. Inserção no Banco
     const sql = `
       INSERT INTO pecas_engenharia 
       (id, usuario_id, empresa_id, nome_arquivo, pedido, op, material, espessura, autor, quantidade, cliente, 
@@ -501,25 +555,34 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
       JSON.stringify(p.blocks || {}),
       "AGUARDANDO",
       p.tipo_producao || "NORMAL",
-      p.isRotationLocked ? 1 : 0, // <--- AQUI ESTA A CORREÇÃO
+      p.isRotationLocked ? 1 : 0,
     ]);
 
-    const [result] = await db.query(sql, [values]);
+    const [result] = await connection.query(sql, [values]);
+
+    // Confirma a gravação
+    await connection.commit();
+
     res
       .status(201)
       .json({ message: "Peças salvas!", count: result.affectedRows });
   } catch (error) {
+    // Se der qualquer erro, desfaz tudo
+    await connection.rollback();
     console.error(error);
+
     if (error.code === "ER_DUP_ENTRY") {
       return res.status(409).json({
         error: "Duplicidade Detectada!",
         message:
-          "Esta peça já existe neste pedido com este mesmo Tipo de Produção. Altere o tipo para salvar novamente.",
+          "Esta peça já existe neste pedido com este mesmo Tipo de Produção (Trava de Segurança do Banco).",
       });
     }
-    // ---------------------
 
-    res.status(500).json({ error: "Erro interno." });
+    res.status(500).json({ error: "Erro interno ao salvar peças." });
+  } finally {
+    // Libera a conexão de volta para o pool
+    if (connection) connection.release();
   }
 });
 
@@ -578,16 +641,18 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
       WHERE pedido IN (?) 
         AND empresa_id = ? 
         AND status = 'AGUARDANDO'
-        AND (nome_arquivo, data_cadastro) IN (
-          SELECT nome_arquivo, MAX(data_cadastro) 
+        AND (pedido, data_cadastro) IN (
+          SELECT 
+            pedido, MAX(data_cadastro) 
           FROM pecas_engenharia 
           WHERE pedido IN (?) 
-          AND empresa_id = ?  /* <--- CORREÇÃO AQUI */
-          GROUP BY nome_arquivo
+          AND empresa_id = ?
+          AND status = 'AGUARDANDO'
+          GROUP BY pedido
         )
     `;
 
-    // Note que passamos 'pedidosArray' duas vezes: uma para a query principal e outra para a subquery
+    // Parâmetros mapeados para os (?) na ordem exata da query
     const params = [pedidosArray, empresaId, pedidosArray, empresaId];
 
     // Mantém o filtro de OPs se elas existirem
