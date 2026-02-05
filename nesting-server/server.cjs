@@ -673,29 +673,30 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
         .json({ message: "Não encontrado ou já produzido." });
 
     // ==================================================================
-    // 2. O HIGHLANDER (SÓ PODE HAVER UM)
+    // 2. O HIGHLANDER (SÓ PODE HAVER UM) - VERSÃO BLINDADA
     // ==================================================================
 
     const pecasUnicas = {};
-
+    
     rows.forEach((row) => {
-      // NORMALIZAÇÃO: Remove espaços e força minúsculas para garantir igualdade
-      // Ex: "Lateral.dxf " vira "lateral.dxf"
-      const nomeLimpo = row.nome_arquivo.trim().toLowerCase();
-      const pedidoLimpo = row.pedido.trim();
+      // BLINDAGEM: Garante que não é null antes de usar o .trim()
+      // Se vier null do banco, transforma em string vazia ""
+      const rawNome = row.nome_arquivo ? String(row.nome_arquivo) : "";
+      const rawPedido = row.pedido ? String(row.pedido) : "";
+
+      const nomeLimpo = rawNome.trim().toLowerCase();
+      const pedidoLimpo = rawPedido.trim();
+
+      // Se o nome ou pedido estiverem vazios, ignora o registro (Lixo de banco)
+      if (!nomeLimpo || !pedidoLimpo) return;
 
       // Cria a chave única
       const chave = `${pedidoLimpo}|${nomeLimpo}`;
 
-      // Lógica: Como a lista veio ordenada por DATA DECRESCENTE (do mais novo para o mais velho),
-      // o primeiro registro que aparecer para essa chave É O MAIS RECENTE.
-      // Se a chave já existir no objeto, significa que encontramos uma versão mais velha (duplicada).
-      // Nós simplesmente a ignoramos.
-
+      // Lógica: Como a lista veio ordenada por DATA DECRESCENTE...
       if (!pecasUnicas[chave]) {
         pecasUnicas[chave] = row;
       }
-      // Se cair no else, é lixo/duplicidade antiga e será descartada.
     });
 
     // Converte o objeto de volta para array
