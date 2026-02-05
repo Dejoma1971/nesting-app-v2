@@ -22,8 +22,12 @@ export const runGatekeeper = (rawEntities: any[]): any[] => {
   // Otimização: .find() para o loop assim que encontra true.
   // Em um arquivo de 50.000 linhas, se a primeira for linha solta,
   // ele executa 1 vez e para (antes executava 50.000 vezes).
-  const firstInvalidEntity = rawEntities.find((ent) =>
-    FORBIDDEN_LOOSE_TYPES.includes(ent.type),
+  const firstInvalidEntity = rawEntities.find(
+    (ent) =>
+      // Verifica se é um tipo proibido...
+      FORBIDDEN_LOOSE_TYPES.includes(ent.type) &&
+      // ... MAS SÓ SE NÃO ESTIVER NO PAPER SPACE (Layouts são permitidos ter linhas soltas)
+      !ent.inPaperSpace,
   );
 
   // Se encontrou algo, bloqueia imediatamente
@@ -38,4 +42,3 @@ export const runGatekeeper = (rawEntities: any[]): any[] => {
   // Se passou na validação (loop terminou sem achar nada), libera.
   return rawEntities;
 };
-
