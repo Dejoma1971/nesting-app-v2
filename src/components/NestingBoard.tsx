@@ -2128,6 +2128,61 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     totalPlacedCounts,
   ]);
 
+  // =====================================================================
+  // --- NOVO: HEARTBEAT (PULSAÇÃO) PARA MANTER BLOQUEIO ATIVO ---
+  // =====================================================================
+  useEffect(() => {
+    // 1. Só executa se houver peças e usuário logado
+    if (parts.length === 0 || !user?.token) return;
+
+    const sendHeartbeat = async () => {
+      // 2. Agrupa os pedidos e OPs que estão na tela agora
+      const mapPedidosOps = new Map<string, Set<string>>();
+
+      parts.forEach((p) => {
+        if (!p.pedido) return;
+        if (!mapPedidosOps.has(p.pedido)) {
+          mapPedidosOps.set(p.pedido, new Set());
+        }
+        // Se tiver OP, adiciona ao conjunto desse pedido
+        if (p.op) {
+          mapPedidosOps.get(p.pedido)?.add(p.op);
+        }
+      });
+
+      // 3. Envia um sinal de renovação para cada pedido identificado
+      for (const [pedido, opsSet] of mapPedidosOps.entries()) {
+        try {
+          // Chamada silenciosa (sem loading, sem alert) para a rota /lock
+          await fetch("http://localhost:3001/api/pedidos/lock", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${user.token}`,
+            },
+            body: JSON.stringify({
+              pedido: pedido,
+              op: Array.from(opsSet), // Envia lista de OPs para renovação precisa
+            }),
+          });
+          // console.log(`💓 Heartbeat enviado para ${pedido}`);
+        } catch (error) {
+          console.warn(`Falha ao renovar bloqueio do pedido ${pedido}`, error);
+        }
+      }
+    };
+
+    // Executa imediatamente ao carregar as peças ou mudar o usuário
+    sendHeartbeat();
+
+    // Configura o relógio para repetir a cada 60 segundos (1 minuto)
+    // O backend tem tolerância de 2 minutos, então 1 minuto é seguro.
+    const intervalId = setInterval(sendHeartbeat, 60000);
+
+    // Limpa o intervalo se o componente desmontar
+    return () => clearInterval(intervalId);
+  }, [parts, user]);
+
   const containerStyle: React.CSSProperties = {
     display: "flex",
     flexDirection: "column",

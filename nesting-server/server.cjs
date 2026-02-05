@@ -837,11 +837,17 @@ app.get("/api/pedidos/disponiveis", authenticateToken, async (req, res) => {
   }
 });
 
-// --- BLOQUEAR (RESERVAR) PEDIDOS/OPS ---
+// [server.cjs] - CORREÇÃO DE BLOQUEIO (SEM FOR UPDATE)
+
+// --- BLOQUEAR PEDIDO (CHECK-ON-CLICK) ---
 app.post("/api/pedidos/lock", authenticateToken, async (req, res) => {
-  const { pedido, op } = req.body; // Recebe string do pedido e string (ou array) de OPs
+  const { pedido, op } = req.body;
   const usuarioId = req.user.id;
   const empresaId = req.user.empresa_id;
+
+  // TOLERÂNCIA: Se o usuário não renovar o sinal em 2 minutos, o sistema libera.
+  // Isso evita que o pedido fique travado se o PC desligar.
+  const TOLERANCIA_MINUTOS = 2; 
 
   if (!pedido) return res.status(400).json({ error: "Pedido obrigatório." });
 
@@ -849,48 +855,47 @@ app.post("/api/pedidos/lock", authenticateToken, async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    // 1. Verifica se já existe algo bloqueado por OUTRA pessoa recentemente
-    // 1. DEFINIÇÃO DA QUERY (REMOVA O 'FOR UPDATE' DAQUI DE DENTRO)
+    // 1. VERIFICAÇÃO INTELIGENTE (SEM FOR UPDATE)
+    // Verifica se existe alguém (que NÃO seja eu) com um bloqueio RECENTE (< 2 min)
     let checkSql = `
-      SELECT locked_by, locked_at, u.nome 
+      SELECT u.nome, pe.locked_at 
       FROM pecas_engenharia pe
-      LEFT JOIN usuarios u ON pe.locked_by = u.id
+      JOIN usuarios u ON pe.locked_by = u.id
       WHERE pe.empresa_id = ? 
         AND pe.pedido = ?
         AND pe.locked_by IS NOT NULL 
-        AND pe.locked_by != ?
-        AND pe.locked_at > DATE_SUB(NOW(), INTERVAL 30 MINUTE)
+        AND pe.locked_by != ? 
+        AND pe.locked_at > DATE_SUB(NOW(), INTERVAL ? MINUTE)
+      LIMIT 1
     `;
 
-    const params = [empresaId, pedido, usuarioId];
-
-    // Se tiver OPs específicas, filtra também
+    const params = [empresaId, pedido, usuarioId, TOLERANCIA_MINUTOS];
     let opsArray = [];
+
+    // Adiciona filtro de OP se houver
     if (op) {
       opsArray = Array.isArray(op) ? op : op.split(",").map((s) => s.trim());
       if (opsArray.length > 0) {
-        checkSql += ` AND pe.op IN (?)`;
+        checkSql = checkSql.replace("LIMIT 1", "AND pe.op IN (?) LIMIT 1");
         params.push(opsArray);
       }
     }
 
-    // 2. EXECUÇÃO (O 'FOR UPDATE' DEVE ENTRAR AQUI, NO FINAL DA STRING)
-    // A ordem obrigatória do MySQL é: WHERE ... LIMIT ... FOR UPDATE
-    const [lockedRows] = await connection.query(
-      checkSql + " LIMIT 1 FOR UPDATE",
-      params,
-    );
+    const [lockedRows] = await connection.query(checkSql, params);
 
+    // 2. SE ALGUÉM ESTIVER USANDO, RETORNA ERRO (MAS NÃO TRAVA O BANCO)
     if (lockedRows.length > 0) {
-      // JA ESTÁ BLOQUEADO!
       await connection.rollback();
+      const usuarioBloqueador = lockedRows[0].nome || "Desconhecido";
+      const horarioBloqueio = new Date(lockedRows[0].locked_at).toLocaleTimeString();
+      
       return res.status(409).json({
         error: "Bloqueado",
-        message: `Este pedido/OP está sendo usado por ${lockedRows[0].nome || "outro usuário"} no momento.`,
+        message: `Em uso por ${usuarioBloqueador} (desde ${horarioBloqueio}).`
       });
     }
 
-    // 2. Se está livre, realiza o BLOQUEIO (Update)
+    // 3. CAMINHO LIVRE: REALIZA O BLOQUEIO OU RENOVAÇÃO
     let updateSql = `
       UPDATE pecas_engenharia 
       SET locked_by = ?, locked_at = NOW()
@@ -904,25 +909,26 @@ app.post("/api/pedidos/lock", authenticateToken, async (req, res) => {
     }
 
     await connection.query(updateSql, updateParams);
-
     await connection.commit();
-    res.json({ message: "Reserva realizada com sucesso." });
+    
+    res.json({ message: "Sessão iniciada/renovada." });
+
   } catch (error) {
     await connection.rollback();
     console.error("Erro ao bloquear:", error);
-    res.status(500).json({ error: "Erro ao tentar reservar pedido." });
+    // Erro 500 genérico, mas agora sem travar o banco para os outros
+    res.status(500).json({ error: "Erro técnico ao reservar pedido." });
   } finally {
     connection.release();
   }
 });
 
-// --- DESBLOQUEAR PEDIDOS ---
+// --- DESBLOQUEAR PEDIDO ---
 app.post("/api/pedidos/unlock", authenticateToken, async (req, res) => {
   const { pedido, op } = req.body;
   const usuarioId = req.user.id;
   const empresaId = req.user.empresa_id;
 
-  // Se não mandar pedido, desbloqueia TUDO desse usuário (útil para "Limpar Mesa" ou "Logout")
   try {
     let sql = `
       UPDATE pecas_engenharia 
@@ -935,12 +941,11 @@ app.post("/api/pedidos/unlock", authenticateToken, async (req, res) => {
       sql += ` AND pedido = ?`;
       params.push(pedido);
     }
-
-    // Se quiser desbloquear OP específica (opcional)
+    // Desbloqueio opcional por OP
     if (op) {
-      const opsArray = Array.isArray(op) ? op : op.split(",");
-      sql += ` AND op IN (?)`;
-      params.push(opsArray);
+       const opsArray = Array.isArray(op) ? op : op.split(",");
+       sql += ` AND op IN (?)`;
+       params.push(opsArray);
     }
 
     await db.query(sql, params);
