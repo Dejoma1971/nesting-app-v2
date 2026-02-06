@@ -46,6 +46,12 @@ interface InteractiveCanvasProps {
   // Props de Linhas de Retalho
   cropLines?: CropLine[];
   onCropLineMove?: (lineId: string, newPosition: number) => void;
+
+  // --- INSERÇÃO 1: NOVAS PROPS PARA O TRIM ---
+  isTrimMode?: boolean;
+  onCropLineClick?: (lineId: string, x: number, y: number) => void;
+  // ------------------------------------------
+
   onBackgroundContextMenu?: (
     e: React.MouseEvent,
     coords: { x: number; y: number },
@@ -72,7 +78,7 @@ interface InteractiveCanvasProps {
   canRedo: boolean;
 
   onCanvasDrop?: (partId: string, x: number, y: number) => void;
-  onCropLineContextMenu?: (e: React.MouseEvent, lineId: string) => void; // <--- NOVO
+  onCropLineContextMenu?: (e: React.MouseEvent, lineId: string, x: number, y: number) => void;
 }
 
 interface BoundingBoxCache {
@@ -467,8 +473,8 @@ const PartElement = React.memo(
         : "";
 
       // --- ALTERAÇÃO AQUI: Usando as cores definidas no theme.ts ---
-      let strokeColor = theme.partLine; 
-      if (isSelected) strokeColor = theme.partSelectedLine; 
+      let strokeColor = theme.partLine;
+      if (isSelected) strokeColor = theme.partSelectedLine;
       if (isColliding) strokeColor = "#ff0000";
       // -----------------------------------------------------------
 
@@ -581,6 +587,10 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   cropLines = [],
   onCropLineContextMenu,
   onCropLineMove,
+  // --- INSERÇÃO 2: RECEBENDO AS PROPS ---
+  isTrimMode = false,
+  onCropLineClick,
+  // --------------------------------------
 }) => {
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
 
@@ -755,7 +765,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       // Dispara o evento
       onBackgroundContextMenu(e, { x: binX, y: binY });
     },
-    [onBackgroundContextMenu, getSVGPoint, binHeight]
+    [onBackgroundContextMenu, getSVGPoint, binHeight],
   );
   // ----------------------------------------------
 
@@ -884,6 +894,36 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     },
     [getSVGPoint],
   );
+
+  // --- INSERÇÃO 3: HANDLER DO CLIQUE NA LINHA (TRIM) ---
+  const handleLineClick = useCallback(
+    (e: React.MouseEvent, line: CropLine) => {
+      // Se não estiver no modo Trim ou não tiver função de clique, ignora
+      if (!isTrimMode || !onCropLineClick) return;
+
+      e.preventDefault();
+      e.stopPropagation(); // Impede selecionar peça atrás ou abrir menu
+
+      // 1. Pega a posição bruta no SVG
+      const svgPos = getSVGPoint(e.clientX, e.clientY);
+
+      // 2. Converte para coordenadas da chapa (considerando Pan e Zoom)
+      // O transformRef guarda o estado atual visual (mais rápido que state)
+      const currentT = transformRef.current;
+
+      const visualX = (svgPos.x - currentT.x) / currentT.k;
+      const visualY = (svgPos.y - currentT.y) / currentT.k;
+
+      // 3. Ajusta o Y (pois o SVG é invertido em relação à máquina neste canvas)
+      const binX = visualX;
+      const binY = binHeight - visualY;
+
+      // 4. Envia para o pai (NestingBoard) processar o corte
+      onCropLineClick(line.id, binX, binY);
+    },
+    [isTrimMode, onCropLineClick, getSVGPoint, binHeight],
+  );
+  // ----------------------------------------------------
 
   const calculateSnap = useCallback(
     (deltaX: number, deltaY: number) => {
@@ -1251,7 +1291,8 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       // NOVO CONTEXT MENU COM PROTEÇÃO
       onContextMenu={(e) => {
         panHandlers.onContextMenu(e); // 1. Verifica se arrastou
-        if (!e.defaultPrevented) {    // 2. Se não arrastou, abre o menu
+        if (!e.defaultPrevented) {
+          // 2. Se não arrastou, abre o menu
           handleBackgroundContextMenu(e);
         }
       }}
@@ -1422,36 +1463,69 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                 );
               })}
 
-              {/* --- RENDERIZAÇÃO DAS LINHAS DE RETALHO (Espessura Fixa) --- */}
+              {/* --- RENDERIZAÇÃO DAS LINHAS DE RETALHO (ATUALIZADO PARA TRIM) --- */}
               {cropLines.map((line) => {
-                // ALTERAÇÃO: Valores fixos (pixels de tela), sem dividir por transform.k
-                const strokeW = 2; // Sempre 2px de espessura visual
-                const hitW = 20; // Sempre 20px de área de clique visual
+                const strokeW = 2;
+                const hitW = 20;
 
-                const cursor =
-                  line.type === "vertical" ? "col-resize" : "row-resize";
+                // LÓGICA DO CURSOR: Se Trim ativo, vira alvo (crosshair). Se não, mover.
+                const cursor = isTrimMode
+                  ? "crosshair"
+                  : line.type === "vertical"
+                    ? "col-resize"
+                    : "row-resize";
 
-                const x1 = line.type === "vertical" ? line.position : 0;
-                const x2 = line.type === "vertical" ? line.position : binWidth;
-                const y1 = line.type === "horizontal" ? line.position : 0;
+                // CÁLCULO DAS COORDENADAS COM SUPORTE A MIN/MAX (SEGMENTOS)
+                // Se min/max não existirem (undefined), usa os limites da chapa
+                const minPos = line.min ?? 0;
+
+                const x1 = line.type === "vertical" ? line.position : minPos;
+                const x2 =
+                  line.type === "vertical"
+                    ? line.position
+                    : (line.max ?? binWidth);
+
+                const y1 = line.type === "horizontal" ? line.position : minPos;
                 const y2 =
-                  line.type === "horizontal" ? line.position : binHeight;
+                  line.type === "horizontal"
+                    ? line.position
+                    : (line.max ?? binHeight);
 
                 return (
                   <g
                     key={line.id}
-                    onMouseDown={(e) =>
-                      handleLineDown(e, line.id, line.type, line.position)
-                    }
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if (onCropLineContextMenu)
-                        onCropLineContextMenu(e, line.id);
+                    // Evento de Arraste (Mantido)
+                    onMouseDown={(e) => {
+                      // Se for Trim, não inicia o arraste, apenas prepara o click
+                      if (!isTrimMode) {
+                        handleLineDown(e, line.id, line.type, line.position);
+                      }
                     }}
+                    // Evento de Clique (Novo - Trim)
+                    onClick={(e) => handleLineClick(e, line)}
+                   // --- ALTERAÇÃO AQUI: CLIQUE DIREITO COM COORDENADAS ---
+    onContextMenu={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (onCropLineContextMenu) {
+         // 1. Calcula a posição exata na chapa (igual fizemos no Trim anterior)
+         const svgPos = getSVGPoint(e.clientX, e.clientY);
+         const currentT = transformRef.current;
+         const visualX = (svgPos.x - currentT.x) / currentT.k;
+         const visualY = (svgPos.y - currentT.y) / currentT.k;
+         
+         const binX = visualX;
+         const binY = binHeight - visualY;
+
+         // 2. Envia tudo para o NestingBoard
+         onCropLineContextMenu(e, line.id, binX, binY);
+      }
+    }}
+    // -----------------------------------------------------
                     style={{ cursor: cursor }}
                   >
-                    {/* 1. Área de clique (Invisível) */}
+                    {/* 1. Área de clique (Invisível mas grossa) */}
                     <line
                       x1={x1}
                       y1={y1}
@@ -1459,18 +1533,21 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                       y2={y2}
                       stroke="transparent"
                       strokeWidth={hitW}
-                      vectorEffect="non-scaling-stroke" // Garante que a área de clique não mude com zoom
+                      vectorEffect="non-scaling-stroke"
                     />
 
-                    {/* 2. Linha Visível (Verde Sólido) */}
+                    {/* 2. Linha Visível */}
                     <line
                       x1={x1}
                       y1={y1}
                       x2={x2}
                       y2={y2}
-                      stroke="#00ff3cff"
+                      stroke={line.isSelected ? "#ff0000" : "#00ff3cff"} // Exemplo: muda cor se selecionado
                       strokeWidth={strokeW}
-                      vectorEffect="non-scaling-stroke" // Garante que a linha não afine/engrosse com zoom
+                      // --- ADICIONE ESTA LINHA: ---
+                      strokeLinecap="square" 
+                      // ----------------------------
+                      vectorEffect="non-scaling-stroke"
                       style={{ pointerEvents: "none" }}
                     />
                   </g>

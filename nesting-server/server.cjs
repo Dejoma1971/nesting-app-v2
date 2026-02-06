@@ -743,7 +743,7 @@ app.get("/api/pedidos/disponiveis", authenticateToken, async (req, res) => {
   const usuarioId = req.user.id;
 
   // Tempo limite em minutos para considerar um bloqueio "expirado" (ex: 30 min)
-  const LOCK_TIMEOUT_MINUTES = 30;
+  const LOCK_TIMEOUT_MINUTES = 2;
 
   try {
     // 1. Buscamos Pedido, OP e dados de bloqueio + Nome do usuário que bloqueou

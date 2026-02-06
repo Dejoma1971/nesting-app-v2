@@ -19,6 +19,8 @@ const FORBIDDEN_LOOSE_TYPES = [
  * Ação: Se encontrar 1 erro, aborta imediatamente. Não perde tempo contando.
  */
 export const runGatekeeper = (rawEntities: any[]): any[] => {
+
+  const modelSpaceEntities = rawEntities.filter(ent => !ent.inPaperSpace);
   // Otimização: .find() para o loop assim que encontra true.
   // Em um arquivo de 50.000 linhas, se a primeira for linha solta,
   // ele executa 1 vez e para (antes executava 50.000 vezes).
@@ -40,5 +42,8 @@ export const runGatekeeper = (rawEntities: any[]): any[] => {
   }
 
   // Se passou na validação (loop terminou sem achar nada), libera.
-  return rawEntities;
+  // PASSO 3: RETORNO LIMPO
+  // Devolvemos apenas a lista do Model Space para o importador.
+  // O Paper Space foi descartado no passo 1.
+  return modelSpaceEntities;
 };

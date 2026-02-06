@@ -367,6 +367,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // Estado para controlar o modal da equipe
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
 
+  // =========================================================
+  const [showOnlySelected, setShowOnlySelected] = useState(false);
+  // =========================================================
+
   const [viewKey, setViewKey] = useState(0); // Controla o reset visual do Canvas
 
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -426,6 +430,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     cropLines,
     moveCropLine,
     removeCropLine,
+    // --- ADICIONE ESTA LINHA: ---
+    trimCropLine,
+    // ----------------------------
     handleDeleteCurrentBin,
     addCropLine,
     setCropLines,
@@ -1201,9 +1208,16 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   );
 
   const handleLineContextMenu = useCallback(
-    (e: React.MouseEvent, lineId: string) => {
+    (e: React.MouseEvent, lineId: string, binX: number, binY: number) => {
       e.preventDefault();
-      setSheetMenu({ x: e.clientX, y: e.clientY, lineId });
+      // Salva a posição da tela (x,y) E a posição na chapa (binX, binY)
+      setSheetMenu({
+        x: e.clientX,
+        y: e.clientY,
+        lineId,
+        binX,
+        binY,
+      });
     },
     [],
   );
@@ -2282,6 +2296,50 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     );
   };
 
+  // =========================================================
+  // --- [2] LÓGICA DE FILTRAGEM E CONTAGEM (ADICIONE ISTO) ---
+  // =========================================================
+
+  // 1. Identifica os IDs que estão digitados no input
+  const currentSelectedIds = useMemo(() => {
+    return searchQuery
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }, [searchQuery]);
+
+  // 2. Conta quantos pedidos da lista batem com o input (para o contador)
+  const selectedCount = useMemo(() => {
+    return availableOrders.filter((o) => currentSelectedIds.includes(o.pedido))
+      .length;
+  }, [availableOrders, currentSelectedIds]);
+
+  // 3. Define qual lista será renderizada na tela (Total ou Filtrada)
+  const displayedOrdersList = useMemo(() => {
+    if (!showOnlySelected) return availableOrders;
+    // Se o filtro estiver ativo, mostra só o que bate com o input
+    return availableOrders.filter((o) => currentSelectedIds.includes(o.pedido));
+  }, [availableOrders, showOnlySelected, currentSelectedIds]);
+
+  // =========================================================
+
+  // =========================================================
+  // --- [NOVO] FUNÇÃO PARA LIMPAR TUDO AO FECHAR O MODAL ---
+  // =========================================================
+  const handleCloseSearchModal = useCallback(() => {
+    setIsSearchModalOpen(false); // Fecha o modal
+
+    // RESETA A VISUALIZAÇÃO
+    setShowOnlySelected(false); // Volta a mostrar a lista completa
+
+    // ZERA A SELEÇÃO (Limpa o que foi digitado/marcado)
+    setSearchQuery("");
+    setSelectedOps([]);
+    setExpandedOrders([]);
+  }, []);
+
+  // =========================================================
+
   //   // --- FUNÇÃO DE EXPORTAÇÃO PDF (Versão Corrigida) ---
   // const handleExportPDF = useCallback(() => {
   //     if (nestingResult.length === 0) {
@@ -2395,7 +2453,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             justifyContent: "center",
             alignItems: "center",
           }}
-          onClick={() => setIsSearchModalOpen(false)}
+          onClick={handleCloseSearchModal}
         >
           <div
             style={{
@@ -2403,7 +2461,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               padding: "25px",
               borderRadius: "8px",
               width: "450px", // Levemente mais largo para acomodar a árvore
-              maxHeight: "85vh",
+              height: "85vh",
               display: "flex",
               flexDirection: "column",
               border: `1px solid ${theme.border}`,
@@ -2411,6 +2469,16 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             }}
             onClick={(e) => e.stopPropagation()}
           >
+            {/* ANIMAÇÃO CSS INJETADA */}
+            <style>
+              {`
+                @keyframes smoothFadeIn {
+                  from { opacity: 0; transform: translateY(10px); }
+                  to { opacity: 1; transform: translateY(0); }
+                }
+              `}
+            </style>
+
             {/* CABEÇALHO DO MODAL */}
             <div
               style={{
@@ -2424,7 +2492,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 🔍 Buscar Pedido(s)
               </h3>
               <button
-                onClick={() => setIsSearchModalOpen(false)}
+                onClick={handleCloseSearchModal}
                 style={{
                   background: "transparent",
                   border: "none",
@@ -2447,16 +2515,49 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 flexDirection: "column",
               }}
             >
-              <span
+              {/* --- [3.1] BARRA DE CONTROLE (SUBSTITUA O TÍTULO SIMPLES POR ISTO) --- */}
+              <div
                 style={{
-                  fontSize: "12px",
-                  fontWeight: "bold",
-                  color: theme.label,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
                   marginBottom: "5px",
                 }}
               >
-                SELECIONE OS PEDIDOS DISPONÍVEIS:
-              </span>
+                <span
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: "bold",
+                    color: theme.label,
+                    marginBottom: "5px",
+                  }}
+                >
+                  SELECIONE OS PEDIDOS DISPONÍVEIS:
+                </span>
+
+                {/* TOGGLE: VER APENAS SELECIONADOS */}
+                <label
+                  style={{
+                    fontSize: "12px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "5px",
+                    cursor: "pointer",
+                    color: showOnlySelected ? "#007bff" : theme.text,
+                    fontWeight: showOnlySelected ? "bold" : "normal",
+                    userSelect: "none",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={showOnlySelected}
+                    onChange={(e) => setShowOnlySelected(e.target.checked)}
+                    style={{ cursor: "pointer" }}
+                  />
+                  Ver Selecionados ({selectedCount})
+                </label>
+              </div>
+              {/* ------------------------------------------------------------------ */}
 
               <div
                 style={{
@@ -2472,178 +2573,204 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 {/* --- LÓGICA DE RENDERIZAÇÃO DA ÁRVORE --- */}
                 {loadingOrders ? (
                   <div
-                    style={{ padding: 10, fontSize: 12, color: theme.label }}
+                    style={{
+                      height: "100%",
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      fontSize: "12px",
+                      color: theme.label,
+                    }}
                   >
                     Carregando estrutura de pedidos...
                   </div>
-                ) : availableOrders.length === 0 ? (
+                ) : displayedOrdersList.length === 0 ? (
                   <div
-                    style={{ padding: 10, fontSize: 12, color: theme.label }}
+                    style={{
+                      height: "100%",
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      fontSize: "12px",
+                      color: theme.label,
+                      textAlign: "center",
+                      padding: "20px",
+                    }}
                   >
-                    Nenhum pedido encontrado no banco.
+                    {showOnlySelected
+                      ? "Nenhum pedido selecionado encontrado."
+                      : "Nenhum pedido encontrado no banco."}
                   </div>
                 ) : (
-                  availableOrders.map((orderData) => {
-                    // Verifica se o Pedido está marcado no input
-                    const isOrderChecked = searchQuery
-                      .split(",")
-                      .map((s) => s.trim())
-                      .includes(orderData.pedido);
+                  <div
+                    style={{
+                      animation: "smoothFadeIn 0.4s ease-out forwards",
+                    }}
+                  >
+                    {displayedOrdersList.map((orderData) => {
+                      const isOrderChecked = searchQuery
+                        .split(",")
+                        .map((s) => s.trim())
+                        .includes(orderData.pedido);
 
-                    const isExpanded = expandedOrders.includes(
-                      orderData.pedido,
-                    );
-                    const hasOps = orderData.ops && orderData.ops.length > 0;
+                      const isExpanded = expandedOrders.includes(
+                        orderData.pedido,
+                      );
+                      const hasOps = orderData.ops && orderData.ops.length > 0;
 
-                    return (
-                      <div
-                        key={orderData.pedido}
-                        style={{ borderBottom: `1px solid ${theme.hoverRow}` }}
-                      >
-                        {/* LINHA DO PEDIDO (PAI) */}
+                      return (
                         <div
+                          key={orderData.pedido}
                           style={{
-                            display: "flex",
-                            alignItems: "center",
-                            padding: "8px",
-                            background: isOrderChecked
-                              ? "rgba(0,123,255,0.05)"
-                              : "transparent",
+                            borderBottom: `1px solid ${theme.hoverRow}`,
                           }}
                         >
-                          {/* Botão Expandir */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleExpandOrder(orderData.pedido);
-                            }}
-                            style={{
-                              marginRight: "8px",
-                              border: "none",
-                              background: "transparent",
-                              cursor: "pointer",
-                              fontWeight: "bold",
-                              color: theme.label,
-                              visibility: hasOps ? "visible" : "hidden",
-                              width: "20px",
-                              fontSize: "10px",
-                            }}
-                          >
-                            {isExpanded ? "▼" : "▶"}
-                          </button>
-
-                          {/* Checkbox Pedido */}
-                          <input
-                            type="checkbox"
-                            checked={isOrderChecked}
-                            onChange={() =>
-                              toggleOrderSelection(orderData.pedido)
-                            }
-                            style={{ marginRight: "8px", cursor: "pointer" }}
-                          />
-
-                          <span
-                            style={{
-                              fontWeight: "bold",
-                              fontSize: "13px",
-                              cursor: "pointer",
-                              flex: 1,
-                              color: theme.text,
-                            }}
-                            onClick={() => toggleExpandOrder(orderData.pedido)}
-                          >
-                            Pedido {orderData.pedido}
-                            <span
-                              style={{
-                                fontSize: "11px",
-                                fontWeight: "normal",
-                                marginLeft: "6px",
-                                opacity: 0.7,
-                              }}
-                            >
-                              ({orderData.ops.length} OPs)
-                            </span>
-                          </span>
-                        </div>
-
-                        {/* LISTA DE OPs (FILHOS) */}
-                        {isExpanded && hasOps && (
+                          {/* LINHA DO PEDIDO (PAI) */}
                           <div
                             style={{
-                              paddingLeft: "45px",
-                              paddingBottom: "5px",
-                              background: theme.inputBg,
+                              display: "flex",
+                              alignItems: "center",
+                              padding: "8px",
+                              background: isOrderChecked
+                                ? "rgba(0,123,255,0.05)"
+                                : "transparent",
                             }}
                           >
-                            {orderData.ops.map((opObj) => {
-                              // 1. EXTRAÇÃO SEGURA (Isso resolve o erro "isLocked defined but never used")
-                              const opName = opObj.name;
-                              const isLocked = opObj.isLocked;
-                              const lockerName = opObj.lockedBy;
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleExpandOrder(orderData.pedido);
+                              }}
+                              style={{
+                                marginRight: "8px",
+                                border: "none",
+                                background: "transparent",
+                                cursor: "pointer",
+                                fontWeight: "bold",
+                                color: theme.label,
+                                visibility: hasOps ? "visible" : "hidden",
+                                width: "20px",
+                                fontSize: "10px",
+                              }}
+                            >
+                              {isExpanded ? "▼" : "▶"}
+                            </button>
 
-                              const isOpChecked = selectedOps.includes(opName);
+                            <input
+                              type="checkbox"
+                              checked={isOrderChecked}
+                              onChange={() =>
+                                toggleOrderSelection(orderData.pedido)
+                              }
+                              style={{
+                                marginRight: "8px",
+                                cursor: "pointer",
+                              }}
+                            />
 
-                              return (
-                                <div
-                                  key={opName} // Resolve erro de chave
-                                  title={
-                                    isLocked
-                                      ? `Bloqueado por ${lockerName}`
-                                      : "Disponível"
-                                  }
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    padding: "4px 0",
-                                    opacity: isLocked ? 0.6 : 1,
-                                  }}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={isOpChecked}
-                                    disabled={isLocked} // Bloqueia o clique se outro usuário estiver usando
-                                    onChange={() =>
-                                      // CORREÇÃO: Usa 'opName' em vez de 'op' (que não existe mais)
-                                      toggleOpSelection(
-                                        opName,
-                                        orderData.pedido,
-                                      )
+                            <span
+                              style={{
+                                fontWeight: "bold",
+                                fontSize: "13px",
+                                cursor: "pointer",
+                                flex: 1,
+                                color: theme.text,
+                              }}
+                              onClick={() =>
+                                toggleExpandOrder(orderData.pedido)
+                              }
+                            >
+                              Pedido {orderData.pedido}
+                              <span
+                                style={{
+                                  fontSize: "11px",
+                                  fontWeight: "normal",
+                                  marginLeft: "6px",
+                                  opacity: 0.7,
+                                }}
+                              >
+                                ({orderData.ops.length} OPs)
+                              </span>
+                            </span>
+                          </div>
+
+                          {/* LISTA DE OPs (FILHOS) */}
+                          {isExpanded && hasOps && (
+                            <div
+                              style={{
+                                paddingLeft: "45px",
+                                paddingBottom: "5px",
+                                background: theme.inputBg,
+                              }}
+                            >
+                              {orderData.ops.map((opObj) => {
+                                const opName = opObj.name;
+                                const isLocked = opObj.isLocked;
+                                const lockerName = opObj.lockedBy;
+                                const isOpChecked =
+                                  selectedOps.includes(opName);
+
+                                return (
+                                  <div
+                                    key={opName}
+                                    title={
+                                      isLocked
+                                        ? `Bloqueado por ${lockerName}`
+                                        : "Disponível"
                                     }
                                     style={{
-                                      marginRight: "8px",
-                                      cursor: isLocked
-                                        ? "not-allowed"
-                                        : "pointer",
-                                    }}
-                                  />
-                                  <span
-                                    style={{
-                                      fontSize: "12px",
-                                      color: isLocked ? "#dc3545" : theme.text,
                                       display: "flex",
                                       alignItems: "center",
-                                      gap: "5px",
+                                      padding: "4px 0",
+                                      opacity: isLocked ? 0.6 : 1,
                                     }}
                                   >
-                                    {isLocked && <span>🔒</span>}
-                                    OP: {opName}{" "}
-                                    {/* CORREÇÃO: Usa 'opName' aqui também */}
-                                    {isLocked && (
-                                      <span style={{ fontSize: "10px" }}>
-                                        ({lockerName})
-                                      </span>
-                                    )}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
+                                    <input
+                                      type="checkbox"
+                                      checked={isOpChecked}
+                                      disabled={isLocked}
+                                      onChange={() =>
+                                        toggleOpSelection(
+                                          opName,
+                                          orderData.pedido,
+                                        )
+                                      }
+                                      style={{
+                                        marginRight: "8px",
+                                        cursor: isLocked
+                                          ? "not-allowed"
+                                          : "pointer",
+                                      }}
+                                    />
+                                    <span
+                                      style={{
+                                        fontSize: "12px",
+                                        color: isLocked
+                                          ? "#dc3545"
+                                          : theme.text,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: "5px",
+                                      }}
+                                    >
+                                      {isLocked && <span>🔒</span>}
+                                      OP: {opName}{" "}
+                                      {isLocked && (
+                                        <span style={{ fontSize: "10px" }}>
+                                          ({lockerName})
+                                        </span>
+                                      )}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
-                {/* --- FIM DA LÓGICA DA ÁRVORE --- */}
               </div>
             </div>
 
@@ -2939,6 +3066,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           <button
             onClick={() => {
               if (isTrial) return; // Bloqueio funcional
+              // --- [NOVO] GARANTIA DE LIMPEZA AO ABRIR ---
+              setSearchQuery(""); // Limpa o texto
+              setShowOnlySelected(false); // <--- FORÇA O CHECKBOX A ABRIR DESMARCADO
+              setSelectedOps([]); // Limpa OPs
+              setExpandedOrders([]); // Fecha accordions
+              // -------------------------------------------
               setIsSearchModalOpen(true);
             }}
             title={
@@ -4312,6 +4445,22 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 x={sheetMenu.x}
                 y={sheetMenu.y}
                 targetLineId={sheetMenu.lineId}
+                // --- INSERÇÃO: Passando o comando de Trim ---
+                onTrim={() => {
+                  if (
+                    sheetMenu.lineId &&
+                    sheetMenu.binX !== undefined &&
+                    sheetMenu.binY !== undefined
+                  ) {
+                    trimCropLine(
+                      sheetMenu.lineId,
+                      sheetMenu.binX,
+                      sheetMenu.binY,
+                    );
+                    setSheetMenu(null); // Fecha o menu
+                  }
+                }}
+                // --------------------------------------------
                 onDeleteLine={removeCropLine}
                 onClose={() => setSheetMenu(null)}
                 onDeleteSheet={handleDeleteSheetWrapper}

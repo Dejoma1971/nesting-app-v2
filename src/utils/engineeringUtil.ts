@@ -315,14 +315,22 @@ export const processFileToParts = (
   defaults: any,
   dxfBlocks: any,
 ): ImportedPart[] => {
-  // === INICIO DA ALTERAÇÃO (FAIL FAST) ===npm run dev
+  // Variável para armazenar a lista limpa
+  let cleanEntities: any[] = [];
+
+  // === VALIDAÇÃO E FILTRAGEM ===
   try {
-    runGatekeeper(rawEntities);
+    // AQUI ESTÁ A MUDANÇA:
+    // Capturamos o retorno do porteiro (que agora contém apenas o Model Space)
+    cleanEntities = runGatekeeper(rawEntities);
   } catch (error: any) {
-    // Limpa a mensagem técnica
-    const msg = error.message ? error.message.replace("VALIDATION_ERROR: ", "") : "Arquivo inválido";
-    
-    const instructionalMessage = `⚠️ IMPORTAÇÃO RECUSADA (Análise Rápida)\n\n` +
+    // (O tratamento de erro permanece o mesmo que você já tem...)
+    const msg = error.message
+      ? error.message.replace("VALIDATION_ERROR: ", "")
+      : "Arquivo inválido";
+
+    const instructionalMessage =
+      `⚠️ IMPORTAÇÃO RECUSADA (Análise Rápida)\n\n` +
       `MOTIVO: ${msg}\n\n` +
       `--- O QUE FAZER? ---\n` +
       `1. O arquivo contém peças desenhadas com linhas soltas.\n` +
@@ -331,7 +339,7 @@ export const processFileToParts = (
       `A importação foi cancelada.`;
 
     window.alert(instructionalMessage);
-    
+
     return [];
   }
   // === FIM DA ALTERAÇÃO ===
@@ -342,7 +350,7 @@ export const processFileToParts = (
 
   // FILA DE PROCESSAMENTO (Inicializa com as entidades da raiz)
   // Como o porteiro já passou, sabemos que aqui só tem INSERTs ou Lixo seguro (texto/cota).
-  const processingQueue = [...rawEntities];
+  const processingQueue = [...cleanEntities];
 
   while (processingQueue.length > 0) {
     const ent = processingQueue.shift(); // Pega o próximo item
