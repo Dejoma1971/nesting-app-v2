@@ -10,7 +10,15 @@ const crypto = require("crypto"); // Necessário para gerar UUIDs
 
 const app = express();
 
-app.use(cors());
+// CORREÇÃO DO CORS: Permite explicitamente o Frontend e Credenciais
+app.use(cors({
+    origin: "http://localhost:5173", // URL do seu Frontend React
+    credentials: true,               // Permite o envio de tokens/cookies
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
+// app.use(cors());
 
 // Configuração híbrida: JSON normal para tudo, mas guarda o Raw Body para o Webhook do Stripe
 app.use(
@@ -627,113 +635,113 @@ app.post(
 
 // --- BUSCAR PEÇAS (COM FILTRO DE OP) ---
 // [server.cjs] - BUSCAR PEÇAS (COM DEDUPLICAÇÃO FORÇADA E NORMALIZADA)
+// [server.cjs] - ROTA DE BUSCA OTIMIZADA (SEM ESTOURAR MEMÓRIA)
+
 app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
   const { pedido, op } = req.query;
   const empresaId = req.user.empresa_id;
 
   if (!pedido) return res.status(400).json({ error: "Falta pedido." });
 
-  const pedidosArray = pedido
-    .split(",")
-    .map((p) => p.trim())
-    .filter(Boolean);
+  // 1. Tratamento seguro dos Arrays
+  const pedidosArray = pedido.split(",").map((p) => p.trim()).filter(Boolean);
 
   let opsArray = [];
   if (op) {
-    opsArray = op
-      .split(",")
-      .map((o) => o.trim())
-      .filter(Boolean);
+    // decodeURIComponent: Resolve o problema da barra '/' virar '%2F'
+    const opDecoded = decodeURIComponent(op); 
+    opsArray = opDecoded.split(",").map((o) => o.trim()).filter(Boolean);
   }
 
+  // Função auxiliar para evitar que JSON inválido derrube o servidor
+  const safeJsonParse = (content, fallback = {}) => {
+    if (!content) return fallback;
+    if (typeof content !== 'string') return content;
+    try {
+      return JSON.parse(content);
+    } catch (e) {
+      console.warn("⚠️ JSON Corrompido ignorado.");
+      return fallback;
+    }
+  };
+
   try {
-    // 1. Busca TUDO que está 'AGUARDANDO' (sem filtros complicados no SQL)
+    // 2. Construção da Query (SEM ORDER BY para economizar memória do banco)
     let sql = `
       SELECT * FROM pecas_engenharia 
-      WHERE pedido IN (?) 
-        AND empresa_id = ? 
-        AND status = 'AGUARDANDO'
+      WHERE empresa_id = ? 
+      AND status = 'AGUARDANDO'
     `;
+    
+    const params = [empresaId];
 
-    const params = [pedidosArray, empresaId];
+    if (pedidosArray.length > 0) {
+      sql += ` AND pedido IN (?)`;
+      params.push(pedidosArray);
+    }
 
     if (opsArray.length > 0) {
       sql += ` AND op IN (?)`;
       params.push(opsArray);
     }
 
-    // Trazemos tudo para o JavaScript decidir quem fica
-    sql += ` ORDER BY data_cadastro DESC`;
+    // REMOVIDO: ORDER BY data_cadastro DESC (Causador do erro de memória)
+    // Deixamos o SQL leve e rápido.
 
     const [rows] = await db.query(sql, params);
 
     if (rows.length === 0)
-      return res
-        .status(404)
-        .json({ message: "Não encontrado ou já produzido." });
+      return res.status(404).json({ message: "Peças não encontradas." });
 
-    // ==================================================================
-    // 2. O HIGHLANDER (SÓ PODE HAVER UM) - VERSÃO BLINDADA
-    // ==================================================================
+    // 3. ORDENAÇÃO VIA JAVASCRIPT (Aqui usamos a memória do Node, que é abundante)
+    // Ordena do mais recente para o mais antigo para a deduplicação funcionar
+    rows.sort((a, b) => new Date(b.data_cadastro) - new Date(a.data_cadastro));
 
+    // 4. O Highlander (Deduplicação: Só pode haver um)
     const pecasUnicas = {};
-    
     rows.forEach((row) => {
-      // BLINDAGEM: Garante que não é null antes de usar o .trim()
-      // Se vier null do banco, transforma em string vazia ""
-      const rawNome = row.nome_arquivo ? String(row.nome_arquivo) : "";
-      const rawPedido = row.pedido ? String(row.pedido) : "";
+        const rawNome = row.nome_arquivo ? String(row.nome_arquivo) : "";
+        const rawPedido = row.pedido ? String(row.pedido) : "";
+        const nomeLimpo = rawNome.trim().toLowerCase();
+        const pedidoLimpo = rawPedido.trim();
 
-      const nomeLimpo = rawNome.trim().toLowerCase();
-      const pedidoLimpo = rawPedido.trim();
+        if (!nomeLimpo || !pedidoLimpo) return;
 
-      // Se o nome ou pedido estiverem vazios, ignora o registro (Lixo de banco)
-      if (!nomeLimpo || !pedidoLimpo) return;
-
-      // Cria a chave única
-      const chave = `${pedidoLimpo}|${nomeLimpo}`;
-
-      // Lógica: Como a lista veio ordenada por DATA DECRESCENTE...
-      if (!pecasUnicas[chave]) {
-        pecasUnicas[chave] = row;
-      }
+        const chave = `${pedidoLimpo}|${nomeLimpo}`;
+        // Como já ordenamos a lista, o primeiro que aparecer é o mais recente
+        if (!pecasUnicas[chave]) {
+            pecasUnicas[chave] = row;
+        }
     });
 
-    // Converte o objeto de volta para array
     const rowsFiltradas = Object.values(pecasUnicas);
 
-    // ==================================================================
-
+    // 5. Mapeamento e Retorno
     const formattedParts = rowsFiltradas.map((row) => ({
       id: row.id,
-      name: row.nome_arquivo, // Mantém o nome original (Bonito) para exibir
+      name: row.nome_arquivo,
       pedido: row.pedido,
       op: row.op,
       material: row.material,
       espessura: row.espessura,
       autor: row.autor,
-      quantity: row.quantidade,
+      quantity: Number(row.quantidade) || 1,
       cliente: row.cliente,
       width: Number(row.largura),
       height: Number(row.altura),
       grossArea: Number(row.area_bruta),
-      entities:
-        typeof row.geometria === "string"
-          ? JSON.parse(row.geometria)
-          : row.geometria,
-      blocks:
-        typeof row.blocos_def === "string"
-          ? JSON.parse(row.blocos_def)
-          : row.blocos_def || {},
+      entities: safeJsonParse(row.geometria, []), 
+      blocks: safeJsonParse(row.blocos_def, {}),
       dataCadastro: row.data_cadastro,
       tipo_producao: row.tipo_producao,
       isRotationLocked: !!row.is_rotation_locked,
     }));
 
     res.json(formattedParts);
+
   } catch (error) {
-    console.error("Erro na busca:", error);
-    res.status(500).json({ error: error.message });
+    console.error("❌ ERRO NA BUSCA:", error);
+    res.status(500).json({ error: "Erro interno: " + error.message });
   }
 });
 
