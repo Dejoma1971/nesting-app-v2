@@ -35,33 +35,32 @@ export const ContextControl: React.FC<ContextControlProps> = ({
   const rotationIntervalRef = useRef<number | null>(null);
 
   // --- LÓGICA INTELIGENTE DE POSICIONAMENTO ---
+  // --- LÓGICA INTELIGENTE DE POSICIONAMENTO (CORRIGIDO) ---
+  // --- LÓGICA INTELIGENTE DE POSICIONAMENTO (CANTO INFERIOR ESQUERDO) ---
   useLayoutEffect(() => {
     if (menuRef.current) {
       const menuRect = menuRef.current.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
+      // const viewportWidth = window.innerWidth; // Não precisamos da largura total para alinhar à esquerda
       const viewportHeight = window.innerHeight;
 
-      let newX = x;
-      let newY = y;
-      const padding = 15;
+      const MARGIN_LEFT = 20; // Margem da borda esquerda
+      const MARGIN_BOTTOM = 80; // Margem do rodapé
 
-      // Mantém dentro da tela
-      if (x + menuRect.width > viewportWidth) {
-        newX = viewportWidth - menuRect.width - padding;
-      }
-      if (y + menuRect.height > viewportHeight) {
-        newY = viewportHeight - menuRect.height - padding;
-      }
-      if (newX < padding) newX = padding;
-      if (newY < padding) newY = padding;
+      // Define X fixo na esquerda
+      let newX = MARGIN_LEFT;
+      // Define Y fixo embaixo
+      let newY = viewportHeight - menuRect.height - MARGIN_BOTTOM;
 
-      if (newX !== position.x || newY !== position.y) {
+      // Segurança para não sair da tela (caso a janela seja muito pequena)
+      if (newX < 10) newX = 10;
+      if (newY < 10) newY = 10;
+
+      // Usa requestAnimationFrame para evitar erro de setState síncrono no efeito
+      requestAnimationFrame(() => {
         setPosition({ x: newX, y: newY });
-      }
+      });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [x, y]);
-
+  }, []);
   // --- LÓGICA DE ARRASTE ---
   useEffect(() => {
     const handleGlobalMove = (e: MouseEvent) => {
