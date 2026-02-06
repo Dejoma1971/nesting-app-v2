@@ -2,12 +2,16 @@ import { useState, useCallback } from "react";
 import type { PlacedPart } from "../utils/nestingCore";
 
 // Definição da Linha de Retalho
+// Definição da Linha de Retalho
 export interface CropLine {
   id: string;
-  binId: number; // A qual chapa ela pertence
+  binId: number;
   type: "horizontal" | "vertical";
-  position: number; // Coordenada X (se vertical) ou Y (se horizontal)
+  position: number;
   isSelected?: boolean;
+  // --- PREPARAÇÃO PARA O TRIM ---
+  min?: number; // Ponto inicial da linha (0 se undefined)
+  max?: number; // Ponto final da linha (tamanho da chapa se undefined)
 }
 
 interface UseSheetManagerProps {
@@ -100,24 +104,20 @@ export const useSheetManager = ({
 
   const addCropLine = useCallback(
     (type: "horizontal" | "vertical", position: number) => {
-      // --- INÍCIO DA ALTERAÇÃO (TRAVA DE SEGURANÇA) ---
+      // --- 1. TRAVA DE SEGURANÇA (1 DE CADA TIPO) ---
 
-      // 1. Filtra as linhas que pertencem APENAS à chapa atual
-      const linesInThisBin = cropLines.filter(
-        (l) => l.binId === currentBinIndex,
+      // Verifica se já existe uma linha desse tipo na chapa atual
+      const exists = cropLines.some(
+        (l) => l.binId === currentBinIndex && l.type === type,
       );
 
-      // 2. Conta quantas linhas desse tipo específico (H ou V) já existem
-      const count = linesInThisBin.filter((l) => l.type === type).length;
-
-      // 3. Verifica o limite de 2
-      if (count >= 2) {
+      if (exists) {
         alert(
-          `Limite atingido: Máximo de 2 linhas ${type === "vertical" ? "verticais" : "horizontais"} por chapa.`,
+          `Permitido apenas 1 linha de corte ${type === "vertical" ? "VERTICAL" : "HORIZONTAL"} por chapa.`,
         );
         return; // Cancela a adição
       }
-      // --- FIM DA ALTERAÇÃO ---
+      // ------------------------------------------------
 
       const newLine: CropLine = {
         id: crypto.randomUUID(),
@@ -125,11 +125,14 @@ export const useSheetManager = ({
         type,
         position,
         isSelected: false,
+        min: 0, // Começa no 0
+        max: undefined, // undefined = vai até o final da chapa (será tratado no Trim)
       };
+
       setCropLines((prev) => [...prev, newLine]);
     },
     [currentBinIndex, cropLines],
-  ); // <--- IMPORTANTE: Adicione 'cropLines' aqui nas dependências!
+  ); // 'cropLines' é dependência obrigatória para a validação funcionar
 
   const removeSelectedCropLines = useCallback(() => {
     setCropLines((prev) =>
