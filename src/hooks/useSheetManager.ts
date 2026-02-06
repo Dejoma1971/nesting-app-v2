@@ -104,20 +104,19 @@ export const useSheetManager = ({
 
   const addCropLine = useCallback(
     (type: "horizontal" | "vertical", position: number) => {
-      // --- 1. TRAVA DE SEGURANÇA (1 DE CADA TIPO) ---
-
-      // Verifica se já existe uma linha desse tipo na chapa atual
-      const exists = cropLines.some(
-        (l) => l.binId === currentBinIndex && l.type === type,
+      // --- ATUALIZAÇÃO: LIMITE DE 2 POR TIPO ---
+      const linesInThisBin = cropLines.filter(
+        (l) => l.binId === currentBinIndex,
       );
+      const count = linesInThisBin.filter((l) => l.type === type).length;
 
-      if (exists) {
+      if (count >= 2) {
         alert(
-          `Permitido apenas 1 linha de corte ${type === "vertical" ? "VERTICAL" : "HORIZONTAL"} por chapa.`,
+          `Limite atingido: Máximo de 2 linhas ${type === "vertical" ? "VERTICAIS" : "HORIZONTAIS"} por chapa.`,
         );
-        return; // Cancela a adição
+        return;
       }
-      // ------------------------------------------------
+      // -----------------------------------------
 
       const newLine: CropLine = {
         id: crypto.randomUUID(),
@@ -164,6 +163,82 @@ export const useSheetManager = ({
     setCropLines((prev) => prev.filter((l) => l.id !== lineId));
   }, []);
 
+  // Em useSheetManager.ts
+
+  const trimCropLine = useCallback(
+    (lineId: string, clickX: number, clickY: number) => {
+      setCropLines((prev) => {
+        const targetLine = prev.find((l) => l.id === lineId);
+        if (!targetLine) return prev;
+
+        // 1. Encontrar TODAS as "navalhas" (linhas perpendiculares)
+        const cutterLines = prev.filter(
+          (l) => l.binId === targetLine.binId && l.type !== targetLine.type, // Tipo oposto
+        );
+
+        if (cutterLines.length === 0) {
+          alert("Precisa de uma linha cruzada para cortar!");
+          return prev;
+        }
+
+        // 2. Ordenar as posições das navalhas (crescente)
+        // Isso é vital caso tenhamos 2 linhas cortando
+        const cutPoints = cutterLines
+          .map((l) => l.position)
+          .sort((a, b) => a - b);
+
+        // Pega os extremos (o primeiro e o último corte)
+        const firstCut = cutPoints[0];
+        const lastCut = cutPoints[cutPoints.length - 1];
+
+        let newMin = targetLine.min;
+        let newMax = targetLine.max;
+
+        // Variáveis para verificar se já foi cortado nas pontas (para evitar recortes inválidos)
+        const isStartAlreadyCut =
+          targetLine.min !== undefined && targetLine.min > 0;
+        const isEndAlreadyCut = targetLine.max !== undefined;
+
+        // 3. Lógica de decisão baseada na posição do clique
+        // O clique foi antes do primeiro corte? (Ponta Esquerda/Topo)
+        // O clique foi depois do último corte? (Ponta Direita/Fundo)
+        // O clique foi no meio? (Proibido)
+
+        const clickPos = targetLine.type === "horizontal" ? clickX : clickY;
+
+        if (clickPos < firstCut) {
+          // --- CASO 1: CLIQUE NA PONTA INICIAL (Esquerda ou Topo) ---
+          if (isEndAlreadyCut && targetLine.max === firstCut) {
+            // Se o fim já foi cortado exatamente neste ponto, a linha sumiria.
+            alert("Operação inválida: Isso removeria a linha inteira.");
+            return prev;
+          }
+          newMin = firstCut; // O início da linha avança até o primeiro corte
+        } else if (clickPos > lastCut) {
+          // --- CASO 2: CLIQUE NA PONTA FINAL (Direita ou Baixo) ---
+          if (isStartAlreadyCut && targetLine.min === lastCut) {
+            alert("Operação inválida: Isso removeria a linha inteira.");
+            return prev;
+          }
+          newMax = lastCut; // O fim da linha recua até o último corte
+        } else {
+          // --- CASO 3: CLIQUE NO MEIO (ENTRE DOIS CORTES) ---
+          // Se clickPos está entre firstCut e lastCut, é o miolo.
+          alert(
+            "Corte central não permitido! Apenas as pontas podem ser aparadas.",
+          );
+          return prev;
+        }
+
+        // 4. Aplica a atualização
+        return prev.map((l) =>
+          l.id === lineId ? { ...l, min: newMin, max: newMax } : l,
+        );
+      });
+    },
+    [],
+  );
+
   return {
     totalBins,
     setTotalBins,
@@ -183,5 +258,6 @@ export const useSheetManager = ({
     selectCropLine,
     moveCropLine,
     removeCropLine,
+    trimCropLine,
   };
 };

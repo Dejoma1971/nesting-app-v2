@@ -9,6 +9,9 @@ interface SheetContextMenuProps {
   // ATUALIZADO: Agora aceita a posição onde a linha deve ser criada
   onAddCropLine: (type: 'horizontal' | 'vertical', position: number) => void;
   onDeleteLine: (lineId: string) => void;
+  // --- INSERÇÃO: Propriedade para a função de corte ---
+  onTrim?: () => void; 
+  // ---------------------------------------------------
 }
 
 export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
@@ -18,7 +21,10 @@ export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
   onClose,
   onDeleteSheet,
   onAddCropLine,
-  onDeleteLine
+  onDeleteLine,
+  // --- INSERÇÃO: Recebendo a função ---
+  onTrim 
+  // ------------------------------------
 }) => {
   
   const menuStyle: React.CSSProperties = {
@@ -48,6 +54,20 @@ export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
                 <div style={{ padding: '5px 15px', fontSize: '11px', fontWeight: 'bold', color: '#ff6b6b', textTransform: 'uppercase' }}>
                     Linha de Retalho
                 </div>
+                {/* --- INSERÇÃO: BOTÃO TRIM --- */}
+                <button 
+                    style={itemStyle} 
+                    onClick={() => { 
+                        if (onTrim) onTrim(); 
+                        onClose(); 
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#3d3d3d'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    title="Corta a linha na interseção mais próxima do clique"
+                >
+                    <span style={{ fontSize: '14px' }}>✂️</span> Aparar (Trim)
+                </button>
+                {/* --------------------------- */}
                 <button 
                     style={itemStyle} 
                     onClick={() => { 

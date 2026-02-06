@@ -426,6 +426,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     cropLines,
     moveCropLine,
     removeCropLine,
+    // --- ADICIONE ESTA LINHA: ---
+    trimCropLine,
+    // ----------------------------
     handleDeleteCurrentBin,
     addCropLine,
     setCropLines,
@@ -1201,9 +1204,16 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   );
 
   const handleLineContextMenu = useCallback(
-    (e: React.MouseEvent, lineId: string) => {
+    (e: React.MouseEvent, lineId: string, binX: number, binY: number) => {
       e.preventDefault();
-      setSheetMenu({ x: e.clientX, y: e.clientY, lineId });
+      // Salva a posição da tela (x,y) E a posição na chapa (binX, binY)
+      setSheetMenu({
+        x: e.clientX,
+        y: e.clientY,
+        lineId,
+        binX,
+        binY,
+      });
     },
     [],
   );
@@ -4312,6 +4322,22 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 x={sheetMenu.x}
                 y={sheetMenu.y}
                 targetLineId={sheetMenu.lineId}
+                // --- INSERÇÃO: Passando o comando de Trim ---
+                onTrim={() => {
+                  if (
+                    sheetMenu.lineId &&
+                    sheetMenu.binX !== undefined &&
+                    sheetMenu.binY !== undefined
+                  ) {
+                    trimCropLine(
+                      sheetMenu.lineId,
+                      sheetMenu.binX,
+                      sheetMenu.binY,
+                    );
+                    setSheetMenu(null); // Fecha o menu
+                  }
+                }}
+                // --------------------------------------------
                 onDeleteLine={removeCropLine}
                 onClose={() => setSheetMenu(null)}
                 onDeleteSheet={handleDeleteSheetWrapper}
