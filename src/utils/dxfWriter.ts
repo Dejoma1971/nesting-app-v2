@@ -431,18 +431,29 @@ export const generateDxfContent = (
   // C. Retalhos
   const layerRetalho = LAYER_CONFIG.RETALHO.id;
   cropLines.forEach((line) => {
+    // Cast para 'any' para garantir acesso a min/max caso a interface TypeScript não tenha atualizado
+    const l = line as any;
+    
+    // 1. Define início e fim baseados no Trim (ou usa o tamanho total da chapa como fallback)
+    const start = l.min ?? 0;
+    
     let x1, y1, x2, y2;
+
     if (line.type === "vertical") {
+      const end = l.max ?? rawH; // Se não tem max, vai até a altura total
       x1 = line.position;
-      y1 = 0;
+      y1 = start;
       x2 = line.position;
-      y2 = rawH;
+      y2 = end;
     } else {
-      x1 = 0;
+      const end = l.max ?? rawW; // Se não tem max, vai até a largura total
+      x1 = start;
       y1 = line.position;
-      x2 = rawW;
+      x2 = end;
       y2 = line.position;
     }
+
+    // 2. Aplica a rotação se necessário (Lógica de inversão de eixos para chapas deitadas)
     if (shouldRotate) {
       const t = x1;
       x1 = y1;
@@ -451,6 +462,7 @@ export const generateDxfContent = (
       x2 = y2;
       y2 = t2;
     }
+
     dxf += `0\nLINE\n8\n${layerRetalho}\n10\n${x1.toFixed(4)}\n20\n${y1.toFixed(
       4
     )}\n30\n0.0\n11\n${x2.toFixed(4)}\n21\n${y2.toFixed(4)}\n31\n0.0\n`;
