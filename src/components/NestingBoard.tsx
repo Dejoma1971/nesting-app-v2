@@ -1922,15 +1922,43 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           resetProduction();
           resetAllSaveStatus();
         } else {
-          setParts((prev) => {
-            const currentIds = new Set(prev.map((p) => p.id));
-            const newUnique = dbParts.filter((p) => !currentIds.has(p.id));
-            if (newUnique.length === 0) {
-              alert("Peças já estão na lista!");
-              return prev;
-            }
-            return [...prev, ...newUnique];
+          // --- MODO: ADICIONAR (SILENT UPSERT + GARANTIA DE VISIBILIDADE) ---
+
+          // 1. GARANTIA DE VISIBILIDADE: Limpa filtros para evitar que a peça entre "escondida"
+          // Isso resolve 99% dos casos de "importei e não apareceu"
+          setFilters({
+            pedido: [],
+            op: [],
+            material: "",
+            espessura: "",
           });
+
+          setParts((prev) => {
+            // 2. DIAGNÓSTICO TÉCNICO (Invisível ao usuário, útil para você)
+            // Mostra no console o que está acontecendo sem travar a tela
+            const incomingIds = new Set(dbParts.map((p) => p.id));
+            const existingCount = prev.filter((p) =>
+              incomingIds.has(p.id),
+            ).length;
+
+            if (existingCount > 0) {
+              console.warn(
+                `⚡ [Auto-Repair] ${existingCount} peças já existiam na memória. Substituindo por versões novas do banco.`,
+              );
+            } else {
+              console.log(`📥 Importando ${dbParts.length} novas peças.`);
+            }
+
+            // 3. SILENT UPSERT (A Lógica de Cura)
+            // Remove as antigas da memória (prev) que coincidem com as novas
+            const partsKept = prev.filter((p) => !incomingIds.has(p.id));
+
+            // Retorna a lista misturada. O React detecta novos objetos e FORÇA o re-render.
+            return [...partsKept, ...dbParts];
+          });
+
+          // Feedback visual sutil (Opcional: Toast ou apenas fechar o modal)
+          // Como não temos sistema de Toast, apenas limpamos a busca e fechamos.
         }
         setSearchQuery("");
         setIsSearchModalOpen(false);
