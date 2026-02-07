@@ -1,193 +1,95 @@
 import type { ImportedPart, CustomMaterial, CustomThickness } from "../types";
-
-const API_BASE = "http://localhost:3001/api";
-
-// --- FUNÇÃO AUXILIAR DE INTERCEPTAÇÃO ---
-// Simplificada: Removemos o try/catch redundante.
-// Se o fetch falhar (erro de rede), ele lança o erro automaticamente para quem chamou.
-async function fetchWithAuth(url: string, options: RequestInit = {}) {
-  const response = await fetch(url, options);
-
-  // SE O TOKEN FOR INVÁLIDO (403) OU AUSENTE (401)
-  if (response.status === 401 || response.status === 403) {
-    // 1. Dispara o evento global que o AuthContext está ouvindo
-    window.dispatchEvent(new Event('auth:logout'));
-    
-    // 2. Lança erro para interromper o fluxo atual
-    throw new Error("Sessão expirada.");
-  }
-
-  return response;
-}
+import { api } from "../../services/api";
 
 export const EngineeringService = {
-  // ==========================================
-  //  1. FUNCIONALIDADES ORIGINAIS
-  // ==========================================
-
-  getSubscriptionStatus: async (token: string) => {
-    const response = await fetchWithAuth(`${API_BASE}/subscription/status`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    return response.json();
+  getSubscriptionStatus: async (_token?: any) => {
+    const response = await api.get("/subscription/status");
+    return response.data;
   },
 
-  saveParts: async (token: string, parts: ImportedPart[]) => {
-    const response = await fetchWithAuth(`${API_BASE}/pecas`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(parts),
-    });
-
-    const data = await response.json();
-    
-    if (!response.ok) {
-      throw new Error(data.error || "Erro desconhecido no servidor");
-    }
-    
-    return data;
+  saveParts: async (_token?: any, parts?: ImportedPart[]) => {
+    // Caso o componente envie (token, parts), pegamos o segundo argumento
+    const data = Array.isArray(_token) ? _token : parts;
+    const response = await api.post("/pecas", data);
+    return response.data;
   },
 
-  checkPartsExistence: async (token: string, items: { pedido: string; nome: string }[]) => {
-    const response = await fetchWithAuth(`${API_BASE}/pecas/verificar-existencia`, {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}` 
-      },
-      body: JSON.stringify({ itens: items }),
+  checkPartsExistence: async (_token?: any, items?: any[]) => {
+    const data = Array.isArray(_token) ? _token : items;
+    const response = await api.post("/pecas/verificar-existencia", {
+      itens: data,
     });
-
-    if (!response.ok) return [];
-    
-    const data = await response.json();
-    return data.duplicadas || [];
+    return response.data.duplicadas || [];
   },
 
-  checkOrderExists: async (token: string, pedido: string): Promise<boolean> => {
+  checkOrderExists: async (_token?: any, pedido?: string): Promise<boolean> => {
+    const id =
+      typeof _token === "string" && _token.length < 50 ? _token : pedido;
     try {
-      const response = await fetchWithAuth(`${API_BASE}/pedidos/verificar/${pedido}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) return false;
-      const data = await response.json();
-      return data.exists;
-    } catch (error) {
-      console.error("Erro ao verificar pedido:", error);
+      const response = await api.get(`/pedidos/verificar/${id}`);
+      return response.data.exists;
+    } catch {
       return false;
     }
   },
 
-  // ==========================================
-  //  2. GERENCIAMENTO DE MATERIAIS
-  // ==========================================
-
-  getCustomMaterials: async (token: string): Promise<CustomMaterial[]> => {
-    try {
-      const response = await fetchWithAuth(`${API_BASE}/materials`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) return [];
-      return await response.json();
-    } catch (error) {
-      console.error("Erro ao buscar materiais:", error);
-      return [];
-    }
+  // MATERIAIS
+  getCustomMaterials: async (_token?: any): Promise<CustomMaterial[]> => {
+    const response = await api.get("/materials");
+    return response.data;
   },
 
-  addCustomMaterial: async (token: string, name: string, density: string) => {
-    const response = await fetchWithAuth(`${API_BASE}/materials`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ name, density }), 
+  addCustomMaterial: async (_token?: any, name?: string, density?: string) => {
+    const payload = typeof _token === "object" ? _token : { name, density };
+    const response = await api.post("/materials", payload);
+    return response.data;
+  },
+
+  updateCustomMaterial: async (
+    _token?: any,
+    id?: number,
+    name?: string,
+    density?: string,
+  ) => {
+    // Lógica para aceitar (token, id, name, density) ou (id, name, density)
+    const args =
+      typeof _token === "number"
+        ? [_token, name, density]
+        : [id, name, density];
+    const response = await api.put(`/materials/${args[0]}`, {
+      name: args[1],
+      density: args[2],
     });
-
-    if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.error || "Erro ao criar material");
-    }
-    return response.json();
+    return response.data;
   },
 
-  deleteCustomMaterial: async (token: string, id: number) => {
-    await fetchWithAuth(`${API_BASE}/materials/${id}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
+  deleteCustomMaterial: async (_token?: any, id?: number) => {
+    const targetId = typeof _token === "number" ? _token : id;
+    await api.delete(`/materials/${targetId}`);
+  },
+
+  // ESPESSURAS
+  getCustomThicknesses: async (_token?: any): Promise<CustomThickness[]> => {
+    const response = await api.get("/thicknesses");
+    return response.data;
+  },
+
+  addCustomThickness: async (_token?: any, value?: string) => {
+    const payload = typeof _token === "object" ? _token : { value };
+    const response = await api.post("/thicknesses", payload);
+    return response.data;
+  },
+
+  updateCustomThickness: async (_token?: any, id?: number, value?: string) => {
+    const args = typeof _token === "number" ? [_token, id] : [id, value];
+    const response = await api.put(`/thicknesses/${args[0]}`, {
+      value: args[1],
     });
+    return response.data;
   },
 
-  // ==========================================
-  //  3. GERENCIAMENTO DE ESPESSURAS
-  // ==========================================
-
-  getCustomThicknesses: async (token: string): Promise<CustomThickness[]> => {
-    try {
-      const response = await fetchWithAuth(`${API_BASE}/thicknesses`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) return [];
-      return await response.json();
-    } catch (error) {
-      console.error("Erro ao buscar espessuras:", error);
-      return [];
-    }
+  deleteCustomThickness: async (_token?: any, id?: number) => {
+    const targetId = typeof _token === "number" ? _token : id;
+    await api.delete(`/thicknesses/${targetId}`);
   },
-
-  addCustomThickness: async (token: string, value: string) => {
-    const response = await fetchWithAuth(`${API_BASE}/thicknesses`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ value }),
-    });
-
-    if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.error || "Erro ao criar espessura");
-    }
-    return response.json();
-  },
-
-  deleteCustomThickness: async (token: string, id: number) => {
-    await fetchWithAuth(`${API_BASE}/thicknesses/${id}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-  },
-
-  updateCustomMaterial: async (token: string, id: number, name: string, density: string) => {
-    const response = await fetchWithAuth(`${API_BASE}/materials/${id}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ name, density }),
-    });
-
-    if (!response.ok) throw new Error("Erro ao atualizar material");
-    return response.json();
-  },
-
-  updateCustomThickness: async (token: string, id: number, value: string) => {
-    const response = await fetchWithAuth(`${API_BASE}/thicknesses/${id}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ value }),
-    });
-
-    if (!response.ok) throw new Error("Erro ao atualizar espessura");
-    return response.json();
-  }
 };

@@ -7,16 +7,26 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const paymentRoutes = require("./routes/payment.routes.cjs");
 const crypto = require("crypto"); // Necessário para gerar UUIDs
+const setupTelemetry = require("./telemetria.cjs");
 
-const app = express();
+const app = express(); // 1º: Criamos o app
+
+// 2º: Configuramos a Telemetria (Logs e Métricas)
+setupTelemetry(app);
+
+// Variável de controle para ambientes
+const isProduction =
+  process.env.NODE_ENV === "production" || process.env.JWT_SECRET;
 
 // CORREÇÃO DO CORS: Permite explicitamente o Frontend e Credenciais
-app.use(cors({
-    origin: "http://localhost:5173", // URL do seu Frontend React
-    credentials: true,               // Permite o envio de tokens/cookies
+app.use(
+  cors({
+    origin: isProduction ? true : "http://localhost:5173",
+    credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"]
-}));
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
 
 // app.use(cors());
 
@@ -644,19 +654,25 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
   if (!pedido) return res.status(400).json({ error: "Falta pedido." });
 
   // 1. Tratamento seguro dos Arrays
-  const pedidosArray = pedido.split(",").map((p) => p.trim()).filter(Boolean);
+  const pedidosArray = pedido
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
 
   let opsArray = [];
   if (op) {
     // decodeURIComponent: Resolve o problema da barra '/' virar '%2F'
-    const opDecoded = decodeURIComponent(op); 
-    opsArray = opDecoded.split(",").map((o) => o.trim()).filter(Boolean);
+    const opDecoded = decodeURIComponent(op);
+    opsArray = opDecoded
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean);
   }
 
   // Função auxiliar para evitar que JSON inválido derrube o servidor
   const safeJsonParse = (content, fallback = {}) => {
     if (!content) return fallback;
-    if (typeof content !== 'string') return content;
+    if (typeof content !== "string") return content;
     try {
       return JSON.parse(content);
     } catch (e) {
@@ -672,7 +688,7 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
       WHERE empresa_id = ? 
       AND status = 'AGUARDANDO'
     `;
-    
+
     const params = [empresaId];
 
     if (pedidosArray.length > 0) {
@@ -700,18 +716,18 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
     // 4. O Highlander (Deduplicação: Só pode haver um)
     const pecasUnicas = {};
     rows.forEach((row) => {
-        const rawNome = row.nome_arquivo ? String(row.nome_arquivo) : "";
-        const rawPedido = row.pedido ? String(row.pedido) : "";
-        const nomeLimpo = rawNome.trim().toLowerCase();
-        const pedidoLimpo = rawPedido.trim();
+      const rawNome = row.nome_arquivo ? String(row.nome_arquivo) : "";
+      const rawPedido = row.pedido ? String(row.pedido) : "";
+      const nomeLimpo = rawNome.trim().toLowerCase();
+      const pedidoLimpo = rawPedido.trim();
 
-        if (!nomeLimpo || !pedidoLimpo) return;
+      if (!nomeLimpo || !pedidoLimpo) return;
 
-        const chave = `${pedidoLimpo}|${nomeLimpo}`;
-        // Como já ordenamos a lista, o primeiro que aparecer é o mais recente
-        if (!pecasUnicas[chave]) {
-            pecasUnicas[chave] = row;
-        }
+      const chave = `${pedidoLimpo}|${nomeLimpo}`;
+      // Como já ordenamos a lista, o primeiro que aparecer é o mais recente
+      if (!pecasUnicas[chave]) {
+        pecasUnicas[chave] = row;
+      }
     });
 
     const rowsFiltradas = Object.values(pecasUnicas);
@@ -730,7 +746,7 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
       width: Number(row.largura),
       height: Number(row.altura),
       grossArea: Number(row.area_bruta),
-      entities: safeJsonParse(row.geometria, []), 
+      entities: safeJsonParse(row.geometria, []),
       blocks: safeJsonParse(row.blocos_def, {}),
       dataCadastro: row.data_cadastro,
       tipo_producao: row.tipo_producao,
@@ -738,7 +754,6 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
     }));
 
     res.json(formattedParts);
-
   } catch (error) {
     console.error("❌ ERRO NA BUSCA:", error);
     res.status(500).json({ error: "Erro interno: " + error.message });
@@ -856,7 +871,7 @@ app.post("/api/pedidos/lock", authenticateToken, async (req, res) => {
 
   // TOLERÂNCIA: Se o usuário não renovar o sinal em 2 minutos, o sistema libera.
   // Isso evita que o pedido fique travado se o PC desligar.
-  const TOLERANCIA_MINUTOS = 2; 
+  const TOLERANCIA_MINUTOS = 2;
 
   if (!pedido) return res.status(400).json({ error: "Pedido obrigatório." });
 
@@ -896,11 +911,13 @@ app.post("/api/pedidos/lock", authenticateToken, async (req, res) => {
     if (lockedRows.length > 0) {
       await connection.rollback();
       const usuarioBloqueador = lockedRows[0].nome || "Desconhecido";
-      const horarioBloqueio = new Date(lockedRows[0].locked_at).toLocaleTimeString();
-      
+      const horarioBloqueio = new Date(
+        lockedRows[0].locked_at,
+      ).toLocaleTimeString();
+
       return res.status(409).json({
         error: "Bloqueado",
-        message: `Em uso por ${usuarioBloqueador} (desde ${horarioBloqueio}).`
+        message: `Em uso por ${usuarioBloqueador} (desde ${horarioBloqueio}).`,
       });
     }
 
@@ -919,9 +936,8 @@ app.post("/api/pedidos/lock", authenticateToken, async (req, res) => {
 
     await connection.query(updateSql, updateParams);
     await connection.commit();
-    
-    res.json({ message: "Sessão iniciada/renovada." });
 
+    res.json({ message: "Sessão iniciada/renovada." });
   } catch (error) {
     await connection.rollback();
     console.error("Erro ao bloquear:", error);
@@ -952,9 +968,9 @@ app.post("/api/pedidos/unlock", authenticateToken, async (req, res) => {
     }
     // Desbloqueio opcional por OP
     if (op) {
-       const opsArray = Array.isArray(op) ? op : op.split(",");
-       sql += ` AND op IN (?)`;
-       params.push(opsArray);
+      const opsArray = Array.isArray(op) ? op : op.split(",");
+      sql += ` AND op IN (?)`;
+      params.push(opsArray);
     }
 
     await db.query(sql, params);
@@ -1441,6 +1457,16 @@ app.get("/api/fix-database", async (req, res) => {
 
 // Diz para o Express que a pasta 'dist' contém arquivos estáticos (CSS, JS, Imagens)
 app.use(express.static(path.join(__dirname, "../dist")));
+
+// O Error Handler da Telemetria deve vir ANTES do catch-all do React
+app.use((err, req, res, next) => {
+  if (app.useTelemetryError) {
+    app.useTelemetryError(err, req, res, next);
+  } else {
+    console.error("Fallback Error Handler:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 // Correção: Trocamos '*' por /.*/ (sem aspas)
 app.get(/.*/, (req, res) => {
