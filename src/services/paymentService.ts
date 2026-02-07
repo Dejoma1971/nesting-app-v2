@@ -1,41 +1,22 @@
-// src/services/paymentService.ts
-
-// Ajuste a URL se sua porta for diferente (ex: 3000 ou 3001)
-const API_URL = "http://localhost:3001/api"; 
+import { api } from "./api";
 
 export const handleSubscription = async (
-  planType: 'premium' | 'corporate', 
+  planType: "premium" | "corporate",
   quantity: number = 1,
-  token?: string // Opcional, caso o usuário já esteja logado (upgrade)
+  _token?: any, // Aceita o token mas ignora, para não quebrar o TS
 ) => {
   try {
-    const headers: HeadersInit = {
-      "Content-Type": "application/json",
-    };
-
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
-    const response = await fetch(`${API_URL}/payment/checkout`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        planType,
-        quantity, 
-      }),
+    // O axios já usa o token do localStorage via interceptor no api.ts
+    const response = await api.post("/payment/checkout", {
+      planType,
+      quantity,
     });
 
-    const data = await response.json();
-
-    if (data.url) {
-      // Redireciona para o Stripe
-      window.location.href = data.url;
+    if (response.data.url) {
+      window.location.href = response.data.url;
     } else {
-      console.error("Erro Stripe:", data);
-      alert("Erro ao iniciar pagamento. Tente novamente.");
+      alert("Erro ao iniciar pagamento.");
     }
-
   } catch (error) {
     console.error("Erro na requisição:", error);
     alert("Não foi possível conectar ao servidor de pagamento.");
