@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useRef, useCallback, useEffect } from "react";
 
 interface Transform {
   x: number;
@@ -6,21 +6,48 @@ interface Transform {
   k: number;
 }
 
-export const useCanvasNav = (
-  canvasRef: React.RefObject<HTMLCanvasElement | null>
-) => {
-  const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, k: 1 });
-  
-  // Estado visual apenas para o cursor (Mãozinha fechada/aberta)
-  const [isDragging, setIsDragging] = useState(false);
+interface CanvasNavOptions {
+  onVisualUpdate?: (t: Transform) => void;
+  initTransform?: Transform;
+}
 
-  // Refs para a lógica matemática (não causam re-render)
+export const useCanvasNav = (
+  canvasRef: React.RefObject<HTMLCanvasElement | null>,
+  options?: CanvasNavOptions
+) => {
+  // Estado mutável mantido fora do ciclo de renderização do React
+  const transformRef = useRef<Transform>(options?.initTransform || { x: 0, y: 0, k: 1 });
   const isDraggingRef = useRef(false);
   const lastPos = useRef({ x: 0, y: 0 });
+  const rafRef = useRef<number | null>(null);
+
+  // Helper para atualizar o cursor sem re-renderizar o React
+  const updateCursor = useCallback(() => {
+    if (!canvasRef.current) return;
+    if (isDraggingRef.current) {
+      canvasRef.current.style.cursor = "grabbing";
+    } else if (transformRef.current.k > 1.01) {
+      canvasRef.current.style.cursor = "grab";
+    } else {
+      canvasRef.current.style.cursor = "default";
+    }
+  }, [canvasRef]);
+
+  const notifyUpdate = useCallback(() => {
+    if (rafRef.current) return;
+    rafRef.current = requestAnimationFrame(() => {
+      if (options?.onVisualUpdate) {
+        options.onVisualUpdate(transformRef.current);
+      }
+      rafRef.current = null;
+    });
+  }, [options]);
 
   const resetView = useCallback(() => {
-    setTransform({ x: 0, y: 0, k: 1 });
-  }, []);
+    transformRef.current = { x: 0, y: 0, k: 1 };
+    updateCursor();
+    notifyUpdate();
+  }, [notifyUpdate, updateCursor]);
 
   const handleWheel = useCallback(
     (e: React.WheelEvent<HTMLCanvasElement>) => {
@@ -31,36 +58,33 @@ export const useCanvasNav = (
       const wheelDirection = e.deltaY < 0 ? 1 : -1;
       const scaleFactor = Math.exp(wheelDirection * zoomIntensity);
 
-      setTransform((prev) => {
-        const newK = Math.max(0.1, Math.min(prev.k * scaleFactor, 50));
-        
-        const rect = canvasRef.current?.getBoundingClientRect();
-        if (!rect) return prev;
-        
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
+      const current = transformRef.current;
+      const newK = Math.max(0.1, Math.min(current.k * scaleFactor, 50));
 
-        const newX = mouseX - (mouseX - prev.x) * (newK / prev.k);
-        const newY = mouseY - (mouseY - prev.y) * (newK / prev.k);
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
 
-        return { x: newX, y: newY, k: newK };
-      });
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      const newX = mouseX - (mouseX - current.x) * (newK / current.k);
+      const newY = mouseY - (mouseY - current.y) * (newK / current.k);
+
+      transformRef.current = { x: newX, y: newY, k: newK };
+      updateCursor(); // Atualiza cursor
+      notifyUpdate();
     },
-    [canvasRef]
+    [canvasRef, notifyUpdate, updateCursor]
   );
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     if (e.button !== 0 && e.button !== 1) return;
-    
-    // Atualiza lógica e visual
     isDraggingRef.current = true;
-    setIsDragging(true); 
-    
     lastPos.current = { x: e.clientX, y: e.clientY };
-  }, []);
+    updateCursor(); // Atualiza cursor imediatamente
+  }, [updateCursor]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    // Usa a REF para checagem rápida (performance)
     if (!isDraggingRef.current) return;
 
     const dx = e.clientX - lastPos.current.x;
@@ -68,31 +92,32 @@ export const useCanvasNav = (
 
     lastPos.current = { x: e.clientX, y: e.clientY };
 
-    setTransform((prev) => ({
-      ...prev,
-      x: prev.x + dx,
-      y: prev.y + dy,
-    }));
-  }, []);
+    const current = transformRef.current;
+    transformRef.current = {
+      ...current,
+      x: current.x + dx,
+      y: current.y + dy,
+    };
+    
+    notifyUpdate();
+  }, [notifyUpdate]);
 
   const handleMouseUp = useCallback(() => {
-    // Atualiza lógica e visual
     isDraggingRef.current = false;
-    setIsDragging(false);
-  }, []);
+    updateCursor(); // Restaura cursor de "grab" ou "default"
+  }, [updateCursor]);
 
   useEffect(() => {
     const handleGlobalUp = () => {
       isDraggingRef.current = false;
-      setIsDragging(false);
+      updateCursor();
     };
     window.addEventListener("mouseup", handleGlobalUp);
     return () => window.removeEventListener("mouseup", handleGlobalUp);
-  }, []);
+  }, [updateCursor]);
 
   return {
-    transform,
-    isDragging, // <--- Exportamos o estado visual
+    transformRef,
     handlers: {
       onWheel: handleWheel,
       onMouseDown: handleMouseDown,
