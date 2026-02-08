@@ -21,6 +21,9 @@ export interface DxfLayer {
 interface DxfViewerProps {
   dxfContent: string | null;
   onLayersDetected?: (layers: DxfLayer[]) => void;
+  // Novas Props
+  showGrid?: boolean;
+  gridSpacing?: number;
 }
 
 interface Point {
@@ -51,6 +54,8 @@ interface IDxfLayerTable {
 export const DxfViewer: React.FC<DxfViewerProps> = ({
   dxfContent,
   onLayersDetected,
+  showGrid = true, // Valor padrão definido aqui
+  gridSpacing = 200, // Valor padrão definido aqui
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -110,167 +115,213 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
   }, [processedData]);
 
   // 2. FUNÇÃO DE DESENHO (Imperativa - Otimizada para GPU)
-  const draw = useCallback((currentT: { x: number; y: number; k: number }) => {
-    const canvas = canvasRef.current;
-    const processed = processedRef.current;
-    if (!canvas || !processed) return;
+  const draw = useCallback(
+    (currentT: { x: number; y: number; k: number }) => {
+      const canvas = canvasRef.current;
+      const processed = processedRef.current;
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+      // NOTA: Removemos a checagem !processed aqui para permitir desenhar o grid vazio
+      if (!canvas) return;
 
-    const parent = canvas.parentElement;
-    const w = parent?.clientWidth || 800;
-    const h = parent?.clientHeight || 600;
-    const dpr = window.devicePixelRatio || 1;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
 
-    // Gerenciamento de Tamanho Físico vs Lógico (High DPI)
-    if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
-    }
+      const parent = canvas.parentElement;
+      const w = parent?.clientWidth || 800;
+      const h = parent?.clientHeight || 600;
+      const dpr = window.devicePixelRatio || 1;
 
-    // Limpa a tela (usando identidade para garantir limpeza total)
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Fundo Preto
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // --- CÁLCULO DA MATRIZ DE TRANSFORMAÇÃO ---
-
-    // 1. "Fit to Screen" (Escala Base)
-    const pad = 40;
-    const scaleBase = Math.min(
-      (w - pad) / processed.box.w,
-      (h - pad) / processed.box.h,
-    );
-    const offXBase =
-      (w - processed.box.w * scaleBase) / 2 - processed.box.x * scaleBase;
-    const offYBase =
-      (h - processed.box.h * scaleBase) / 2 - processed.box.y * scaleBase;
-
-    // 2. Montagem da Matriz Final (Fit + User Pan/Zoom)
-    // Fórmula: Screen = (World * BaseScale + BaseOffset) * UserZoom + UserPan
-    // Ajustado para o DPR (Device Pixel Ratio)
-
-    const k = currentT.k;
-    const panX = currentT.x;
-    const panY = currentT.y;
-
-    // Parâmetros da Matriz: setTransform(a, b, c, d, e, f)
-    // x' = ax + cy + e
-    // y' = bx + dy + f
-
-    const m_a = scaleBase * k * dpr;
-    const m_b = 0;
-    const m_c = 0;
-    const m_d = -scaleBase * k * dpr; // Negativo para inverter o eixo Y (DXF Y+ é pra cima)
-
-    // Translação Final X
-    const m_e = (offXBase * k + panX) * dpr;
-
-    // Translação Final Y
-    // Como invertemos o eixo Y com 'm_d', precisamos transladar a origem para baixo
-    // (h - offYBase) é o "ponto zero visual" vertical antes do zoom
-    const m_f = ((h - offYBase) * k + panY) * dpr;
-
-    // APLICA A MATRIZ GLOBAL
-    ctx.setTransform(m_a, m_b, m_c, m_d, m_e, m_f);
-
-    // Configurações de Estilo (Inverso do zoom para manter espessura visual constante)
-    // Como a matriz já escala tudo, se usarmos lineWidth=1, a linha ficará grossa no zoom.
-    // Dividimos pelo scale total para manter "Hairline"
-    const globalScale = scaleBase * k * dpr;
-    ctx.lineWidth = 1.5 / Math.abs(globalScale / dpr); // 1.5px visual
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
-
-    // Loop de Desenho (Agora usamos coordenadas puras do DXF, sem recálculo matemático)
-    processed.entities.forEach((ent) => {
-      ctx.beginPath();
-      ctx.strokeStyle =
-        ent.layer === "1" || ent.layer === "CORTE"
-          ? "#0f0"
-          : ent.layer === "2" || ent.layer === "GRAVACAO"
-            ? "#f0f"
-            : "#fff";
-
-      if (ent.vertices && ent.vertices.length > 0) {
-        ctx.moveTo(ent.vertices[0].x, ent.vertices[0].y);
-        for (let i = 1; i < ent.vertices.length; i++) {
-          ctx.lineTo(ent.vertices[i].x, ent.vertices[i].y);
-        }
-        if (ent.closed) ctx.closePath();
-      } else if (ent.type === "CIRCLE" && ent.center && ent.radius) {
-        ctx.moveTo(ent.center.x + ent.radius, ent.center.y);
-        ctx.arc(ent.center.x, ent.center.y, ent.radius, 0, Math.PI * 2);
-      } else if (ent.type === "ARC" && ent.center && ent.radius) {
-        // Oclusão de arco: DXF e Canvas usam ângulos anti-horários, mas nosso Y está invertido na matriz.
-        // Isso inverte o sentido do arco visualmente. Precisamos ajustar 'anticlockwise'.
-        // Teste prático: true geralmente corrige quando Y é invertido via escala negativa.
-        ctx.arc(
-          ent.center.x,
-          ent.center.y,
-          ent.radius,
-          ent.startAngle || 0,
-          ent.endAngle || 0,
-          false,
-        );
+      // Gerenciamento de Tamanho Físico vs Lógico (High DPI)
+      if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
       }
-      ctx.stroke();
-    });
-    // ======================================================================
-    // [CORREÇÃO] DEFINIÇÃO DAS FUNÇÕES DE PROJEÇÃO PARA A RÉGUA
-    // ======================================================================
 
-    // Estas funções convertem Coordenadas do Mundo (mm) para Coordenadas da Tela (pixels lógicos)
-    // Elas devem bater exatamente com a matemática da Matriz usada acima.
+      // Limpa a tela
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const tx = (x: number) => (x * scaleBase + offXBase) * k + panX;
+      // Fundo Preto
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // O Eixo Y é invertido: (h - ...) realiza a inversão vertical
-    const ty = (y: number) => (h - (y * scaleBase + offYBase)) * k + panY;
+      // --- CÁLCULO DA MATRIZ DE TRANSFORMAÇÃO ---
 
-    // ======================================================================
-    // DESENHO DAS RÉGUAS
-    // ======================================================================
+      // 1. "Fit to Screen" (Escala Base)
+      // Se não tiver peça (processed null), usamos área padrão 3000x1500mm
+      const defaultBox = { w: 3000, h: 1500, x: 0, y: 0 };
+      const box = processed ? processed.box : defaultBox;
 
-    // 1. Reseta a matriz para desenhar a interface da régua sobreposta
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const pad = 40;
+      const scaleBase = Math.min((w - pad) / box.w, (h - pad) / box.h);
+      // Centraliza o Box (da peça ou da mesa padrão)
+      const offXBase = (w - box.w * scaleBase) / 2 - box.x * scaleBase;
+      const offYBase = (h - box.h * scaleBase) / 2 - box.y * scaleBase;
 
-    // 2. Chama a função passando as projeções que acabamos de definir
-    drawRulersSmart(
-      ctx,
-      w,
-      h,
-      tx, // <--- Agora 'tx' existe
-      ty, // <--- Agora 'ty' existe
-      scaleBase * k,
-    );
-  }, []);
+      // 2. Montagem da Matriz Final
+      const k = currentT.k;
+      const panX = currentT.x;
+      const panY = currentT.y;
 
-  // 3. HANDLERS PARA O HOOK useCanvasPan
+      const m_a = scaleBase * k * dpr;
+      const m_b = 0;
+      const m_c = 0;
+      const m_d = -scaleBase * k * dpr; // Inverte Y
+      const m_e = (offXBase * k + panX) * dpr;
+      const m_f = ((h - offYBase) * k + panY) * dpr;
+
+      // APLICA A MATRIZ GLOBAL
+      ctx.setTransform(m_a, m_b, m_c, m_d, m_e, m_f);
+
+      // DEFINIÇÃO DA ESPESSURA DE LINHA (RESOLVE O ERRO lineWidth)
+      const globalScale = scaleBase * k * dpr;
+      const lineWidth = 1.5 / Math.abs(globalScale / dpr); // Definição da variável
+
+      ctx.lineWidth = lineWidth;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+
+      // ======================================================================
+      // DESENHO DO GRID (Fundo)
+      // ======================================================================
+      if (showGrid) {
+        const spacing = gridSpacing;
+
+        ctx.save();
+        ctx.beginPath();
+
+        // CONFIGURAÇÃO VISUAL
+        // Cor: Branco com 20% de opacidade (aumente 0.2 para ficar mais forte)
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.06)";
+
+        ctx.lineWidth = lineWidth;
+
+        // Padrão: Traço (15px), Espaço(5px), Ponto(2px), Espaço(5px), Ponto(2px), Espaço(5px)
+        ctx.setLineDash([15, 5, 2, 5, 2, 5]);
+
+        // Limites da tela em pixels físicos
+        const left = 0;
+        const right = canvas.width;
+        const top = 0;
+        const bottom = canvas.height;
+
+        // Converte Limites da Tela -> Limites do Mundo (mm)
+        const worldLeft = (left - m_e) / m_a;
+        const worldRight = (right - m_e) / m_a;
+        const worldTop = (top - m_f) / m_d;
+        const worldBottom = (bottom - m_f) / m_d;
+
+        // Range de iteração
+        const startX = Math.floor(worldLeft / spacing) * spacing;
+        const endX = Math.ceil(worldRight / spacing) * spacing;
+        const startY =
+          Math.floor(Math.min(worldTop, worldBottom) / spacing) * spacing;
+        const endY =
+          Math.ceil(Math.max(worldTop, worldBottom) / spacing) * spacing;
+
+        // Desenha Verticais
+        for (let x = startX; x <= endX; x += spacing) {
+          ctx.moveTo(x, startY);
+          ctx.lineTo(x, endY);
+        }
+        // Desenha Horizontais
+        for (let y = startY; y <= endY; y += spacing) {
+          ctx.moveTo(startX, y);
+          ctx.lineTo(endX, y);
+        }
+        ctx.stroke();
+
+        // Destaque dos Eixos X e Y (Sólidos, sem tracejado)
+        ctx.setLineDash([]); // <--- Remove tracejado para os eixos principais
+        ctx.beginPath();
+        ctx.strokeStyle = "#666"; // Eixos um pouco mais fortes
+        ctx.lineWidth = lineWidth * 0.3;
+
+        if (startX <= 0 && endX >= 0) {
+          ctx.moveTo(0, startY);
+          ctx.lineTo(0, endY);
+        }
+        if (startY <= 0 && endY >= 0) {
+          ctx.moveTo(startX, 0);
+          ctx.lineTo(endX, 0);
+        }
+        ctx.stroke();
+
+        ctx.restore(); // Restaura tudo para não afetar o desenho da peça
+      }
+
+      // ======================================================================
+      // DESENHO DAS ENTIDADES (Se houver arquivo)
+      // ======================================================================
+      if (processed) {
+        processed.entities.forEach((ent) => {
+          ctx.beginPath();
+          ctx.strokeStyle =
+            ent.layer === "1" || ent.layer === "CORTE"
+              ? "#0f0"
+              : ent.layer === "2" || ent.layer === "GRAVACAO"
+                ? "#f0f"
+                : "#fff";
+
+          if (ent.vertices && ent.vertices.length > 0) {
+            ctx.moveTo(ent.vertices[0].x, ent.vertices[0].y);
+            for (let i = 1; i < ent.vertices.length; i++) {
+              ctx.lineTo(ent.vertices[i].x, ent.vertices[i].y);
+            }
+            if (ent.closed) ctx.closePath();
+          } else if (ent.type === "CIRCLE" && ent.center && ent.radius) {
+            ctx.moveTo(ent.center.x + ent.radius, ent.center.y);
+            ctx.arc(ent.center.x, ent.center.y, ent.radius, 0, Math.PI * 2);
+          } else if (ent.type === "ARC" && ent.center && ent.radius) {
+            ctx.arc(
+              ent.center.x,
+              ent.center.y,
+              ent.radius,
+              ent.startAngle || 0,
+              ent.endAngle || 0,
+              false,
+            );
+          }
+          ctx.stroke();
+        });
+      }
+
+      // ======================================================================
+      // DESENHO DAS RÉGUAS (Overlay)
+      // ======================================================================
+
+      // Funções de projeção para a régua (mesma lógica da matriz)
+      const tx = (x: number) => (x * scaleBase + offXBase) * k + panX;
+      const ty = (y: number) => (h - (y * scaleBase + offYBase)) * k + panY;
+
+      // Reseta matriz para desenhar UI
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      drawRulersSmart(ctx, w, h, tx, ty, scaleBase * k);
+    },
+    [showGrid, gridSpacing],
+  ); // Dependências atualizadas
+
+  // 3. HANDLERS PARA O HOOK
   const handleVisualPan = useCallback(
     (newT: { x: number; y: number; k: number }) => {
       transformRef.current = newT;
-      draw(newT); // Redesenha imediatamente (bypass React)
+      draw(newT);
     },
     [draw],
   );
 
   const handlePanEnd = useCallback(
     (finalT: { x: number; y: number; k: number }) => {
-      setTransform(finalT); // Sincroniza estado React (opcional, mas bom pra persistência)
+      setTransform(finalT);
       transformRef.current = finalT;
     },
     [],
   );
 
   // 4. INTEGRAÇÃO COM O HOOK
-  // containerRef é passado para que o hook capture eventos no DIV pai
   const { panHandlers, isPanning } = useCanvasPan(
     transform,
     handleVisualPan,
@@ -279,7 +330,7 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
     transformRef,
   );
 
-  // 5. ZOOM VIA SCROLL (Implementação Manual para controle total)
+  // 5. ZOOM VIA SCROLL
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -299,8 +350,6 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
       const current = transformRef.current;
       const newK = Math.max(0.1, Math.min(current.k * scaleFactor, 50));
 
-      // Matemática de Zoom focada no mouse
-      // P' = Mouse + (P - Mouse) * (ScaleNew / ScaleOld)
       const newX = mouseX - (mouseX - current.x) * (newK / current.k);
       const newY = mouseY - (mouseY - current.y) * (newK / current.k);
 
@@ -308,8 +357,6 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
 
       transformRef.current = newTransform;
       draw(newTransform);
-
-      // Debounce para salvar estado (opcional)
       setTransform(newTransform);
     };
 
@@ -317,14 +364,13 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
     return () => el.removeEventListener("wheel", onWheel);
   }, [draw]);
 
-  // Desenho Inicial e Redimensionamento
+  // Desenho Inicial
   useEffect(() => {
-    // Timeout para garantir que o layout HTML esteja pronto
     const timer = setTimeout(() => {
       draw(transformRef.current);
     }, 50);
     return () => clearTimeout(timer);
-  }, [processedData, draw]);
+  }, [processedData, draw]); // Redesenha se os dados mudarem
 
   return (
     <div
@@ -335,12 +381,9 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
         overflow: "hidden",
         position: "relative",
         cursor: isPanning ? "grabbing" : "default",
-        // Aumenta a área de 'pega' para eventos de mouse
         touchAction: "none",
       }}
-      // Espalha os handlers do hook (MouseDown, MouseMove, etc)
       {...panHandlers}
-      // Importante: Impede menu de contexto nativo ao clicar com botão direito para arrastar
       onContextMenu={(e) => e.preventDefault()}
     >
       <canvas

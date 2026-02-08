@@ -17,7 +17,6 @@ import {
   FaClipboardList,
   FaDatabase,
 } from "react-icons/fa";
-import { MdOutlineGridOn } from "react-icons/md";
 import { GiLaserburn } from "react-icons/gi";
 
 // 2. IMPORTAÇÃO DAS UTILIDADES (Verifique se os caminhos estão corretos)
@@ -198,35 +197,17 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
         <div style={styles.viewportContainer}>    
           {/* CANVAS AREA */}
           <div style={styles.canvasArea}>
-            {dxfString ? (
-              // SE TIVER ARQUIVO CARREGADO:
-              <div style={{ width: "100%", height: "100%" }}>
-                {/* CORREÇÃO: Remova width={...} e height={...} */}
-                <DxfViewer
-                  dxfContent={dxfString}
-                  onLayersDetected={setDetectedLayers}
-                />
-              </div>
-            ) : (
-              // SE NÃO TIVER ARQUIVO:
-              <>
-                <div style={styles.gridBackground}></div>
-                <div
-                  style={{
-                    position: "absolute",
-                    color: "#444",
-                    userSelect: "none",
-                    pointerEvents: "none",
-                  }}
-                >
-                  <MdOutlineGridOn
-                    size={48}
-                    style={{ opacity: 0.2, margin: "0 auto", display: "block" }}
-                  />
-                  <p>Área de Corte: 3000mm x 1500mm</p>
-                </div>
-              </>
-            )}
+            {/* ALTERAÇÃO: Removemos o if/else. O DxfViewer é renderizado sempre.
+                Se 'dxfString' for null, ele mostrará apenas o grid vazio.
+            */}
+            <div style={{ width: "100%", height: "100%" }}>
+              <DxfViewer
+                dxfContent={dxfString}
+                onLayersDetected={setDetectedLayers}
+                showGrid={true}       // <--- Grid sempre ligado
+                gridSpacing={250}      // <--- Espaçamento padrão 50mm
+              />
+            </div>
           </div>
 
           {/* STATUS BAR */}
@@ -492,7 +473,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   canvasArea: {
     flex: 1,
-    marginLeft: 0,
+    marginLeft: 20,
     backgroundColor: "#000",
     position: "relative",
     display: "flex",
@@ -500,17 +481,7 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "center",
     overflow: "hidden",
   },
-  gridBackground: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundImage:
-      "linear-gradient(#1a1a1a 1px, transparent 1px), linear-gradient(90deg, #1a1a1a 1px, transparent 1px)",
-    backgroundSize: "50px 50px",
-    opacity: 0.5,
-  },
+  
   viewportStatus: {
     height: 25,
     backgroundColor: "#444",
