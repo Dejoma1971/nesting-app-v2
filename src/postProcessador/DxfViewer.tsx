@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useMemo } from "react";
 import DxfParser from "dxf-parser";
 import { explodeDXFGeometry } from "../utils/dxfExploder";
 import { calculateBoundingBox } from "../utils/geometryCore";
+import { useCanvasNav } from "../postProcessador/hooks/useCanvasNav";
 
 // Exportando a interface corretamente para o outro arquivo
 export interface DxfLayer {
@@ -45,6 +46,8 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
   onLayersDetected,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const { transform, handlers, isDragging } = useCanvasNav(canvasRef);
 
   const processed = useMemo(() => {
     if (!dxfContent) return null;
@@ -110,21 +113,45 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
     canvas.height = h * dpr;
     canvas.style.width = `${w}px`;
     canvas.style.height = `${h}px`;
+
+    // Escala para High DPI
     ctx.scale(dpr, dpr);
 
+    // Fundo
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, w, h);
 
+    // ========================================================================
+    // CÁLCULO "FIT TO SCREEN" (BASE)
+    // ========================================================================
     const pad = 40;
-    const scale = Math.min(
+
+    // 1. Definimos as variáveis com o sufixo 'Base' para evitar confusão
+    const scaleBase = Math.min(
       (w - pad) / processed.box.w,
       (h - pad) / processed.box.h,
     );
-    const offX = (w - processed.box.w * scale) / 2 - processed.box.x * scale;
-    const offY = (h - processed.box.h * scale) / 2 - processed.box.y * scale;
 
-    const tx = (x: number) => x * scale + offX;
-    const ty = (y: number) => h - (y * scale + offY);
+    const offXBase =
+      (w - processed.box.w * scaleBase) / 2 - processed.box.x * scaleBase;
+    const offYBase =
+      (h - processed.box.h * scaleBase) / 2 - processed.box.y * scaleBase;
+
+    // ========================================================================
+    // FUNÇÕES DE TRANSFORMAÇÃO DE COORDENADAS
+    // ========================================================================
+    // A fórmula é: (Coord * EscalaBase + OffsetBase) * ZoomDinamico + PanDinamico
+
+    const tx = (x: number) =>
+      (x * scaleBase + offXBase) * transform.k + transform.x;
+    // O eixo Y é invertido no canvas (h - y)
+    const ty = (y: number) =>
+      (h - (y * scaleBase + offYBase)) * transform.k + transform.y;
+
+    // Configurações visuais fixas (Hairline)
+    ctx.lineWidth = 1;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
 
     processed.entities.forEach((ent) => {
       ctx.beginPath();
@@ -134,7 +161,6 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
           : ent.layer === "2" || ent.layer === "GRAVACAO"
             ? "#f0f"
             : "#fff";
-      ctx.lineWidth = 1;
 
       if (ent.vertices && ent.vertices.length > 0) {
         ctx.moveTo(tx(ent.vertices[0].x), ty(ent.vertices[0].y));
@@ -143,28 +169,41 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
         }
         if (ent.closed) ctx.closePath();
       } else if (ent.type === "CIRCLE" && ent.center && ent.radius) {
+        // O raio também precisa ser multiplicado pelo Zoom do usuário (transform.k)
+        const scaledRadius = ent.radius * scaleBase * transform.k;
         ctx.arc(
           tx(ent.center.x),
           ty(ent.center.y),
-          ent.radius * scale,
+          scaledRadius,
           0,
           Math.PI * 2,
         );
       } else if (ent.type === "ARC" && ent.center && ent.radius) {
+        const scaledRadius = ent.radius * scaleBase * transform.k;
         const s = ent.startAngle || 0;
         const e = ent.endAngle || 0;
-        ctx.arc(
-          tx(ent.center.x),
-          ty(ent.center.y),
-          ent.radius * scale,
-          -s,
-          -e,
-          true,
-        );
+        ctx.arc(tx(ent.center.x), ty(ent.center.y), scaledRadius, -s, -e, true);
       }
       ctx.stroke();
     });
-  }, [processed]);
+  }, [processed, transform]);
 
-  return <canvas ref={canvasRef} style={{ display: "block" }} />;
+  // Lógica do Cursor Inteligente
+  let cursorStyle = "default";
+  if (isDragging) {
+    cursorStyle = "grabbing"; // Mão fechada (clicou e segurou)
+  } else if (transform.k > 1.01) {
+    cursorStyle = "grab"; // Mão aberta (tem zoom, pode arrastar)
+  }
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        display: "block",
+        cursor: cursorStyle, // <--- Aplica o estilo dinâmico
+      }}
+      {...handlers}
+    />
+  );
 };
