@@ -195,34 +195,7 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
       {/* ÁREA PRINCIPAL */}
       <div style={styles.mainArea}>
         {/* VIEWPORT (ESQUERDA) */}
-        <div style={styles.viewportContainer}>
-          {/* Réguas */}
-          <div style={styles.rulerTop}>
-            {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90].map((n) => (
-              <span
-                key={n}
-                style={{ position: "absolute", left: `${n}%`, fontSize: 9 }}
-              >
-                {n * 100}
-              </span>
-            ))}
-          </div>
-          <div style={styles.rulerLeft}>
-            {[0, 10, 20, 30, 40, 50].map((n) => (
-              <span
-                key={n}
-                style={{
-                  position: "absolute",
-                  top: `${n}%`,
-                  fontSize: 9,
-                  transform: "rotate(-90deg)",
-                }}
-              >
-                {n * 100}
-              </span>
-            ))}
-          </div>
-
+        <div style={styles.viewportContainer}>    
           {/* CANVAS AREA */}
           <div style={styles.canvasArea}>
             {dxfString ? (
@@ -519,7 +492,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   canvasArea: {
     flex: 1,
-    marginLeft: 20,
+    marginLeft: 0,
     backgroundColor: "#000",
     position: "relative",
     display: "flex",

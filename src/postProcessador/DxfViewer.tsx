@@ -1,8 +1,15 @@
-import React, { useRef, useEffect, useMemo, useCallback, useState } from "react";
+import React, {
+  useRef,
+  useEffect,
+  useMemo,
+  useCallback,
+  useState,
+} from "react";
 import DxfParser from "dxf-parser";
 import { explodeDXFGeometry } from "../utils/dxfExploder";
 import { calculateBoundingBox } from "../utils/geometryCore";
 import { useCanvasPan } from "../hooks/useCanvasPan";
+import { drawRulersSmart } from "../postProcessador/utils/canvasRuler";
 
 // --- TIPOS E INTERFACES ---
 export interface DxfLayer {
@@ -47,7 +54,7 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  
+
   // Estado React (usado apenas para sincronização final, não para animação)
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
 
@@ -127,26 +134,28 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
     // Limpa a tela (usando identidade para garantir limpeza total)
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
+
     // Fundo Preto
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // --- CÁLCULO DA MATRIZ DE TRANSFORMAÇÃO ---
-    
+
     // 1. "Fit to Screen" (Escala Base)
     const pad = 40;
     const scaleBase = Math.min(
       (w - pad) / processed.box.w,
-      (h - pad) / processed.box.h
+      (h - pad) / processed.box.h,
     );
-    const offXBase = (w - processed.box.w * scaleBase) / 2 - processed.box.x * scaleBase;
-    const offYBase = (h - processed.box.h * scaleBase) / 2 - processed.box.y * scaleBase;
+    const offXBase =
+      (w - processed.box.w * scaleBase) / 2 - processed.box.x * scaleBase;
+    const offYBase =
+      (h - processed.box.h * scaleBase) / 2 - processed.box.y * scaleBase;
 
     // 2. Montagem da Matriz Final (Fit + User Pan/Zoom)
     // Fórmula: Screen = (World * BaseScale + BaseOffset) * UserZoom + UserPan
     // Ajustado para o DPR (Device Pixel Ratio)
-    
+
     const k = currentT.k;
     const panX = currentT.x;
     const panY = currentT.y;
@@ -154,15 +163,15 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
     // Parâmetros da Matriz: setTransform(a, b, c, d, e, f)
     // x' = ax + cy + e
     // y' = bx + dy + f
-    
+
     const m_a = scaleBase * k * dpr;
     const m_b = 0;
     const m_c = 0;
     const m_d = -scaleBase * k * dpr; // Negativo para inverter o eixo Y (DXF Y+ é pra cima)
-    
+
     // Translação Final X
     const m_e = (offXBase * k + panX) * dpr;
-    
+
     // Translação Final Y
     // Como invertemos o eixo Y com 'm_d', precisamos transladar a origem para baixo
     // (h - offYBase) é o "ponto zero visual" vertical antes do zoom
@@ -186,8 +195,8 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
         ent.layer === "1" || ent.layer === "CORTE"
           ? "#0f0"
           : ent.layer === "2" || ent.layer === "GRAVACAO"
-          ? "#f0f"
-          : "#fff";
+            ? "#f0f"
+            : "#fff";
 
       if (ent.vertices && ent.vertices.length > 0) {
         ctx.moveTo(ent.vertices[0].x, ent.vertices[0].y);
@@ -199,25 +208,66 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
         ctx.moveTo(ent.center.x + ent.radius, ent.center.y);
         ctx.arc(ent.center.x, ent.center.y, ent.radius, 0, Math.PI * 2);
       } else if (ent.type === "ARC" && ent.center && ent.radius) {
-         // Oclusão de arco: DXF e Canvas usam ângulos anti-horários, mas nosso Y está invertido na matriz.
-         // Isso inverte o sentido do arco visualmente. Precisamos ajustar 'anticlockwise'.
-         // Teste prático: true geralmente corrige quando Y é invertido via escala negativa.
-         ctx.arc(ent.center.x, ent.center.y, ent.radius, ent.startAngle || 0, ent.endAngle || 0, false);
+        // Oclusão de arco: DXF e Canvas usam ângulos anti-horários, mas nosso Y está invertido na matriz.
+        // Isso inverte o sentido do arco visualmente. Precisamos ajustar 'anticlockwise'.
+        // Teste prático: true geralmente corrige quando Y é invertido via escala negativa.
+        ctx.arc(
+          ent.center.x,
+          ent.center.y,
+          ent.radius,
+          ent.startAngle || 0,
+          ent.endAngle || 0,
+          false,
+        );
       }
       ctx.stroke();
     });
+    // ======================================================================
+    // [CORREÇÃO] DEFINIÇÃO DAS FUNÇÕES DE PROJEÇÃO PARA A RÉGUA
+    // ======================================================================
+
+    // Estas funções convertem Coordenadas do Mundo (mm) para Coordenadas da Tela (pixels lógicos)
+    // Elas devem bater exatamente com a matemática da Matriz usada acima.
+
+    const tx = (x: number) => (x * scaleBase + offXBase) * k + panX;
+
+    // O Eixo Y é invertido: (h - ...) realiza a inversão vertical
+    const ty = (y: number) => (h - (y * scaleBase + offYBase)) * k + panY;
+
+    // ======================================================================
+    // DESENHO DAS RÉGUAS
+    // ======================================================================
+
+    // 1. Reseta a matriz para desenhar a interface da régua sobreposta
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // 2. Chama a função passando as projeções que acabamos de definir
+    drawRulersSmart(
+      ctx,
+      w,
+      h,
+      tx, // <--- Agora 'tx' existe
+      ty, // <--- Agora 'ty' existe
+      scaleBase * k,
+    );
   }, []);
 
   // 3. HANDLERS PARA O HOOK useCanvasPan
-  const handleVisualPan = useCallback((newT: { x: number; y: number; k: number }) => {
-    transformRef.current = newT;
-    draw(newT); // Redesenha imediatamente (bypass React)
-  }, [draw]);
+  const handleVisualPan = useCallback(
+    (newT: { x: number; y: number; k: number }) => {
+      transformRef.current = newT;
+      draw(newT); // Redesenha imediatamente (bypass React)
+    },
+    [draw],
+  );
 
-  const handlePanEnd = useCallback((finalT: { x: number; y: number; k: number }) => {
-    setTransform(finalT); // Sincroniza estado React (opcional, mas bom pra persistência)
-    transformRef.current = finalT;
-  }, []);
+  const handlePanEnd = useCallback(
+    (finalT: { x: number; y: number; k: number }) => {
+      setTransform(finalT); // Sincroniza estado React (opcional, mas bom pra persistência)
+      transformRef.current = finalT;
+    },
+    [],
+  );
 
   // 4. INTEGRAÇÃO COM O HOOK
   // containerRef é passado para que o hook capture eventos no DIV pai
@@ -226,7 +276,7 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
     handleVisualPan,
     handlePanEnd,
     containerRef,
-    transformRef
+    transformRef,
   );
 
   // 5. ZOOM VIA SCROLL (Implementação Manual para controle total)
@@ -255,10 +305,10 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
       const newY = mouseY - (mouseY - current.y) * (newK / current.k);
 
       const newTransform = { x: newX, y: newY, k: newK };
-      
+
       transformRef.current = newTransform;
       draw(newTransform);
-      
+
       // Debounce para salvar estado (opcional)
       setTransform(newTransform);
     };
@@ -271,7 +321,7 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
   useEffect(() => {
     // Timeout para garantir que o layout HTML esteja pronto
     const timer = setTimeout(() => {
-        draw(transformRef.current);
+      draw(transformRef.current);
     }, 50);
     return () => clearTimeout(timer);
   }, [processedData, draw]);
@@ -286,7 +336,7 @@ export const DxfViewer: React.FC<DxfViewerProps> = ({
         position: "relative",
         cursor: isPanning ? "grabbing" : "default",
         // Aumenta a área de 'pega' para eventos de mouse
-        touchAction: "none", 
+        touchAction: "none",
       }}
       // Espalha os handlers do hook (MouseDown, MouseMove, etc)
       {...panHandlers}
