@@ -461,17 +461,71 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     }
   };
 
-  // ⬇️ --- FUNÇÃO DE SALVAMENTO CORRIGIDA (PERMITE EDIÇÃO SEM RENOMEAR) --- ⬇️
+  // ⬇️ --- FUNÇÃO DE SALVAMENTO COM VALIDAÇÃO RIGOROSA (ENTITY = 1) --- ⬇️
   const handleSmartSave = async () => {
-    if (!parts || parts.length === 0) return alert("Lista vazia!");
+    // 1. Verificação básica
+    if (!parts || parts.length === 0)
+      return alert("A lista de peças está vazia!");
     if (!user || !user.token)
       return alert("Erro de autenticação. Faça login novamente.");
+
+    // =================================================================
+    // 2. VALIDAÇÃO RIGOROSA (Campos Vazios + Simplificação Obrigatória)
+    // =================================================================
+    const errorReport: string[] = [];
+
+    parts.forEach((p: any, index: number) => {
+      const issues: string[] = [];
+
+      // A) Verifica Campos de Texto Obrigatórios
+      if (!p.pedido || String(p.pedido).trim() === "") issues.push("Pedido");
+      if (!p.material || String(p.material).trim() === "")
+        issues.push("Material");
+      if (!p.espessura || String(p.espessura).trim() === "")
+        issues.push("Espessura");
+
+      // B) Verifica a Geometria (A NOVA REGRA)
+      const entityCount = p.entities ? p.entities.length : 0;
+
+      if (entityCount === 0) {
+        issues.push("Desenho Vazio (Sem geometria)");
+      } else if (entityCount > 1) {
+        // AQUI ESTÁ A TRAVA: Se for maior que 1, obriga a simplificar
+        issues.push(`Não simplificada (Entity: ${entityCount})`);
+      }
+
+      // Se houver problemas nesta peça, adiciona ao relatório
+      if (issues.length > 0) {
+        errorReport.push(
+          `• Linha ${index + 1} (${p.name}): ${issues.join(", ")}`,
+        );
+      }
+    });
+
+    // SE HOUVER QUALQUER ERRO, MOSTRA O ALERTA E CANCELA O SALVAMENTO
+    if (errorReport.length > 0) {
+      const maxErrorsToShow = 10;
+      const shownErrors = errorReport.slice(0, maxErrorsToShow).join("\n");
+      const remaining = errorReport.length - maxErrorsToShow;
+
+      let msg = `⚠️ AÇÃO BLOQUEADA\n\nTodas as peças devem estar simplificadas (Entity = 1) e com os dados preenchidos.\n\nErros encontrados:\n${shownErrors}`;
+
+      if (remaining > 0) {
+        msg += `\n\n...e mais ${remaining} peças.`;
+      }
+
+      msg += `\n\nSOLUÇÃO:\n1. Clique no botão amarelo "📦 Insert/Block" para simplificar as geometrias.\n2. Preencha Pedido, Material e Espessura.`;
+
+      alert(msg);
+      return; // <--- O PULO DO GATO: Bloqueia totalmente o envio ao banco.
+    }
+    // =================================================================
 
     const originalText = document.title;
     document.title = "Salvando...";
 
     try {
-      // 1. Verifica duplicidades no banco
+      // 3. Verifica duplicidades no banco
       const itensParaVerificar = parts.map((p: any) => ({
         pedido: p.pedido,
         nome: p.name,
@@ -491,35 +545,27 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
       const dataVerify = await resVerify.json();
       const duplicadasNoBanco = dataVerify.duplicadas || [];
 
-      // 2. Processa a lista
+      // 4. Prepara dados
       const partsToSave = JSON.parse(JSON.stringify(parts));
       const nameTracker: Record<string, number> = {};
 
       const partsFinal = partsToSave.map((part: any) => {
-        const key = `${part.pedido}|${part.name}`;
+        // Garante padrão NORMAL se vazio
+        if (!part.tipo_producao) part.tipo_producao = "NORMAL";
 
-        // Verifica se conflita com o banco
+        const key = `${part.pedido}|${part.name}`;
         const existsInDb = duplicadasNoBanco.some(
           (d: any) => d.pedido === part.pedido && d.nome_arquivo === part.name,
         );
 
-        // --- CORREÇÃO PRINCIPAL AQUI ---
-        // Se o tipo de produção NÃO é 'NORMAL', nós QUEREMOS enviar com o mesmo nome
-        // para que o servidor possa substituir a versão antiga.
-        const isNormal = !part.tipo_producao || part.tipo_producao === "NORMAL";
-
-        // Só renomeamos por duplicidade de banco se for uma peça NORMAL nova.
-        // Se for Edit/Retrabalho, permitimos manter o nome (existsInDb será ignorado).
+        // Se for NORMAL e já existir, prepara para renomear (Versionamento)
+        // Se for RETRABALHO/EDIÇÃO, mantém o nome para substituir o antigo
+        const isNormal = part.tipo_producao === "NORMAL";
         const shouldRenameDb = isNormal && existsInDb;
-
-        // Colisões locais (mesmo arquivo 2x no upload atual) sempre devem renomear
         const localCount = nameTracker[key] || 0;
 
         if (shouldRenameDb || localCount > 0) {
-          // Se for conflito de banco, começa do sufixo 1.
-          // Se for só local, usa o contador local.
           const suffixIndex = (shouldRenameDb ? 1 : 0) + localCount;
-
           if (suffixIndex > 0) {
             const lastDotIndex = part.name.lastIndexOf(".");
             if (lastDotIndex !== -1) {
@@ -531,12 +577,11 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             }
           }
         }
-
         nameTracker[key] = localCount + 1;
         return part;
       });
 
-      // 3. Envia para o servidor
+      // 5. Envia para o servidor
       const resSave = await fetch("http://localhost:3001/api/pecas", {
         method: "POST",
         headers: {
@@ -548,8 +593,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
 
       if (!resSave.ok) {
         const errData = await resSave.json();
-        if (resSave.status === 409) {
-          alert(`⚠️ Bloqueio de Segurança:\n${errData.message}`);
+        if (resSave.status === 400 || resSave.status === 409) {
+          alert(`⚠️ Atenção:\n${errData.message || errData.error}`);
         } else {
           throw new Error(errData.error || "Erro ao salvar");
         }
@@ -557,7 +602,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
       }
 
       const dataSave = await resSave.json();
-      alert(`✅ Sucesso! ${dataSave.count} peças processadas.`);
+      alert(`✅ Sucesso! ${dataSave.count} peças salvas.`);
     } catch (error: any) {
       console.error("Erro no Smart Save:", error);
       alert("Erro ao salvar: " + error.message);
