@@ -17,13 +17,18 @@ import {
   FaClipboardList,
   FaDatabase,
 } from "react-icons/fa";
-import { MdOutlineGridOn } from "react-icons/md";
 import { GiLaserburn } from "react-icons/gi";
+import { TbArrowUpRightCircle } from "react-icons/tb";
 
 // 2. IMPORTAÇÃO DAS UTILIDADES (Verifique se os caminhos estão corretos)
 import { selectDxfFile } from "./utils/fileSystem";
 import { DxfViewer } from "./DxfViewer";
 import type { DxfLayer } from "./DxfViewer";
+// --- ADICIONE ESTAS LINHAS AQUI ---
+import { LeadParamsModal } from "../postProcessador/modals/LeadParamsModal";
+import { DEFAULT_LEAD_PARAMS } from "../postProcessador/modals/leadTypes";
+import type { LeadParams } from "../postProcessador/modals/leadTypes";
+// ----------------------------------
 
 // --- DEFINIÇÃO DE TIPOS ---
 type TabType = "file" | "home" | "draw" | "nest" | "cnc" | "view";
@@ -66,6 +71,10 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
   const [selectedLayer, setSelectedLayer] = useState<number>(0);
   const [dxfString, setDxfString] = useState<string | null>(null);
 
+  // --- NOVO: ESTADOS DO LEAD ---
+  const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
+  const [leadParams, setLeadParams] = useState<LeadParams>(DEFAULT_LEAD_PARAMS);
+
   // 2. FUNÇÕES AUXILIARES (DEVEM ESTAR AQUI, ANTES DO RETURN)
   const handleNotImplemented = (feature: string) => {
     console.log(`Funcionalidade [${feature}] será implementada em breve.`);
@@ -93,6 +102,12 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
     } catch (err) {
       console.error("Erro fatal ao abrir arquivo:", err);
     }
+  };
+
+  const handleLeadApply = (newParams: LeadParams) => {
+    console.log("Aplicando Lead Params:", newParams);
+    setLeadParams(newParams);
+    // Aqui no futuro chamaremos a função geométrica que altera o DXF
   };
 
   // 3. RENDERIZAÇÃO (JSX)
@@ -131,7 +146,7 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
 
         {/* TOOLBAR */}
         <div style={styles.ribbonToolbar}>
-          {/* CONTEÚDO DA ABA FILE */}
+          {/* --- ABA FILE --- */}
           {activeTab === "file" && (
             <div style={styles.toolGroup}>
               <RibbonButton
@@ -149,9 +164,7 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
                 label="Save as"
                 onClick={() => handleNotImplemented("Save as")}
               />
-              {/* 👇 COLE ESTES DOIS GRUPOS NOVOS AQUI: */}
-
-              {/* Grupo 2: Importação e Relatórios */}
+              {/* Grupo 2 */}
               <RibbonButton
                 icon={<FaFileImport />}
                 label="Import"
@@ -164,7 +177,7 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
               />
               <div style={styles.separator} />
 
-              {/* Grupo 3: Backup/Sistema */}
+              {/* Grupo 3 */}
               <RibbonButton
                 icon={<FaDatabase />}
                 label="Backup"
@@ -174,7 +187,18 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
             </div>
           )}
 
-          {/* BOTÃO DE SAÍDA (SEMPRE VISÍVEL OU NA ABA FILE) */}
+          {/* --- ABA HOME (AQUI ESTÁ O ÍCONE LEAD) --- */}
+          {activeTab === "home" && (
+            <div style={styles.toolGroup}>
+              <RibbonButton
+                icon={<TbArrowUpRightCircle />}
+                label="Lead"
+                onClick={() => setIsLeadModalOpen(true)}
+              />
+            </div>
+          )}
+
+          {/* BOTÃO DE SAÍDA (SEMPRE VISÍVEL À DIREITA) */}
           <div
             style={{
               marginLeft: "auto",
@@ -196,64 +220,19 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
       <div style={styles.mainArea}>
         {/* VIEWPORT (ESQUERDA) */}
         <div style={styles.viewportContainer}>
-          {/* Réguas */}
-          <div style={styles.rulerTop}>
-            {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90].map((n) => (
-              <span
-                key={n}
-                style={{ position: "absolute", left: `${n}%`, fontSize: 9 }}
-              >
-                {n * 100}
-              </span>
-            ))}
-          </div>
-          <div style={styles.rulerLeft}>
-            {[0, 10, 20, 30, 40, 50].map((n) => (
-              <span
-                key={n}
-                style={{
-                  position: "absolute",
-                  top: `${n}%`,
-                  fontSize: 9,
-                  transform: "rotate(-90deg)",
-                }}
-              >
-                {n * 100}
-              </span>
-            ))}
-          </div>
-
           {/* CANVAS AREA */}
           <div style={styles.canvasArea}>
-            {dxfString ? (
-              // SE TIVER ARQUIVO CARREGADO:
-              <div style={{ width: "100%", height: "100%" }}>
-                {/* CORREÇÃO: Remova width={...} e height={...} */}
-                <DxfViewer
-                  dxfContent={dxfString}
-                  onLayersDetected={setDetectedLayers}
-                />
-              </div>
-            ) : (
-              // SE NÃO TIVER ARQUIVO:
-              <>
-                <div style={styles.gridBackground}></div>
-                <div
-                  style={{
-                    position: "absolute",
-                    color: "#444",
-                    userSelect: "none",
-                    pointerEvents: "none",
-                  }}
-                >
-                  <MdOutlineGridOn
-                    size={48}
-                    style={{ opacity: 0.2, margin: "0 auto", display: "block" }}
-                  />
-                  <p>Área de Corte: 3000mm x 1500mm</p>
-                </div>
-              </>
-            )}
+            {/* ALTERAÇÃO: Removemos o if/else. O DxfViewer é renderizado sempre.
+                Se 'dxfString' for null, ele mostrará apenas o grid vazio.
+            */}
+            <div style={{ width: "100%", height: "100%" }}>
+              <DxfViewer
+                dxfContent={dxfString}
+                onLayersDetected={setDetectedLayers}
+                showGrid={true} // <--- Grid sempre ligado
+                gridSpacing={250} // <--- Espaçamento padrão 50mm
+              />
+            </div>
           </div>
 
           {/* STATUS BAR */}
@@ -333,6 +312,13 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
           </div>
         </div>
       </div>
+      {/* MODAIS GLOBAIS */}
+      <LeadParamsModal
+        isOpen={isLeadModalOpen}
+        onClose={() => setIsLeadModalOpen(false)}
+        onApply={handleLeadApply}
+        currentParams={leadParams}
+      />
     </div>
   );
 };
@@ -391,7 +377,7 @@ const LayerRow: React.FC<LayerRowProps> = ({
     style={{
       ...styles.layerRow,
       backgroundColor: active ? "#3e3e42" : "transparent",
-      cursor: "pointer"
+      cursor: "pointer",
     }}
   >
     {/* QUADRADINHO DE COR - AQUI ESTÁ A CORREÇÃO */}
@@ -402,7 +388,7 @@ const LayerRow: React.FC<LayerRowProps> = ({
         backgroundColor: color || "#fff", // Usa a cor detectada ou branco se falhar
         marginRight: 10,
         border: "1px solid #555",
-        borderRadius: "2px"
+        borderRadius: "2px",
       }}
     />
     <div style={{ flex: 1, fontSize: "0.85rem" }}>{name}</div>
@@ -527,17 +513,7 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "center",
     overflow: "hidden",
   },
-  gridBackground: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundImage:
-      "linear-gradient(#1a1a1a 1px, transparent 1px), linear-gradient(90deg, #1a1a1a 1px, transparent 1px)",
-    backgroundSize: "50px 50px",
-    opacity: 0.5,
-  },
+
   viewportStatus: {
     height: 25,
     backgroundColor: "#444",
