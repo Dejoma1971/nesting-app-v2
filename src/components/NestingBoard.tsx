@@ -1541,15 +1541,27 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
       smartNestV3WorkerRef.current.onmessage = (e) => {
         const result = e.data;
+
+        // --- CORREÇÃO DE SEGURANÇA ---
+        // Se for apenas uma mensagem de progresso, ignoramos ou logamos (não processa como final)
+        if (result.type === "progress") {
+          console.log(`🚀 Processando V3: ${result.percent}%`);
+          return; // Sai da função para não quebrar a tela
+        }
+        // -----------------------------
+
         const duration = (Date.now() - startTime) / 1000;
         setCalculationTime(duration);
 
-        resetNestingResult(result.placed);
-        setFailedCount(result.failed.length);
+        // Proteção extra: Garante que 'placed' e 'failed' existam antes de usar
+        resetNestingResult(result.placed || []);
+        setFailedCount(result.failed ? result.failed.length : 0);
         setTotalBins(result.totalBins || 1);
         setIsComputing(false);
 
-        if (result.placed.length === 0) alert("Nenhuma peça coube (Motor V3)!");
+        if (!result.placed || result.placed.length === 0) {
+          alert("Nenhuma peça coube (Motor V3)!");
+        }
       };
 
       smartNestV3WorkerRef.current.postMessage({
