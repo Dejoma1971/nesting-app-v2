@@ -4,6 +4,7 @@ import { useTheme } from "../context/ThemeContext";
 interface ContextControlProps {
   x: number;
   y: number;
+  isLocked?: boolean; // <--- ADICIONE ISSO
   onClose: () => void;
   onMove: (dx: number, dy: number) => void;
   onRotate: (angle: number) => void;
@@ -17,11 +18,12 @@ export const ContextControl: React.FC<ContextControlProps> = ({
   onMove,
   onRotate,
   onDelete,
+  isLocked = false,
 }) => {
   const { theme } = useTheme();
 
   const [step, setStep] = useState(1); // Passo de movimento (mm)
-  const [fineRot, setFineRot] = useState(1); // Rotação de ajuste fino (1-90)
+  const [fineRot, setFineRot] = useState(isLocked ? 180 : 1); // Rotação de ajuste fino (1-90)
 
   // Estado local da posição
   const [position, setPosition] = useState({ x, y });
@@ -250,10 +252,11 @@ export const ContextControl: React.FC<ContextControlProps> = ({
           }}
         >
           <input
-            type="number"
+           type="number"
             min="0.1"
-            value={step}
+            value={step} // <--- VOLTA A USAR APENAS 'step'
             onChange={(e) => setStep(Number(e.target.value))}
+            // REMOVA QUALQUER PROPRIEDADE 'disabled={isLocked}' DAQUI
             style={{
               width: "100%",
               height: "28px",
@@ -293,38 +296,55 @@ export const ContextControl: React.FC<ContextControlProps> = ({
       {/* 3. CONTROLE DE ROTAÇÃO */}
       <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
         {/* Presets Rápidos (Ângulos fixos mais usados) */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr 1fr 1fr",
-            gap: "4px",
-          }}
-        >
+        {isLocked ? (
+          // CASO 1: TRAVADO (Mostra apenas o botão de 180º)
           <button
-            style={{ ...btnBaseStyle, fontSize: "10px", height: "25px" }}
-            onClick={() => onRotate(-90)}
+            style={{
+              ...btnBaseStyle,
+              fontSize: "12px",
+              height: "25px",
+              fontWeight: "bold",
+              color: "#007bff",
+            }}
+            onClick={() => onRotate(180)}
           >
-            -90°
+            ↻ Inverter 180°
           </button>
-          <button
-            style={{ ...btnBaseStyle, fontSize: "10px", height: "25px" }}
-            onClick={() => onRotate(-45)}
+        ) : (
+          // CASO 2: DESTROVADO (Mantém exatamente seu código original)
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr 1fr 1fr",
+              gap: "4px",
+            }}
           >
-            -45°
-          </button>
-          <button
-            style={{ ...btnBaseStyle, fontSize: "10px", height: "25px" }}
-            onClick={() => onRotate(45)}
-          >
-            +45°
-          </button>
-          <button
-            style={{ ...btnBaseStyle, fontSize: "10px", height: "25px" }}
-            onClick={() => onRotate(90)}
-          >
-            +90°
-          </button>
-        </div>
+            <button
+              style={{ ...btnBaseStyle, fontSize: "10px", height: "25px" }}
+              onClick={() => onRotate(-90)}
+            >
+              -90°
+            </button>
+            <button
+              style={{ ...btnBaseStyle, fontSize: "10px", height: "25px" }}
+              onClick={() => onRotate(-45)}
+            >
+              -45°
+            </button>
+            <button
+              style={{ ...btnBaseStyle, fontSize: "10px", height: "25px" }}
+              onClick={() => onRotate(45)}
+            >
+              +45°
+            </button>
+            <button
+              style={{ ...btnBaseStyle, fontSize: "10px", height: "25px" }}
+              onClick={() => onRotate(90)}
+            >
+              +90°
+            </button>
+          </div>
+        )}
 
         {/* Ajuste Preciso (Controlado pelo input) */}
         <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>

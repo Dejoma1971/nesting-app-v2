@@ -1076,6 +1076,25 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     return ids;
   }, [selectedPartIds, nestingResult]);
 
+  // --- NOVO: Verifica se a seleção atual contém peças travadas ---
+  const isSelectionLocked = useMemo(() => {
+    if (selectedPartIds.length === 0) return false;
+
+    return selectedPartIds.some((uuid) => {
+      // 1. Tenta achar a peça posicionada na mesa
+      const placedPart = nestingResult.find((p) => p.uuid === uuid);
+
+      // 2. Descobre o ID original (seja da mesa ou da lista lateral)
+      const realPartId = placedPart ? placedPart.partId : uuid;
+
+      // 3. Busca a configuração original da peça
+      const originalPart = parts.find((p) => p.id === realPartId);
+
+      // 4. Retorna verdadeiro se tiver a trava
+      return originalPart?.isRotationLocked === true;
+    });
+  }, [selectedPartIds, nestingResult, parts]);
+
   // ... (outros useEffects)
 
   // =====================================================================
@@ -1998,9 +2017,16 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       });
 
       if (hasLockedParts) {
-        // Opcional: Pode remover este alert se ficar muito intrusivo,
-        // pois a função rotatePartsGroup já ignora silenciosamente as travadas.
-        alert("⚠️ Trava de rotação para manter o sentido do escovado.");
+        // LÓGICA DE EXCEÇÃO:
+        // Se a peça for travada, verificamos se o ângulo é 180 (ou -180).
+        // Se NÃO for 180 (ex: 90, 45), aí sim bloqueamos e mostramos o alerta.
+        if (Math.abs(angle) !== 180) {
+          alert(
+            "⚠️ Trava de rotação para manter o sentido do escovado.\n\nPermitido apenas inverter (180º).",
+          );
+          return; // <--- O return aqui impede que o código continue
+        }
+        // Se for 180, ele ignora o alerta e desce para executar o rotatePartsGroup abaixo.
       }
 
       // 2. Chama a função utilitária para calcular a rotação em GRUPO
@@ -2948,6 +2974,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           onMove={handleContextMove}
           onRotate={handleContextRotate}
           onDelete={handleContextDelete}
+          isLocked={isSelectionLocked}
         />
       )}
 
