@@ -9,15 +9,15 @@ const toRad = (deg: number) => (deg * Math.PI) / 180;
 export const calculateRotatedDimensions = (
   width: number,
   height: number,
-  rotationDeg: number
+  rotationDeg: number,
 ) => {
   const rad = toRad(rotationDeg);
   const cos = Math.abs(Math.cos(rad));
   const sin = Math.abs(Math.sin(rad));
-  
+
   const occupiedW = width * cos + height * sin;
   const occupiedH = width * sin + height * cos;
-  
+
   return { occupiedW, occupiedH };
 };
 
@@ -28,11 +28,13 @@ export const rotatePartsGroup = (
   allPlacedParts: PlacedPart[],
   selectedUUIDs: string[],
   allOriginalParts: ImportedPart[],
-  angleDelta: number
+  angleDelta: number,
 ): PlacedPart[] => {
   // 1. Identificar as peças selecionadas
-  const selectedParts = allPlacedParts.filter((p) => selectedUUIDs.includes(p.uuid));
-  
+  const selectedParts = allPlacedParts.filter((p) =>
+    selectedUUIDs.includes(p.uuid),
+  );
+
   if (selectedParts.length === 0) return allPlacedParts;
 
   // Mapa rápido para buscar dados originais (largura/altura)
@@ -41,35 +43,40 @@ export const rotatePartsGroup = (
 
   // 2. Calcular o CENTRO ATUAL DE CADA PEÇA NO MUNDO
   // (Baseado na lógica do collisionCheck.ts que você forneceu)
-  const partsWithCenters = selectedParts.map((placed) => {
-    const original = originalPartsMap.get(placed.partId);
-    if (!original) return null;
+  const partsWithCenters = selectedParts
+    .map((placed) => {
+      const original = originalPartsMap.get(placed.partId);
+      if (!original) return null;
 
-    // Se a peça estiver travada, ela não entra no cálculo de rotação, 
-    // mas precisamos saber onde ela está.
-    // (Opcional: se quiser que peças travadas não girem nem de posição, filtre antes)
+      // Se a peça estiver travada, ela não entra no cálculo de rotação,
+      // mas precisamos saber onde ela está.
+      // (Opcional: se quiser que peças travadas não girem nem de posição, filtre antes)
 
-    const { occupiedW, occupiedH } = calculateRotatedDimensions(
-      original.width,
-      original.height,
-      placed.rotation
-    );
+      const { occupiedW, occupiedH } = calculateRotatedDimensions(
+        original.width,
+        original.height,
+        placed.rotation,
+      );
 
-    const worldCenterX = placed.x + occupiedW / 2;
-    const worldCenterY = placed.y + occupiedH / 2;
+      const worldCenterX = placed.x + occupiedW / 2;
+      const worldCenterY = placed.y + occupiedH / 2;
 
-    return {
-      placed,
-      original,
-      worldCenterX,
-      worldCenterY,
-    };
-  }).filter((p): p is NonNullable<typeof p> => p !== null);
+      return {
+        placed,
+        original,
+        worldCenterX,
+        worldCenterY,
+      };
+    })
+    .filter((p): p is NonNullable<typeof p> => p !== null);
 
   if (partsWithCenters.length === 0) return allPlacedParts;
 
   // 3. Calcular o PIVÔ DO GRUPO (Centro da Bounding Box da Seleção)
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
 
   partsWithCenters.forEach((p) => {
     if (p.worldCenterX < minX) minX = p.worldCenterX;
@@ -87,50 +94,55 @@ export const rotatePartsGroup = (
   const sin = Math.sin(radDelta);
 
   // 4. Aplicar a Rotação Orbital
-  const updatedSelectedParts = partsWithCenters.map(({ placed, original, worldCenterX, worldCenterY }) => {
-    
-    // A. Verifica trava de rotação (Sentido Escovado)
-    if (original.isRotationLocked) {
-      // Se a peça tem rotação travada, ela não deve girar nem transladar na rotação de grupo
-      // para evitar comportamentos estranhos. Retornamos ela intacta.
-      return placed;
-    }
+  const updatedSelectedParts = partsWithCenters.map(
+    ({ placed, original, worldCenterX, worldCenterY }) => {
+      // A. Verifica trava de rotação (Sentido Escovado)
+      if (original.isRotationLocked) {
+        // Só bloqueia se o ângulo NÃO for múltiplo de 180 (ex: 90, 45 bloqueia. 180 libera).
+        if (Math.abs(angleDelta) % 180 !== 0) {
+          return placed;
+        }
+        // Se for 180, o código ignora o return acima e segue para calcular a nova posição abaixo!
+      }
 
-    // B. Vetor do Pivô até o Centro da Peça
-    const dx = worldCenterX - pivotX;
-    const dy = worldCenterY - pivotY;
+      // B. Vetor do Pivô até o Centro da Peça
+      const dx = worldCenterX - pivotX;
+      const dy = worldCenterY - pivotY;
 
-    // C. Rotacionar esse vetor (Matriz de Rotação 2D)
-    const newDx = dx * cos - dy * sin;
-    const newDy = dx * sin + dy * cos;
+      // C. Rotacionar esse vetor (Matriz de Rotação 2D)
+      const newDx = dx * cos - dy * sin;
+      const newDy = dx * sin + dy * cos;
 
-    // D. Novo Centro da Peça no Mundo
-    const newWorldCenterX = pivotX + newDx;
-    const newWorldCenterY = pivotY + newDy;
+      // D. Novo Centro da Peça no Mundo
+      const newWorldCenterX = pivotX + newDx;
+      const newWorldCenterY = pivotY + newDy;
 
-    // E. Nova Rotação da Peça
-    // Normalizamos para 0-360
-    const rawNewRotation = (placed.rotation + angleDelta) % 360;
-    const newRotation = rawNewRotation < 0 ? rawNewRotation + 360 : rawNewRotation;
+      // E. Nova Rotação da Peça
+      // Normalizamos para 0-360
+      const rawNewRotation = (placed.rotation + angleDelta) % 360;
+      const newRotation =
+        rawNewRotation < 0 ? rawNewRotation + 360 : rawNewRotation;
 
-    // F. Recalcular 'placed.x' e 'placed.y' (Canto Superior Esquerdo da Bounding Box)
-    // Precisamos das novas dimensões ocupadas com o novo ângulo
-    const { occupiedW: newOccupiedW, occupiedH: newOccupiedH } = calculateRotatedDimensions(
-      original.width,
-      original.height,
-      newRotation
-    );
+      // F. Recalcular 'placed.x' e 'placed.y' (Canto Superior Esquerdo da Bounding Box)
+      // Precisamos das novas dimensões ocupadas com o novo ângulo
+      const { occupiedW: newOccupiedW, occupiedH: newOccupiedH } =
+        calculateRotatedDimensions(
+          original.width,
+          original.height,
+          newRotation,
+        );
 
-    const newPlacedX = newWorldCenterX - newOccupiedW / 2;
-    const newPlacedY = newWorldCenterY - newOccupiedH / 2;
+      const newPlacedX = newWorldCenterX - newOccupiedW / 2;
+      const newPlacedY = newWorldCenterY - newOccupiedH / 2;
 
-    return {
-      ...placed,
-      x: newPlacedX,
-      y: newPlacedY,
-      rotation: newRotation,
-    };
-  });
+      return {
+        ...placed,
+        x: newPlacedX,
+        y: newPlacedY,
+        rotation: newRotation,
+      };
+    },
+  );
 
   // 5. Mesclar de volta na lista completa
   return allPlacedParts.map((p) => {
