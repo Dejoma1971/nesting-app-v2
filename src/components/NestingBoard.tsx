@@ -17,7 +17,6 @@ import { InteractiveCanvas } from "./InteractiveCanvas";
 import { useUndoRedo } from "../hooks/useUndoRedo";
 import { PartFilter, type FilterState } from "./PartFilter";
 import NestingWorker from "../workers/nesting.worker?worker";
-import WiseNestingWorker from "../workers/wiseNesting.worker?worker";
 import SmartNestNewWorker from "../workers/smartNestNew.worker?worker";
 import SmartNestV3Worker from "../workers/smartNestV3.worker?worker";
 import { useTheme } from "../context/ThemeContext";
@@ -1523,33 +1522,55 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         if (result.placed.length === 0) alert("Nenhuma peça coube!");
       }, 50);
     } else if (strategy === "wise") {
-      // --- 3. MOTOR WISE NEST (Melhor Aproveitamento / Furos) ---
+      // --- 3. MOTOR WISE NEST (Clipper / Geometria Real) ---
       if (wiseNestingWorkerRef.current)
         wiseNestingWorkerRef.current.terminate();
-      wiseNestingWorkerRef.current = new WiseNestingWorker();
+      
+      // Inicializa em modo Clássico para permitir importScripts no Worker
+      wiseNestingWorkerRef.current = new Worker(
+        new URL("../workers/wiseNesting.worker.ts", import.meta.url),
+        { type: "classic" }
+      );
 
       wiseNestingWorkerRef.current.onmessage = (e) => {
-        const result = e.data;
-        const duration = (Date.now() - startTime) / 1000;
-        setCalculationTime(duration);
+        const { type, progress, message, result } = e.data;
 
-        resetNestingResult(result.placed);
-        setFailedCount(result.failed.length);
-        setTotalBins(result.totalBins || 1);
-        setIsComputing(false);
+        if (type === "PROGRESS") {
+           // Opcional: Você pode criar um estado para mostrar "Processando 10%..."
+           console.log(`[WiseNest] ${progress}% - ${message}`);
+        } 
+        else if (type === "COMPLETED") {
+          const duration = (Date.now() - startTime) / 1000;
+          setCalculationTime(duration);
 
-        if (result.placed.length === 0)
-          alert("Nenhuma peça coube no Wise Nest!");
+          // Atualiza a mesa com o resultado
+          if (result.placed && result.placed.length > 0) {
+             resetNestingResult(result.placed); 
+             setFailedCount(result.failed.length);
+             setTotalBins(result.totalBins || 1);
+          } else {
+             alert("Nenhuma peça coube com as configurações atuais.");
+          }
+          
+          setIsComputing(false);
+        }
+        else if (type === "ERROR") {
+          console.error("Erro no Wise Nest:", message);
+          setIsComputing(false);
+          alert("Erro técnico no processamento do Nesting.");
+        }
       };
 
+      // Envia os dados PLANOS, exatamente como o Worker novo espera
       wiseNestingWorkerRef.current.postMessage({
+        type: 'START_NESTING', // Comando explicito
         parts: JSON.parse(JSON.stringify(partsToNest)),
-        quantities,
-        gap,
-        margin,
+        quantities, // Objeto { "id": quantidade }
         binWidth: binSize.width,
         binHeight: binSize.height,
-        rotationStep: 5,
+        gap: Number(gap),       // Força número
+        margin: Number(margin), // Força número
+        rotationStep: 90        // Rotação permitida (0, 90, 180, 270)
       });
     } else if (strategy === "true-shape-v3") {
       // --- 5. MOTOR SMART NEST V3 (Memória + Furos) ---
@@ -3314,10 +3335,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             {/* ALTERAÇÃO AQUI: Adicionado disabled e estilo de cor/opacidade */}
             <option
               value="wise"
-              disabled
-              style={{ color: "#999", fontStyle: "italic", opacity: 0.5 }}
+              style={{ fontWeight: "bold", color: "#6f42c1" }}
             >
-              🧠 Wise Nest (em Breve)
+              🧠 Wise Nest (Clipper Engine)
             </option>
             {/* <--- INSERIR ESTA LINHA */}
           </select>

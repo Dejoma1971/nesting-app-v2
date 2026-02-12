@@ -1,496 +1,319 @@
-import {
-  getWiseOffsetPartGeometry,
-  type WisePartGeometry,
-} from "../utils/wiseGeometryCore";
-import type { ImportedPart } from "../components/types"; // <--- ESTA LINHA ESTAVA FALTANDO
+/// <reference lib="webworker" />
 
-// --- CONFIGURAÇÃO ---
-const GA_CONFIG = {
-  POPULATION_SIZE: 12,
-  MUTATION_RATE: 0.15,
-  COMPLEX_ROTATIONS: [0, 15, 30, 45, 90, 135, 180, 225, 270, 315],
-};
+/* eslint-disable no-var */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
-interface Point {
-  x: number;
-  y: number;
+// Importa a biblioteca Clipper (deve estar em public/workers/clipper.js)
+importScripts('/workers/clipper.js');
+
+declare var ClipperLib: any;
+
+const SCALE = 10000; // Precisão para converter Float -> Int
+
+// --- 1. FUNÇÕES DE GEOMETRIA E CONVERSÃO ---
+
+// Converte graus para radianos
+function toRad(deg: number) {
+  return (deg * Math.PI) / 180;
 }
 
-interface NestingParams {
-  parts: ImportedPart[];
-  quantities: Record<string, number>;
-  binWidth: number;
-  binHeight: number;
-  margin: number;
-  gap: number;
-  rotationStep: number;
-  iterations: number;
+// Discretiza um Arco/Círculo em segmentos de reta
+function approximateArc(
+  cx: number, cy: number, r: number, 
+  startAngle: number, endAngle: number, 
+  segments = 16
+) {
+  const points = [];
+  let totalAngle = endAngle - startAngle;
+  if (totalAngle <= 0) totalAngle += 2 * Math.PI;
+
+  const step = totalAngle / segments;
+  
+  for (let i = 0; i <= segments; i++) {
+    const theta = startAngle + step * i;
+    points.push({
+      X: Math.round((cx + r * Math.cos(theta)) * SCALE),
+      Y: Math.round((cy + r * Math.sin(theta)) * SCALE)
+    });
+  }
+  return points;
 }
 
-interface PlacedPart {
-  uuid: string;
-  partId: string;
-  x: number;
-  y: number;
-  rotation: number;
-  binId: number;
-}
-
-interface Individual {
-  placement: PlacedPart[];
-  efficiency: number;
-  failed: string[];
-  fitness: number;
-  genome: { ids: string[]; rotations: number[] };
-}
-
-// Estendemos a geometria Wise para incluir uuid e id
-type PartGeometry = WisePartGeometry & {
-  uuid?: string;
-  id: string;
-  // obbCorners já vem de WisePartGeometry, mas reforçamos se necessário
-};
-
-const toRad = (deg: number) => (deg * Math.PI) / 180;
-
-// --- GEOMETRIA ---
-
-const transformGeometry = (
-  base: PartGeometry,
-  x: number,
-  y: number,
-  rotation: number
-): PartGeometry => {
-  const angleRad = toRad(rotation);
-  const cos = Math.cos(angleRad);
-  const sin = Math.sin(angleRad);
-
-  // Função de rotação
-  const rotate = (px: number, py: number) => ({
-    x: px * cos - py * sin,
-    y: px * sin + py * cos,
-  });
-
-  // 1. Rotaciona a geometria real (Polígono)
-  const newOuter = base.outer.map((p) => rotate(p.x, p.y));
-  const newHoles = base.holes.map((h) => h.map((p) => rotate(p.x, p.y)));
-
-  // 2. Calcula a nova Caixa Vermelha (AABB) para verificação de limites
-  let minX = Infinity,
-    minY = Infinity;
-  let maxX0 = -Infinity,
-    maxY0 = -Infinity;
-
-  for (const p of newOuter) {
-    if (p.x < minX) minX = p.x;
-    if (p.y < minY) minY = p.y;
-    if (p.x > maxX0) maxX0 = p.x;
-    if (p.y > maxY0) maxY0 = p.y;
+// Converte a peça bruta (DXF entities) para Polígono do Clipper
+function partToClipperPath(part: any) {
+  const path: { X: number; Y: number }[] = [];
+  
+  if (!part.entities || part.entities.length === 0) {
+    // Fallback: Cria um retângulo se não tiver geometria
+    const w = (part.width || 100) * SCALE;
+    const h = (part.height || 100) * SCALE;
+    return [
+      { X: 0, Y: 0 },
+      { X: w, Y: 0 },
+      { X: w, Y: h },
+      { X: 0, Y: h }
+    ];
   }
 
-  const offsetX = x - minX;
-  const offsetY = y - minY;
+  // Tenta extrair o maior contorno fechado (Simplificação para Nesting)
+  // Varre as entidades procurando Polylines ou Círculos
+  
+  part.entities.forEach((ent: any) => {
+    // Se já temos um caminho complexo, ignoramos furos internos por enquanto 
+    // (Para nesting básico, usamos o contorno externo)
+    if (path.length > 0) return; 
 
-  const finalOuter = newOuter.map((p) => ({
-    x: p.x + offsetX,
-    y: p.y + offsetY,
+    if (ent.type === 'LWPOLYLINE' || ent.type === 'POLYLINE') {
+      if (ent.vertices && ent.vertices.length > 2) {
+        ent.vertices.forEach((v: any) => {
+          path.push({ X: Math.round(v.x * SCALE), Y: Math.round(v.y * SCALE) });
+        });
+      }
+    } else if (ent.type === 'CIRCLE') {
+      const circlePath = approximateArc(ent.center.x, ent.center.y, ent.radius, 0, Math.PI * 2, 32);
+      circlePath.forEach(p => path.push(p));
+    } else if (ent.type === 'ARC') {
+        // Arcos soltos geralmente não formam peças fechadas sozinhos, 
+        // mas adicionamos logica se necessário.
+    }
+  });
+
+  // Se falhar em achar geometria válida, usa o Bounding Box
+  if (path.length < 3) {
+    const w = (part.width || 50) * SCALE;
+    const h = (part.height || 50) * SCALE;
+    return [
+      { X: 0, Y: 0 },
+      { X: w, Y: 0 },
+      { X: w, Y: h },
+      { X: 0, Y: h }
+    ];
+  }
+
+  return path;
+}
+
+// Rotaciona o caminho
+function rotatePath(path: any[], angle: number) {
+  if (angle === 0) return path;
+  const rad = toRad(angle);
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  
+  return path.map(p => ({
+    X: Math.round(p.X * cos - p.Y * sin),
+    Y: Math.round(p.X * sin + p.Y * cos)
   }));
-  const finalHoles = newHoles.map((h) =>
-    h.map((p) => ({ x: p.x + offsetX, y: p.y + offsetY }))
-  );
+}
 
-  // 3. CALCULA A CAIXA AMARELA ROTACIONADA (OBB)
-  // Pegamos o MABB calculado no geometryCore e rotacionamos ele junto com a peça
-  const baseMabb = base.mabb || [];
-  const obbCorners = baseMabb.map((p) => {
-    const r = rotate(p.x, p.y);
-    return { x: r.x + offsetX, y: r.y + offsetY };
+// Move o caminho
+function translatePath(path: any[], dx: number, dy: number) {
+  const scaledDx = Math.round(dx * SCALE);
+  const scaledDy = Math.round(dy * SCALE);
+  return path.map(p => ({ X: p.X + scaledDx, Y: p.Y + scaledDy }));
+}
+
+// Pega os limites (Bounding Box)
+function getBounds(path: any[]) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for(let i=0; i<path.length; i++) {
+    const p = path[i];
+    if (p.X < minX) minX = p.X;
+    if (p.Y < minY) minY = p.Y;
+    if (p.X > maxX) maxX = p.X;
+    if (p.Y > maxY) maxY = p.Y;
+  }
+  return {
+    minX: minX / SCALE,
+    minY: minY / SCALE,
+    maxX: maxX / SCALE,
+    maxY: maxY / SCALE,
+    width: (maxX - minX) / SCALE,
+    height: (maxY - minY) / SCALE
+  };
+}
+
+// Infla o polígono (Gap)
+function offsetPath(path: any[], delta: number) {
+  if (delta === 0) return [path];
+  const co = new ClipperLib.ClipperOffset();
+  const result = new ClipperLib.Paths();
+  // JoinType: 0=Square, 1=Round, 2=Miter
+  co.AddPath(path, ClipperLib.JoinType.jtSquare, ClipperLib.EndType.etClosedPolygon);
+  co.Execute(result, delta * SCALE);
+  return result; // Retorna array de caminhos
+}
+
+// Verifica colisão
+function checkCollision(candidatePath: any[], obstacles: any[]) {
+  if (obstacles.length === 0) return false;
+  
+  const clipper = new ClipperLib.Clipper();
+  clipper.AddPath(candidatePath, ClipperLib.PolyType.ptSubject, true);
+  clipper.AddPaths(obstacles, ClipperLib.PolyType.ptClip, true);
+  
+  const solution = new ClipperLib.Paths();
+  // Interseção
+  clipper.Execute(ClipperLib.ClipType.ctIntersection, solution);
+  
+  return solution.length > 0;
+}
+
+// --- 2. LÓGICA PRINCIPAL (WORKER) ---
+
+const ctx: Worker = self as any;
+
+ctx.onmessage = (event) => {
+  const msg = event.data;
+  
+  // Tratamento para diferentes formatos de mensagem
+  let data = msg;
+  if (msg.type === 'START_NESTING') {
+      data = msg; // Usa o payload direto
+  }
+
+  if (data.parts) {
+    try {
+      console.log('👷 WiseWorker Iniciado. Config:', { 
+        gap: data.gap, 
+        margin: data.margin, 
+        bin: `${data.binWidth}x${data.binHeight}`
+      });
+      runNesting(data);
+    } catch (err: any) {
+      console.error(err);
+      ctx.postMessage({ type: 'ERROR', message: err.message });
+    }
+  }
+};
+
+function runNesting(data: any) {
+  const { parts, quantities, binWidth, binHeight } = data;
+  // Garante números válidos para gap e margin
+  const gap = Number(data.gap) || 0;
+  const margin = Number(data.margin) || 0;
+  const step = 5; // Resolução do Scanline (mm). Aumente para mais velocidade.
+
+  // 1. Expande as peças baseado na quantidade
+  // CORREÇÃO: Usar 'const' pois a referência do array não muda (apenas o conteúdo via push)
+  const partsQueue: any[] = [];
+  
+  parts.forEach((p: any) => {
+    const qty = quantities[p.id] || 1;
+    // Converte geometria UMA VEZ
+    const rawPath = partToClipperPath(p);
+    // Garante orientação
+    if (!ClipperLib.Clipper.Orientation(rawPath)) ClipperLib.Clipper.ReversePath(rawPath);
+    // Limpa
+    const cleanPath = ClipperLib.Clipper.CleanPolygon(rawPath, 1.1);
+    
+    // Calcula área para ordenação
+    const bounds = getBounds(cleanPath);
+    const area = bounds.width * bounds.height;
+
+    for (let i = 0; i < qty; i++) {
+      partsQueue.push({
+        ...p,
+        uuid: Math.random().toString(36).substr(2, 9), // ID único para a mesa
+        path: cleanPath,
+        area: area
+      });
+    }
   });
 
-  return {
-    ...base,
-    outer: finalOuter,
-    holes: finalHoles,
-    mabb: obbCorners, // Atualiza o mabb/obbCorners com a nova posição
-    bounds: {
-      minX: x,
-      maxX: x + (maxX0 - minX),
-      minY: y,
-      maxY: y + (maxY0 - minY),
-    },
-  };
-};
+  // 2. Ordena por Área (Decrescente) - Estratégia First Fit Decreasing
+  partsQueue.sort((a, b) => b.area - a.area);
 
-// --- INTERSECÇÃO (SAT) ---
-const checkOBBOverlap = (cornersA: Point[], cornersB: Point[]): boolean => {
-  if (cornersA.length < 4 || cornersB.length < 4) return true;
-  const polygons = [cornersA, cornersB];
-  for (const polygon of polygons) {
-    for (let i = 0; i < polygon.length; i++) {
-      const p1 = polygon[i];
-      const p2 = polygon[(i + 1) % polygon.length];
-      const normal = { x: p2.y - p1.y, y: p1.x - p2.x };
+  const placedParts: any[] = [];
+  const obstacles: any[] = []; // Polígonos já colocados (inflados com gap)
+  const failedParts: any[] = [];
 
-      let minA = Infinity,
-        maxA = -Infinity;
-      for (const p of cornersA) {
-        const proj = normal.x * p.x + normal.y * p.y;
-        if (proj < minA) minA = proj;
-        if (proj > maxA) maxA = proj;
-      }
+  // CORREÇÃO: Usar 'const' pois o valor primitivo não é reatribuído
+  const total = partsQueue.length;
+  let processed = 0;
 
-      let minB = Infinity,
-        maxB = -Infinity;
-      for (const p of cornersB) {
-        const proj = normal.x * p.x + normal.y * p.y;
-        if (proj < minB) minB = proj;
-        if (proj > maxB) maxB = proj;
-      }
-
-      if (maxA < minB || maxB < minA) return false; // Separados!
-    }
-  }
-  return true;
-};
-
-// --- COLISÃO DETALHADA ---
-const isPointInPolygon = (p: Point, polygon: Point[]) => {
-  let isInside = false;
-  let i = 0,
-    j = polygon.length - 1;
-  for (; i < polygon.length; j = i++) {
-    if (
-      polygon[i].y > p.y !== polygon[j].y > p.y &&
-      p.x <
-        ((polygon[j].x - polygon[i].x) * (p.y - polygon[i].y)) /
-          (polygon[j].y - polygon[i].y) +
-          polygon[i].x
-    ) {
-      isInside = !isInside;
-    }
-  }
-  return isInside;
-};
-
-const doLineSegmentsIntersect = (
-  p1: Point,
-  p2: Point,
-  q1: Point,
-  q2: Point
-): boolean => {
-  const subtract = (a: Point, b: Point) => ({ x: a.x - b.x, y: a.y - b.y });
-  const crossProduct = (a: Point, b: Point) => a.x * b.y - a.y * b.x;
-  const r = subtract(p2, p1);
-  const s = subtract(q2, q1);
-  const rxs = crossProduct(r, s);
-  if (Math.abs(rxs) < 1e-9) return false;
-  const t = crossProduct(subtract(q1, p1), s) / rxs;
-  const u = crossProduct(subtract(q1, p1), r) / rxs;
-  return t >= 1e-9 && t <= 1 - 1e-9 && u >= 1e-9 && u <= 1 - 1e-9;
-};
-
-const checkCollision = (
-  candidate: PartGeometry,
-  placedList: PartGeometry[]
-): boolean => {
-  for (let i = placedList.length - 1; i >= 0; i--) {
-    const placed = placedList[i];
-
-    // 1. Box check (Vermelha - Rápido)
-    if (
-      candidate.bounds.maxX < placed.bounds.minX ||
-      candidate.bounds.minX > placed.bounds.maxX ||
-      candidate.bounds.maxY < placed.bounds.minY ||
-      candidate.bounds.minY > placed.bounds.maxY
-    )
-      continue;
-
-    // 2. OBB Check (Amarela - Rápido e Preciso)
-    if (candidate.mabb && placed.mabb) {
-      if (!checkOBBOverlap(candidate.mabb, placed.mabb)) continue;
-    }
-
-    // 3. True Shape (Polígono Real - Lento)
-    let collision = false;
-    for (const p of candidate.outer)
-      if (isPointInPolygon(p, placed.outer)) {
-        collision = true;
-        break;
-      }
-    if (collision) return true;
-    for (const p of placed.outer)
-      if (isPointInPolygon(p, candidate.outer)) {
-        collision = true;
-        break;
-      }
-    if (collision) return true;
-
-    const polyA = candidate.outer;
-    const polyB = placed.outer;
-    for (let a = 0; a < polyA.length; a++) {
-      const p1 = polyA[a];
-      const p2 = polyA[(a + 1) % polyA.length];
-      for (let b = 0; b < polyB.length; b++) {
-        const q1 = polyB[b];
-        const q2 = polyB[(b + 1) % polyB.length];
-        if (doLineSegmentsIntersect(p1, p2, q1, q2)) return true;
-      }
-    }
-  }
-  return false;
-};
-
-// --- POSICIONAMENTO ---
-const placeParts = (
-  genomeIds: string[],
-  genomeRotations: number[],
-  baseGeometries: Map<string, PartGeometry>,
-  binWidth: number,
-  binHeight: number,
-  margin: number,
-  inflationOffset: number
-): Individual => {
-  const placedParts: PlacedPart[] = [];
-  const placedGeoms: PartGeometry[] = [];
-  const failedParts: string[] = [];
-
-  const step = 3.0; // Passo da grade
-
-  for (let i = 0; i < genomeIds.length; i++) {
-    const partId = genomeIds[i];
-    const preferredRot = genomeRotations[i];
-    const baseGeom = baseGeometries.get(partId)!;
+  // 3. Loop de Posicionamento
+  for (const part of partsQueue) {
     let placed = false;
-    const activeRotations = [preferredRot, (preferredRot + 90) % 360];
+    // Rotações a testar (0 e 90 graus)
+    const rotations = [0, 90];
 
-    for (const r of activeRotations) {
-      let bestX = Infinity,
-        bestY = Infinity,
-        foundSpot = false;
+    for (const rot of rotations) {
+      if (placed) break;
 
-      for (let y = margin; y < binHeight - margin; y += step) {
-        if (y > bestY) break;
-        for (let x = margin; x < binWidth - margin; x += step) {
-          const candidate = transformGeometry(baseGeom, x, y, r);
+      // Rotaciona
+      let rotatedPath = rotatePath(part.path, rot);
+      // Normaliza para 0,0 (remove coordenadas originais do DXF)
+      const bounds = getBounds(rotatedPath);
+      rotatedPath = translatePath(rotatedPath, -bounds.minX, -bounds.minY);
 
-          if (
-            candidate.bounds.maxX > binWidth - margin ||
-            candidate.bounds.maxY > binHeight - margin
-          )
-            continue;
+      // --- APLICAÇÃO DA MARGEM ---
+      // Define os limites onde a peça pode começar (Top-Left da peça)
+      const startX = margin;
+      const startY = margin;
+      const limitX = binWidth - margin - bounds.width;
+      const limitY = binHeight - margin - bounds.height;
 
-          if (!checkCollision(candidate, placedGeoms)) {
-            bestX = x;
-            bestY = y;
-            foundSpot = true;
+      // Se a peça for maior que a área útil (considerando margem), falha
+      if (limitX < startX || limitY < startY) continue;
+
+      // Scanline: Varre Y depois X (Bottom-Left strategy)
+      for (let y = startY; y <= limitY; y += step) {
+        if (placed) break;
+        for (let x = startX; x <= limitX; x += step) {
+          
+          // Posiciona candidata
+          const candidate = translatePath(rotatedPath, x, y);
+
+          // Verifica colisão com obstáculos (que já incluem o GAP)
+          if (!checkCollision(candidate, obstacles)) {
+            
+            // SUCESSO!
+            placedParts.push({
+              partId: part.id,
+              uuid: part.uuid,
+              x: x,
+              y: y,
+              rotation: rot,
+              binId: 0
+            });
+
+            // Adiciona aos obstáculos INFLANDO COM O GAP
+            // Assim, a próxima peça baterá na "borda invisível" do gap
+            const inflated = offsetPath(candidate, gap);
+            
+            // CORREÇÃO: Tipagem explicita (p: any) para evitar erro no TypeScript
+            inflated.forEach((p: any) => obstacles.push(p));
+
+            placed = true;
             break;
           }
         }
-        if (foundSpot) break;
-      }
-
-      if (foundSpot) {
-        const uuid = `${partId}_${placedParts.length}_wise`;
-        const finalGeom = transformGeometry(baseGeom, bestX, bestY, r);
-        finalGeom.uuid = uuid;
-        placedParts.push({
-          uuid,
-          partId,
-          x: bestX + inflationOffset,
-          y: bestY + inflationOffset,
-          rotation: r,
-          binId: 0,
-        });
-        placedGeoms.push(finalGeom);
-        placed = true;
-        break;
       }
     }
-    if (!placed) failedParts.push(partId);
-  }
 
-  // Fitness
-  let maxX = 0,
-    maxY = 0;
-  placedGeoms.forEach((g) => {
-    if (g.bounds.maxX > maxX) maxX = g.bounds.maxX;
-    if (g.bounds.maxY > maxY) maxY = g.bounds.maxY;
-  });
-  const areaParts = placedGeoms.reduce((acc, p) => acc + p.area, 0);
-  const containerArea = Math.max(maxX * maxY, 1);
-  let efficiency = areaParts / containerArea;
-  if (failedParts.length > 0)
-    efficiency *= 1 - failedParts.length / genomeIds.length;
-
-  return {
-    placement: placedParts,
-    failed: failedParts,
-    efficiency: efficiency * 100,
-    fitness: efficiency,
-    genome: { ids: [...genomeIds], rotations: [...genomeRotations] },
-  };
-};
-
-// --- GENÉTICA ---
-
-// ALTERADO: Agora recebe 'partsMap' para checar isRotationLocked
-const generateRandomIndividual = (
-  allIds: string[],
-  partsMap: Map<string, ImportedPart> // <--- NOVO ARGUMENTO
-): { ids: string[]; rotations: number[] } => {
-  const ids = [...allIds];
-  // Embaralha a ordem (Shuffle)
-  for (let i = ids.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [ids[i], ids[j]] = [ids[j], ids[i]];
-  }
-  
-  // Define rotações respeitando a trava
-  const rotations = ids.map((id) => {
-    const part = partsMap.get(id);
-    if (part?.isRotationLocked) {
-      return 0; // TRAVADA: Força 0 graus
+    if (!placed) {
+      failedParts.push(part.id);
     }
-    // LIVRE: Sorteia uma rotação da lista complexa
-    return GA_CONFIG.COMPLEX_ROTATIONS[
-      Math.floor(Math.random() * GA_CONFIG.COMPLEX_ROTATIONS.length)
-    ];
-  });
 
-  return { ids, rotations };
-};
-
-// ALTERADO: Agora recebe 'partsMap'
-const crossover = (
-  parentA: { ids: string[]; rotations: number[] },
-  partsMap: Map<string, ImportedPart> // <--- NOVO ARGUMENTO
-) => {
-  const childIds = [...parentA.ids];
-  const childRots = [...parentA.rotations];
-  
-  // 1. Mutação de Ordem (Shuffle parcial)
-  if (Math.random() < 0.5) {
-    const i = Math.floor(Math.random() * childIds.length),
-      j = Math.floor(Math.random() * childIds.length);
-    [childIds[i], childIds[j]] = [childIds[j], childIds[i]];
-  }
-
-  // 2. Mutação de Rotação (AQUI ENTRA A PROTEÇÃO)
-  if (Math.random() < GA_CONFIG.MUTATION_RATE) { // Usar constante correta
-    const i = Math.floor(Math.random() * childRots.length);
-    const partId = childIds[i]; // Precisamos saber qual peça está nessa posição
-    const part = partsMap.get(partId);
-
-    // SÓ MUTA SE NÃO ESTIVER TRAVADA
-    if (!part?.isRotationLocked) {
-      childRots[i] =
-        GA_CONFIG.COMPLEX_ROTATIONS[
-          Math.floor(Math.random() * GA_CONFIG.COMPLEX_ROTATIONS.length)
-        ];
+    processed++;
+    // Reporta progresso a cada 5 peças para não travar mensagens
+    if (processed % 5 === 0) {
+      ctx.postMessage({
+        type: 'PROGRESS',
+        progress: Math.round((processed / total) * 100),
+        message: `Analisando peça ${processed}/${total}`
+      });
     }
   }
-  return { ids: childIds, rotations: childRots };
-};
 
-// --- MAIN LOOP ---
-self.onmessage = async (e: MessageEvent<NestingParams>) => {
-  const { parts, quantities, binWidth, binHeight, margin, gap } = e.data;
-  
-  const baseGeometries = new Map<string, PartGeometry>();
-  
-  // --- NOVO MAPA DE PEÇAS ORIGINAIS (Para acesso rápido às props) ---
-  const partsMap = new Map<string, ImportedPart>();
-  // -----------------------------------------------------------------
-
-  const allPartIds: string[] = [];
-  const inflationOffset = gap / 2;
-
-  parts.forEach((p) => {
-    const geom = getWiseOffsetPartGeometry(p, inflationOffset);
-    baseGeometries.set(p.id, { ...geom, uuid: p.id, id: p.id });
-    
-    // Popula o mapa novo
-    partsMap.set(p.id, p);
-
-    const qty = quantities[p.id] || 0;
-    for (let i = 0; i < qty; i++) allPartIds.push(p.id);
-  });
-
-  let population: Individual[] = [];
-
-  // Baseline (Greedy)
-  // Nota: O Greedy já usa rotação 0 por padrão no código original, 
-  // mas se quiséssemos ser rigorosos, passaríamos as rotações forçadas.
-  // Como ele passa 'greedyIds.map(() => 0)', já está seguro (0 graus).
-  
-  const greedyIds = [...allPartIds].sort(
-    (a, b) => baseGeometries.get(b)!.area - baseGeometries.get(a)!.area
-  );
-  
-  const greedyInd = placeParts(
-    greedyIds,
-    greedyIds.map(() => 0), // Já começa com 0, seguro para peças travadas
-    baseGeometries,
-    binWidth,
-    binHeight,
-    margin,
-    inflationOffset
-  );
-  population.push(greedyInd);
-
-  self.postMessage({
-    placed: greedyInd.placement,
-    failed: greedyInd.failed,
-    efficiency: greedyInd.efficiency,
-    totalBins: 1,
-    status: "Otimizando...",
-  });
-
-  // População Inicial (Com trava)
-  for (let i = 1; i < GA_CONFIG.POPULATION_SIZE; i++) {
-    const dna = generateRandomIndividual(allPartIds, partsMap); // <--- Passa o map
-    population.push(
-      placeParts(
-        dna.ids,
-        dna.rotations,
-        baseGeometries,
-        binWidth,
-        binHeight,
-        margin,
-        inflationOffset
-      )
-    );
-  }
-
-  let generation = 0;
-  while (generation < 2000) {
-    population.sort((a, b) => b.fitness - a.fitness);
-    
-    // ... (código de postMessage igual) ...
-
-    const nextGen: Individual[] = [population[0], population[1]];
-    while (nextGen.length < GA_CONFIG.POPULATION_SIZE) {
-      // Elitismo + Crossover
-      const parent = population[Math.floor(Math.random() * (population.length / 2))];
-      
-      const childDNA = crossover(parent.genome, partsMap); // <--- Passa o map
-      
-      nextGen.push(
-        placeParts(
-          childDNA.ids,
-          childDNA.rotations,
-          baseGeometries,
-          binWidth,
-          binHeight,
-          margin,
-          inflationOffset
-        )
-      );
+  // 4. Finaliza
+  ctx.postMessage({
+    type: 'COMPLETED',
+    result: {
+      placed: placedParts,
+      failed: failedParts,
+      totalBins: 1
     }
-    population = nextGen;
-    generation++;
-    await new Promise((r) => setTimeout(r, 5));
-  }
-};
-
-export {};
+  });
+}
