@@ -44,6 +44,8 @@ import { calculatePartNetArea } from "../utils/areaCalculator";
 import { rotatePartsGroup } from "../utils/transformUtils";
 import { calculateSmartLabel } from "../utils/labelUtils";
 
+import { useNfpNesting } from "../hooks/useNfpNesting";
+
 interface Size {
   width: number;
   height: number;
@@ -466,7 +468,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const [gap, setGap] = useState(5);
   const [margin, setMargin] = useState(5);
   const [strategy, setStrategy] = useState<
-    "guillotine" | "true-shape" | "true-shape-v2" | "true-shape-v3" | "wise"
+    | "guillotine"
+    | "true-shape"
+    | "true-shape-v2"
+    | "true-shape-v3"
+    | "wise"
+    | "nfp" // <--- Adicione | "nfp"
   >("true-shape-v2");
   const [direction, setDirection] = useState<
     "auto" | "vertical" | "horizontal"
@@ -544,6 +551,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     canUndo,
     canRedo,
   ] = useUndoRedo<PlacedPart[]>([]);
+
+  const {
+    startNesting: startNfpNesting,
+    isNesting: isNfpRunning,
+    progress: nfpProgress,
+    placedParts: nfpResultData,
+  } = useNfpNesting(binSize.width, binSize.height);
 
   // --- AUTO-SAVE HOOK ---
   // Agrupa o estado atual para passar para o hook
@@ -812,9 +826,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         gap,
         margin,
         strategy:
-          strategy === "true-shape-v2" || strategy === "true-shape-v3"
-            ? "true-shape"
-            : strategy,
+      strategy === "true-shape-v2" || strategy === "true-shape-v3" || strategy === "nfp"
+        ? "true-shape"
+        : strategy,
         direction,
         labelStates,
         disabledNestingIds,
@@ -987,6 +1001,27 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       return { ...part, entities: newEntities };
     });
   }, [parts, filters, labelStates, theme]);
+
+  // --- SINCRONIZAÇÃO DO NFP COM A MESA ---
+  useEffect(() => {
+    if (strategy === 'nfp' && !isNfpRunning && nfpResultData.length > 0) {
+      setNestingResult(nfpResultData);
+      
+      const totalRequested = displayedParts.filter(p => !disabledNestingIds.has(p.id)).length;
+      const totalPlaced = nfpResultData.length;
+      setFailedCount(Math.max(0, totalRequested - totalPlaced));
+      
+      // 👇👇👇 CÓDIGO NOVO PARA DETECTAR TOTAL DE CHAPAS 👇👇👇
+      // Descobre qual foi o maior ID de chapa gerado
+      const maxBinId = nfpResultData.reduce((max, p) => Math.max(max, p.binId), 0);
+      setTotalBins(maxBinId + 1); // Se o ID for 2, temos 3 chapas (0, 1, 2)
+      // 👆👆👆 ------------------------------------------- 👆👆👆
+
+      setIsComputing(false);
+      
+      if (totalPlaced === 0) alert("Nenhuma peça coube (NFP Nest)!");
+    }
+  }, [isNfpRunning, nfpResultData, strategy, displayedParts, disabledNestingIds, setNestingResult, setTotalBins]); // Adicione setTotalBins nas dependências
 
   const currentPlacedParts = useMemo(
     () => nestingResult.filter((p) => p.binId === currentBinIndex),
@@ -1431,9 +1466,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         user,
         cropLines,
         motor:
-          strategy === "true-shape-v2" || strategy === "true-shape-v3"
-            ? "true-shape"
-            : strategy,
+        strategy === "true-shape-v2" || strategy === "true-shape-v3" || strategy === "nfp"
+          ? "true-shape"
+          : strategy,
 
         // NOVOS PARÂMETROS
         binWidth: binSize.width,
@@ -1521,40 +1556,42 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
         if (result.placed.length === 0) alert("Nenhuma peça coube!");
       }, 50);
+    } else if (strategy === "nfp") {
+      // --- MOTOR NFP (NOVO) ---
+      startNfpNesting(partsToNest);
+      // O loading será controlado pelo useEffect que criamos no passo 4
     } else if (strategy === "wise") {
       // --- 3. MOTOR WISE NEST (Clipper / Geometria Real) ---
       if (wiseNestingWorkerRef.current)
         wiseNestingWorkerRef.current.terminate();
-      
+
       // Inicializa em modo Clássico para permitir importScripts no Worker
       wiseNestingWorkerRef.current = new Worker(
         new URL("../workers/wiseNesting.worker.ts", import.meta.url),
-        { type: "classic" }
+        { type: "classic" },
       );
 
       wiseNestingWorkerRef.current.onmessage = (e) => {
         const { type, progress, message, result } = e.data;
 
         if (type === "PROGRESS") {
-           // Opcional: Você pode criar um estado para mostrar "Processando 10%..."
-           console.log(`[WiseNest] ${progress}% - ${message}`);
-        } 
-        else if (type === "COMPLETED") {
+          // Opcional: Você pode criar um estado para mostrar "Processando 10%..."
+          console.log(`[WiseNest] ${progress}% - ${message}`);
+        } else if (type === "COMPLETED") {
           const duration = (Date.now() - startTime) / 1000;
           setCalculationTime(duration);
 
           // Atualiza a mesa com o resultado
           if (result.placed && result.placed.length > 0) {
-             resetNestingResult(result.placed); 
-             setFailedCount(result.failed.length);
-             setTotalBins(result.totalBins || 1);
+            resetNestingResult(result.placed);
+            setFailedCount(result.failed.length);
+            setTotalBins(result.totalBins || 1);
           } else {
-             alert("Nenhuma peça coube com as configurações atuais.");
+            alert("Nenhuma peça coube com as configurações atuais.");
           }
-          
+
           setIsComputing(false);
-        }
-        else if (type === "ERROR") {
+        } else if (type === "ERROR") {
           console.error("Erro no Wise Nest:", message);
           setIsComputing(false);
           alert("Erro técnico no processamento do Nesting.");
@@ -1563,14 +1600,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
       // Envia os dados PLANOS, exatamente como o Worker novo espera
       wiseNestingWorkerRef.current.postMessage({
-        type: 'START_NESTING', // Comando explicito
+        type: "START_NESTING", // Comando explicito
         parts: JSON.parse(JSON.stringify(partsToNest)),
         quantities, // Objeto { "id": quantidade }
         binWidth: binSize.width,
         binHeight: binSize.height,
-        gap: Number(gap),       // Força número
+        gap: Number(gap), // Força número
         margin: Number(margin), // Força número
-        rotationStep: 90        // Rotação permitida (0, 90, 180, 270)
+        rotationStep: 90, // Rotação permitida (0, 90, 180, 270)
       });
     } else if (strategy === "true-shape-v3") {
       // --- 5. MOTOR SMART NEST V3 (Memória + Furos) ---
@@ -1693,7 +1730,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     iterations,
     rotationStep,
     direction,
-    // REMOVIDO: useSmartNestV2 (Não usamos mais essa variável)
+    startNfpNesting,    
   ]);
 
   const handleCheckGuillotineCollisions = useCallback(() => {
@@ -3326,19 +3363,27 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             <option value="true-shape">🧩 Smart Nest</option>
             <option value="true-shape-v2">⚡ Smart Nest V2</option>
             {/* ADICIONE ESTA OPÇÃO: */}
-            <option
+            {/* <option
               value="true-shape-v3"
               style={{ fontWeight: "bold", color: "#007bff" }}
             >
               🚀 Smart Nest V3 (Furos)
-            </option>
+            </option> */}
             {/* ALTERAÇÃO AQUI: Adicionado disabled e estilo de cor/opacidade */}
-            <option
+            {/* <option
               value="wise"
               style={{ fontWeight: "bold", color: "#6f42c1" }}
             >
               🧠 Wise Nest (Clipper Engine)
-            </option>
+            </option> */}
+            {/* --- NOVA OPÇÃO --- */}
+            {/* <option
+              value="nfp"
+              style={{ fontWeight: "bold", color: "#e83e8c" }}
+            >
+              🧬 NFP Nest (Geometria Real)
+            </option> */}
+            {/* ------------------ */}
             {/* <--- INSERIR ESTA LINHA */}
           </select>
         </div>
@@ -3642,14 +3687,19 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
         <button
           onClick={handleCalculate}
-          disabled={isComputing}
+          // 👇 ATUALIZADO: Adicionamos isNfpRunning para travar o botão
+          disabled={isComputing || isNfpRunning}
           style={{
             marginLeft: "auto",
-            background: isComputing ? theme.panelBg : "#28a745",
-            color: isComputing ? theme.text : "white",
-            border: isComputing ? `1px solid ${theme.border}` : "none",
+            // 👇 ATUALIZADO: Muda a cor se estiver rodando
+            background: isComputing || isNfpRunning ? theme.panelBg : "#28a745",
+            color: isComputing || isNfpRunning ? theme.text : "white",
+            border:
+              isComputing || isNfpRunning
+                ? `1px solid ${theme.border}`
+                : "none",
             padding: "8px 12px",
-            cursor: isComputing ? "wait" : "pointer",
+            cursor: isComputing || isNfpRunning ? "wait" : "pointer",
             borderRadius: "4px",
             fontWeight: "bold",
             fontSize: "13px",
@@ -3662,7 +3712,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             justifyContent: "center",
           }}
         >
-          {isComputing ? (
+          {isComputing || isNfpRunning ? ( // 👇 ATUALIZADO: Verifica ambos os estados
             <>
               {/* Animação CSS inline mantida */}
               <style>
@@ -3687,7 +3737,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                 </svg>
               </div>
-              <span>Processando...</span> {/* SEM OS SEGUNDOS AQUI */}
+              {/* 👇 ATUALIZADO: Mostra a porcentagem se for NFP, senão "Processando..." */}
+              <span>
+                {strategy === "nfp" ? `NFP: ${nfpProgress}%` : "Processando..."}
+              </span>
             </>
           ) : (
             <>Calcular Nesting</>
@@ -3865,7 +3918,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             margin={margin}
             showDebug={showDebug}
             strategy={
-              strategy === "true-shape-v2" || strategy === "true-shape-v3"
+              // Adicione a verificação para 'nfp' aqui
+              strategy === "true-shape-v2" ||
+              strategy === "true-shape-v3" ||
+              strategy === "nfp"
                 ? "true-shape"
                 : strategy
             }

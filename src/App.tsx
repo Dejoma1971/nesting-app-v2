@@ -18,8 +18,11 @@ import { LandingPage } from "./components/LandingPage"; // <--- Novo
 import { TeamManagementScreen } from "./components/TeamManagementScreen"; // <--- 1. IMPORTE O MODAL
 import { PostProcessorScreen } from "./postProcessador/PostProcessorScreen";
 
+
+
 // Tipos
 import type { ImportedPart } from "./components/types";
+
 
 // Contextos
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -51,6 +54,7 @@ function ProtectedApp() {
   const [engineeringParts, setEngineeringParts] = useState<ImportedPart[]>([]);
   const [partsForNesting, setPartsForNesting] = useState<ImportedPart[]>([]);
   const [initialSearchQuery, setInitialSearchQuery] = useState<string>("");
+// Logo abaixo dos outros useState
 
   // Efeito de segurança: Se não estiver logado, chuta para o login
   useEffect(() => {
@@ -113,7 +117,12 @@ function ProtectedApp() {
       {/* --- ADICIONE ESTE BLOCO AQUI --- */}
       {/* AQUI ESTÁ A MUDANÇA: O componente real agora é chamado */}
       {currentScreen === "postprocessor" && (
-        <PostProcessorScreen onBack={() => setCurrentScreen("home")} />
+        <PostProcessorScreen 
+          onBack={() => setCurrentScreen("home")} 
+          // 👇 Correção: Passando as props obrigatórias
+          placedParts={[]} // Passamos vazio por enquanto para corrigir o erro
+          allParts={partsForNesting} // Passamos as peças carregadas na memória
+        />
       )}
 
       {/* 4. O MODAL FLUTUANTE (Renderiza em cima de tudo se estiver true) */}
@@ -127,7 +136,8 @@ function ProtectedApp() {
 // =================================================================
 // 2. COMPONENTE PRINCIPAL COM ROTEAMENTO
 // =================================================================
-function App() {
+function App() {    
+  
   // 2. O useEffect deve ficar logo no início da função App
   useEffect(() => {
     const splash = document.getElementById("splash-screen");
