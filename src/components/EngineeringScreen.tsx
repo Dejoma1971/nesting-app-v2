@@ -624,7 +624,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     display: "flex",
     gap: "15px",
     alignItems: "flex-end",
-    padding: "15px",
+    padding: "5px 15px",
     background: theme.batchBg,
     borderBottom: `1px solid ${theme.border}`,
     flexWrap: "wrap",
@@ -632,7 +632,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   const inputGroupStyle: React.CSSProperties = {
     display: "flex",
     flexDirection: "column",
-    gap: "5px",
+    gap: "1px",
   };
   const labelStyle: React.CSSProperties = {
     fontSize: "11px",
@@ -775,7 +775,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             title={
               isTrial
                 ? "Indisponível no modo Trial"
-                : "Ir para a Mesa de Nesting (Buscar peças lá)"
+                : "Ir para a Mesa de Nesting"
             }
             style={{
               background: "transparent",
@@ -873,19 +873,21 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 handleReset,
               )
             }
-            style={{
-              background: "transparent",
-              color: theme.text,
-              border: `1px solid ${theme.border}`,
+           style={{
+              background: "#dc3545", // Vermelho "Danger" (Bootstrap padrão)
+              color: "white",        // Texto branco para contraste
+              border: "none",        // Remove a borda (igual aos outros)
               padding: "8px 15px",
               borderRadius: "4px",
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
               gap: "5px",
+              fontWeight: "bold",    // Adicionado negrito para padronizar
             }}
+            // ⬆️ ------------------------------------------ ⬆️
           >
-            ✨ Nova Lista
+            🗑️ Deletar Lista
           </button>
           <button
             onClick={isTrial ? undefined : handleSmartSave} // <--- Alterado para a nova função
@@ -1077,6 +1079,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           <select
             style={{
               ...inputStyle,
+              width: "220px",
               background: theme.inputBg,
               color: theme.text,
             }}
@@ -1113,8 +1116,11 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            marginBottom: "0px",
-            marginLeft: "-25px",
+            // ⬇️ --- ALTERAÇÃO: ZERAR MARGENS PARA CENTRALIZAR PELO GAP --- ⬇️
+            marginBottom: "0px", // Mantém alinhado na base
+            marginLeft: "0px", // Remove empurrões manuais
+            marginRight: "0px", // Garante que o gap da direita atue
+            // ⬆️ -------------------------------------------------------- ⬆️
             fontSize: "14px",
             fontWeight: "bold",
           }}
@@ -1146,7 +1152,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           <select
             style={{
               ...inputStyle,
-              width: "200px",
+              width: "170px",
               background: theme.inputBg,
               color: theme.text,
             }}
@@ -1164,7 +1170,15 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           </select>
         </div>
 
-        <div style={inputGroupStyle}>
+        <div
+          style={{
+            ...inputGroupStyle,
+            // ⬇️ --- ALTERAÇÃO: CENTRALIZAR NO ESPAÇO LIVRE --- ⬇️
+            marginLeft: "auto",
+            marginRight: "auto",
+            // ⬆️ ---------------------------------------------- ⬆️
+          }}
+        >
           <label style={labelStyle}>
             AUTOR{" "}
             {/* Botão removido, pois a aplicação agora é automática no salvamento */}
@@ -1173,45 +1187,20 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             style={inputStyle}
             value={batchDefaults.autor}
             onChange={(e) => handleDefaultChange("autor", e.target.value)}
-            placeholder="Ex: Gabriel"
+            placeholder="Ex: Matheus"
           />
         </div>
 
-        <button
-          onClick={() =>
-            executeWithSessionConfirmation(
-              "convertBlock",
-              "Deseja converter todas as geometrias complexas em Blocos/Inserts?",
-              () => handleConvertAllToBlocks(true),
-            )
-          }
-          title="Converte todas as peças complexas em blocos únicos"
-          style={{
-            background: "#ffc107",
-            color: "#333",
-            border: "none",
-            padding: "10px 15px",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontSize: "12px",
-            fontWeight: "bold",
-            // --- ALTERAÇÃO AQUI ---
-            marginLeft: "auto", // Empurra este botão (e o próximo) para a direita
-            marginRight: "10px", // Espaço entre ele e o botão de Importar
-            // ----------------------
-          }}
-        >
-          📦 Insert/Block
-        </button>
         <label
           style={{
             background: "#007bff",
             color: "white",
-            padding: "10px 15px",
+            padding: "6px 12px",
             borderRadius: "4px",
             cursor: "pointer",
-            fontSize: "12px",
+            fontSize: "17px",
             fontWeight: "bold",
+            alignSelf: "center",
             // --- ALTERAÇÃO AQUI ---
             marginLeft: "0", // Removemos o "auto" daqui
             // ----------------------
@@ -1575,6 +1564,33 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   ⏳ {processingMsg}
                 </span>
               )}
+
+              <button
+                onClick={() =>
+                  executeWithSessionConfirmation(
+                    "convertBlock",
+                    "Deseja converter todas as geometrias complexas em Blocos/Inserts?",
+                    () => handleConvertAllToBlocks(true),
+                  )
+                }
+                title="Converte todas as peças complexas em blocos únicos"
+                style={{
+                  background: "#ffc107",
+                  color: "#333",
+                  border: "none",
+                  padding: "5px 8px",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                  // --- ALTERAÇÃO AQUI ---
+                  marginLeft: "auto", // Empurra este botão (e o próximo) para a direita
+                  marginRight: "10px", // Espaço entre ele e o botão de Importar
+                  // ----------------------
+                }}
+              >
+                📦 Insert/Block
+              </button>
 
               {/* Botão SALVAR */}
               <button
