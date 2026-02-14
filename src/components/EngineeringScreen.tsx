@@ -639,14 +639,21 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     color: theme.label,
     fontWeight: "bold",
   };
+
+  // Defina a altura aqui para controlar TODOS os inputs de uma vez
+  const inputHeight = "25px";
+
   const inputStyle: React.CSSProperties = {
     background: theme.inputBg,
     border: `1px solid ${theme.border}`,
     color: theme.text,
-    padding: "5px",
+    padding: "0 5px", // <--- Alterado: remove padding vertical para centrar texto
     borderRadius: "4px",
     fontSize: "13px",
     width: "120px",
+    height: inputHeight, // <--- Altura Padronizada (30px)
+    lineHeight: inputHeight, // <--- Garante que o texto fique no meio verticalmente
+    boxSizing: "border-box", // <--- Garante que borda não aumente o tamanho total
   };
   const applyButtonStyle: React.CSSProperties = {
     background: "transparent",
@@ -873,17 +880,17 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 handleReset,
               )
             }
-           style={{
+            style={{
               background: "#dc3545", // Vermelho "Danger" (Bootstrap padrão)
-              color: "white",        // Texto branco para contraste
-              border: "none",        // Remove a borda (igual aos outros)
+              color: "white", // Texto branco para contraste
+              border: "none", // Remove a borda (igual aos outros)
               padding: "8px 15px",
               borderRadius: "4px",
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
               gap: "5px",
-              fontWeight: "bold",    // Adicionado negrito para padronizar
+              fontWeight: "bold", // Adicionado negrito para padronizar
             }}
             // ⬆️ ------------------------------------------ ⬆️
           >
@@ -1110,7 +1117,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             color: theme.text,
             borderRadius: "4px",
             width: "30px",
-            height: "30px",
+            height: inputHeight, // Segue a altura dos inputs
             cursor: isTrial ? "not-allowed" : "pointer",
             opacity: isTrial ? 0.5 : 1,
             display: "flex",

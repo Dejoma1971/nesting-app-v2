@@ -826,9 +826,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         gap,
         margin,
         strategy:
-      strategy === "true-shape-v2" || strategy === "true-shape-v3" || strategy === "nfp"
-        ? "true-shape"
-        : strategy,
+          strategy === "true-shape-v2" ||
+          strategy === "true-shape-v3" ||
+          strategy === "nfp"
+            ? "true-shape"
+            : strategy,
         direction,
         labelStates,
         disabledNestingIds,
@@ -1004,24 +1006,37 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   // --- SINCRONIZAÇÃO DO NFP COM A MESA ---
   useEffect(() => {
-    if (strategy === 'nfp' && !isNfpRunning && nfpResultData.length > 0) {
+    if (strategy === "nfp" && !isNfpRunning && nfpResultData.length > 0) {
       setNestingResult(nfpResultData);
-      
-      const totalRequested = displayedParts.filter(p => !disabledNestingIds.has(p.id)).length;
+
+      const totalRequested = displayedParts.filter(
+        (p) => !disabledNestingIds.has(p.id),
+      ).length;
       const totalPlaced = nfpResultData.length;
       setFailedCount(Math.max(0, totalRequested - totalPlaced));
-      
+
       // 👇👇👇 CÓDIGO NOVO PARA DETECTAR TOTAL DE CHAPAS 👇👇👇
       // Descobre qual foi o maior ID de chapa gerado
-      const maxBinId = nfpResultData.reduce((max, p) => Math.max(max, p.binId), 0);
+      const maxBinId = nfpResultData.reduce(
+        (max, p) => Math.max(max, p.binId),
+        0,
+      );
       setTotalBins(maxBinId + 1); // Se o ID for 2, temos 3 chapas (0, 1, 2)
       // 👆👆👆 ------------------------------------------- 👆👆👆
 
       setIsComputing(false);
-      
+
       if (totalPlaced === 0) alert("Nenhuma peça coube (NFP Nest)!");
     }
-  }, [isNfpRunning, nfpResultData, strategy, displayedParts, disabledNestingIds, setNestingResult, setTotalBins]); // Adicione setTotalBins nas dependências
+  }, [
+    isNfpRunning,
+    nfpResultData,
+    strategy,
+    displayedParts,
+    disabledNestingIds,
+    setNestingResult,
+    setTotalBins,
+  ]); // Adicione setTotalBins nas dependências
 
   const currentPlacedParts = useMemo(
     () => nestingResult.filter((p) => p.binId === currentBinIndex),
@@ -1466,9 +1481,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         user,
         cropLines,
         motor:
-        strategy === "true-shape-v2" || strategy === "true-shape-v3" || strategy === "nfp"
-          ? "true-shape"
-          : strategy,
+          strategy === "true-shape-v2" ||
+          strategy === "true-shape-v3" ||
+          strategy === "nfp"
+            ? "true-shape"
+            : strategy,
 
         // NOVOS PARÂMETROS
         binWidth: binSize.width,
@@ -1730,7 +1747,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     iterations,
     rotationStep,
     direction,
-    startNfpNesting,    
+    startNfpNesting,
   ]);
 
   const handleCheckGuillotineCollisions = useCallback(() => {
@@ -2321,6 +2338,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     return () => clearInterval(intervalId);
   }, [parts, user]);
 
+  // ⬇️ --- INSERIR AQUI --- ⬇️
+  const buttonHeight = "30px";
+  // ⬆️ -------------------- ⬆️
+
   const containerStyle: React.CSSProperties = {
     display: "flex",
     flexDirection: "column",
@@ -2330,7 +2351,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     color: theme.text,
   };
   const topBarStyle: React.CSSProperties = {
-    padding: "10px 20px",
+    padding: "5px 20px",
     borderBottom: `1px solid ${theme.border}`,
     display: "flex",
     justifyContent: "space-between",
@@ -2338,7 +2359,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     backgroundColor: theme.headerBg,
   };
   const toolbarStyle: React.CSSProperties = {
-    padding: "10px 20px",
+    padding: "5px 20px",
     borderBottom: `1px solid ${theme.border}`,
     display: "flex",
     gap: "15px",
@@ -3135,8 +3156,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               display: "flex",
               gap: "5px",
               marginRight: "10px",
-              borderRight: `1px solid ${theme.border}`,
-              paddingRight: "15px",
+              // borderRight: `1px solid ${theme.border}`,
+              // paddingRight: "15px",
             }}
           >
             {/* Input Oculto para Carregar */}
@@ -3183,7 +3204,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 gap: "5px",
               }}
             >
-              💾 Salvar Projeto
+              💾 Salvar
             </button>
           </div>
           {/* ----------------------------------- */}
@@ -3282,28 +3303,27 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
           <button
             onClick={handleClearTable}
-            title="Reiniciar Página"
+            title="Reiniciar Página (Limpar Mesa e Cache)"
+            // ⬇️ --- NOVO ESTILO PADRONIZADO (VERMELHO SÓLIDO) --- ⬇️
             style={{
-              background: "transparent",
-              color: "#6610f2",
-              border: `1px solid #6610f2`,
-              padding: "5px 10px",
+              background: "#dc3545", // Vermelho "Danger" (Igual Engenharia)
+              color: "white",
+              border: "none", // Remove borda para ficar sólido
+              padding: "6px 12px", // Mesmo tamanho dos botões vizinhos
               borderRadius: "4px",
               cursor: "pointer",
               fontWeight: "bold",
               fontSize: "13px",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              transition: "all 0.3s ease",
             }}
+            // ⬆️ ------------------------------------------------ ⬆️
           >
-            🗑️
+            🗑️ Reset
           </button>
-          <div
-            style={{
-              width: 1,
-              height: 24,
-              background: theme.border,
-              margin: "0 5px",
-            }}
-          ></div>
+
           <SidebarMenu
             onNavigate={(screen) => {
               // 1. Lógica para Home
@@ -3550,7 +3570,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             onChange={(e) => setShowDebug(e.target.checked)}
             style={{ marginRight: "5px", backgroundColor: theme.checkboxBg }}
           />{" "}
-          Ver Box
+          Box
         </label>
         {/* ⬇️ --- BOTÃO DE REFRESH COM ÍCONE PADRÃO --- ⬇️ */}
         <button
@@ -3561,13 +3581,18 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             background: "transparent",
             border: `1px solid ${theme.border}`,
             color: theme.text,
-            padding: "5px 6px", // Ajustei levemente o padding
+            // --- ALTERAÇÃO: TAMANHO FIXO ---
+            height: buttonHeight,
+            width: buttonHeight,
+            padding: 0, // Remove padding para centrar o ícone
+            gap: 0,
+            // -------------------------------
             borderRadius: "4px",
             cursor: isRefreshing ? "wait" : "pointer", // Cursor de espera
             fontSize: "12px",
             display: "flex",
             alignItems: "center",
-            gap: "6px",
+            justifyContent: "center",
             marginLeft: "10px",
             transition: "background 0.2s",
           }}
@@ -3591,7 +3616,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             style={{
               // A Mágica da Rotação:
               transformOrigin: "center",
-              transformBox: "fill-box",
+              transformBox: "view-box",
               transition: "transform 0.7s ease",
               transform: isRefreshing ? "rotate(360deg)" : "rotate(0deg)",
             }}
@@ -3609,21 +3634,24 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             onClick={handleCheckGuillotineCollisions}
             title="Validação rápida para cortes retos"
             style={{
-              background: "#ee390cff",
+              background: "#dc3545",
               border: `1px solid ${theme.border}`,
               color: "#fff",
-              padding: "5px 10px",
+              // --- ALTERAÇÃO: ALTURA FIXA ---
+              height: buttonHeight,
+              padding: "0 10px", // Padding lateral apenas
+              // ------------------------------
               borderRadius: "4px",
               cursor: "pointer",
               fontWeight: "bold",
-              fontSize: "11px",
+              fontSize: "12px",
               display: "flex",
               alignItems: "center",
               gap: "5px",
               marginLeft: "10px",
             }}
           >
-            📏 Validar Guilhotina
+            Guilhotina
           </button>
         ) : (
           <button
@@ -3633,7 +3661,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               background: "#dc3545",
               border: `1px solid ${theme.border}`,
               color: "#fff",
-              padding: "5px 10px",
+              // --- ALTERAÇÃO: ALTURA FIXA ---
+              height: buttonHeight,
+              padding: "0 10px",
+              // ------------------------------
               borderRadius: "4px",
               cursor: "pointer",
               fontWeight: "bold",
@@ -3653,10 +3684,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           onClick={handleAddBin}
           title="Criar uma nova chapa vazia para nesting manual"
           style={{
-            background: theme.buttonBg,
+            background: " #0056b3",
             border: `1px solid ${theme.border}`,
             color: theme.text,
-            padding: "5px 10px",
+            // --- ALTERAÇÃO: ALTURA FIXA ---
+            height: buttonHeight,
+            padding: "0 10px",
+            // ------------------------------
             borderRadius: "4px",
             cursor: "pointer",
             fontWeight: "bold",
@@ -3667,11 +3701,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             marginLeft: "10px",
           }}
         >
-          <span
-            style={{ color: "#28a745", fontSize: "14px", marginRight: "3px" }}
-          >
-            +
-          </span>{" "}
           Nova Chapa
         </button>
 
@@ -3698,17 +3727,20 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               isComputing || isNfpRunning
                 ? `1px solid ${theme.border}`
                 : "none",
-            padding: "8px 12px",
+            // --- ALTERAÇÃO: ALTURA FIXA ---
+            height: buttonHeight,
+            padding: "0 15px", // Um pouco mais largo pois é o principal
+            // ------------------------------
             cursor: isComputing || isNfpRunning ? "wait" : "pointer",
             borderRadius: "4px",
             fontWeight: "bold",
-            fontSize: "13px",
+            fontSize: "16px",
             whiteSpace: "nowrap",
             boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
             display: "flex",
             alignItems: "center",
             gap: "8px",
-            minWidth: "140px",
+            minWidth: "120px",
             justifyContent: "center",
           }}
         >
@@ -3743,7 +3775,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               </span>
             </>
           ) : (
-            <>Calcular Nesting</>
+            <>Nesting</>
           )}
         </button>
       </div>
