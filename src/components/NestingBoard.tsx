@@ -372,6 +372,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const [showOnlySelected, setShowOnlySelected] = useState(false);
   // =========================================================
 
+  // ⬇️ --- [INSERÇÃO 1] ESTADOS PARA O RESIZE DA BARRA LATERAL --- ⬇️
+  const [sidebarWidth, setSidebarWidth] = useState(500); // Começa com 500px
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  // ⬆️ ----------------------------------------------------------- ⬆️
+
   const [viewKey, setViewKey] = useState(0); // Controla o reset visual do Canvas
 
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -528,6 +533,42 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       collisionWorkerRef.current?.terminate();
     };
   }, []);
+
+  // ⬇️ --- [INSERÇÃO 2] LÓGICA DO ARRASTO (MOUSE MOVE) --- ⬇️
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizingSidebar) return;
+
+      // A largura é: Largura da Janela - Posição X do Mouse
+      // (Porque a barra está na direita, quanto menor o X, maior a barra)
+      const newWidth = window.innerWidth - e.clientX;
+
+      // Limites
+      const minWidth = 500;
+      const maxWidth = window.innerWidth * 0.5; // 50% da tela
+
+      // Aplica com as restrições
+      setSidebarWidth(Math.max(minWidth, Math.min(maxWidth, newWidth)));
+    };
+
+    const handleMouseUp = () => {
+      setIsResizingSidebar(false);
+      document.body.style.cursor = "default"; // Restaura cursor
+    };
+
+    if (isResizingSidebar) {
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "ew-resize"; // Força cursor de redimensionamento
+    }
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "default";
+    };
+  }, [isResizingSidebar]);
+  // ⬆️ --------------------------------------------------- ⬆️
 
   const thumbnailRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
@@ -2389,7 +2430,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     cursor: "pointer",
     background: "transparent",
     outline: "none",
-    border: "none",
+    // ⬇️ --- CORREÇÃO: SUBSTITUIR 'border: "none"' POR LADOS ESPECÍFICOS --- ⬇️
+    borderTop: "none",
+    borderLeft: "none",
+    borderRight: "none",
+    // O 'border' genérico conflitava com o 'borderBottom' abaixo
+    // ⬆️ ------------------------------------------------------------------- ⬆️
     borderBottom: active ? "2px solid #28a745" : "2px solid transparent",
     color: active ? theme.text : theme.label,
     fontWeight: active ? "bold" : "normal",
@@ -3686,7 +3732,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           style={{
             background: " #0056b3",
             border: `1px solid ${theme.border}`,
-            color: theme.text,
+            color: "white",
             // --- ALTERAÇÃO: ALTURA FIXA ---
             height: buttonHeight,
             padding: "0 10px",
@@ -4208,17 +4254,50 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           </div>
         </div>
 
+        {/* ⬇️ --- [INSERÇÃO 3] BARRA LATERAL REDIMENSIONÁVEL --- ⬇️ */}
         <div
           style={{
-            width: "500px",
+            width: sidebarWidth, // <--- Agora usa a variável de estado
+            // minWidth: "500px", // (Opcional, já tratado na lógica, mas bom garantir)
             borderLeft: `1px solid ${theme.border}`,
             display: "flex",
             flexDirection: "column",
             backgroundColor: theme.panelBg,
             zIndex: 5,
             color: theme.text,
+            position: "relative", // <--- IMPORTANTE: Para posicionar o "puxador"
           }}
         >
+          {/* --- O "PUXADOR" (Área sensível ao clique) --- */}
+          <div
+            onMouseDown={(e) => {
+              e.preventDefault(); // Evita seleção de texto
+              setIsResizingSidebar(true);
+            }}
+            title="Arraste para redimensionar"
+            style={{
+              position: "absolute",
+              left: "-4px", // Fica levemente sobre a borda para facilitar o clique
+              top: 0,
+              bottom: 0,
+              width: "8px", // Área de clique confortável (invisível visualmente)
+              cursor: "ew-resize",
+              zIndex: 100, // Garante que fique acima de tudo
+              background: isResizingSidebar
+                ? "rgba(0, 123, 255, 0.2)" // Feedback visual azul quando arrasta
+                : "transparent",
+              transition: "background 0.2s",
+            }}
+            // Opcional: Feedback visual ao passar o mouse (hover)
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.background = "rgba(0, 123, 255, 0.1)")
+            }
+            onMouseLeave={(e) => {
+              if (!isResizingSidebar)
+                e.currentTarget.style.background = "transparent";
+            }}
+          />
+          {/* --------------------------------------------- */}
           <PartFilter
             allParts={parts}
             filters={filters}

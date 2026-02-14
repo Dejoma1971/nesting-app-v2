@@ -641,7 +641,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   };
 
   // Defina a altura aqui para controlar TODOS os inputs de uma vez
-  const inputHeight = "25px";
+  const inputHeight = "22px";
+  const headerBtnHeight = "32px"; //
 
   const inputStyle: React.CSSProperties = {
     background: theme.inputBg,
@@ -738,7 +739,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     <div style={containerStyle}>
       <div
         style={{
-          padding: "5px 20px",
+          padding: "5px 18px",
           borderBottom: `1px solid ${theme.border}`,
           display: "flex",
           justifyContent: "space-between",
@@ -840,7 +841,12 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               background: "transparent",
               color: theme.text,
               border: `1px solid ${theme.border}`,
-              padding: "8px 10px",
+              // ⬇️ --- ALTERAÇÃO: ALTURA FIXA --- ⬇️
+              height: headerBtnHeight,
+              width: headerBtnHeight, // Opcional: Deixar quadrado se quiser
+              padding: "0", // Remove padding vertical para centrar
+              justifyContent: "center", // Garante centro se for quadrado
+              // ⬆️ ------------------------------ ⬆️
               borderRadius: "4px",
               cursor: isRefreshing ? "wait" : "pointer",
               display: "flex",
@@ -884,7 +890,10 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               background: "#dc3545", // Vermelho "Danger" (Bootstrap padrão)
               color: "white", // Texto branco para contraste
               border: "none", // Remove a borda (igual aos outros)
-              padding: "8px 15px",
+              // ⬇️ --- ALTERAÇÃO: ALTURA FIXA --- ⬇️
+              height: headerBtnHeight,
+              padding: "0 15px", // Padding apenas lateral
+              // ⬆️ ------------------------------ ⬆️
               borderRadius: "4px",
               cursor: "pointer",
               display: "flex",
@@ -907,7 +916,10 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               background: "#28a745",
               color: "white",
               border: "none",
-              padding: "8px 15px",
+              // ⬇️ --- ALTERAÇÃO: ALTURA FIXA --- ⬇️
+              height: headerBtnHeight,
+              padding: "0 15px",
+              // ⬆️ ------------------------------ ⬆️
               borderRadius: "4px",
               cursor: isTrial ? "not-allowed" : "pointer",
               opacity: isTrial ? 0.5 : 1,
@@ -925,7 +937,10 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
               background: "#6f42c1",
               color: "white",
               border: "none",
-              padding: "8px 15px",
+              // ⬇️ --- ALTERAÇÃO: ALTURA FIXA --- ⬇️
+              height: headerBtnHeight,
+              padding: "0 15px",
+              // ⬆️ ------------------------------ ⬆️
               borderRadius: "4px",
               cursor: "pointer",
               fontWeight: "bold",
