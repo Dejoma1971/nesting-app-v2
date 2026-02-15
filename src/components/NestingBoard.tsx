@@ -921,13 +921,21 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const displayedParts = useMemo(() => {
     const filtered = parts.filter((p) => {
+      // ⬇️ CORREÇÃO: Função auxiliar para limpar espaços invisíveis
+      const clean = (val: string) => String(val || "").trim();
+
       const matchPedido =
         filters.pedido.length === 0 || filters.pedido.includes(p.pedido);
       const matchOp = filters.op.length === 0 || filters.op.includes(p.op);
+
+      // ⬇️ Comparação Inteligente (Ignora espaços)
       const matchMaterial =
-        !filters.material || p.material === filters.material;
+        !filters.material || clean(p.material) === filters.material;
+      
       const matchEspessura =
-        !filters.espessura || p.espessura === filters.espessura;
+        !filters.espessura || clean(p.espessura) === filters.espessura;
+      // ⬆️ ------------------------------------
+
       return matchPedido && matchOp && matchMaterial && matchEspessura;
     });
 
@@ -1187,37 +1195,41 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   // ... (outros useEffects)
 
-  // =====================================================================
+ // =====================================================================
   // --- NOVO: SINCRONIZAR FILTRO COM A MESA DE CORTE ---
-  // Se houver peças na mesa (nestingResult), forçamos o filtro a assumir
-  // o material e espessura dessas peças para evitar misturas.
   // =====================================================================
   useEffect(() => {
     // 1. Verifica se há peças posicionadas na mesa
     if (nestingResult.length > 0) {
       // Pega a primeira peça da mesa para usar como referência
-      // (Assumimos que não se deve misturar materiais na mesma chapa)
       const firstPlaced = nestingResult[0];
       const partInfo = parts.find((p) => p.id === firstPlaced.partId);
 
       if (partInfo) {
         setFilters((prev) => {
-          // Só atualiza se for diferente para evitar loops de renderização
+          // 1. Declara as variáveis limpas
+          const cleanMat = String(partInfo.material || "").trim();
+          const cleanThick = String(partInfo.espessura || "").trim();
+
+          // 2. USA as variáveis na comparação (Aqui estava o erro: você devia estar usando partInfo ainda)
           if (
-            prev.material !== partInfo.material ||
-            prev.espessura !== partInfo.espessura
+            prev.material !== cleanMat ||
+            prev.espessura !== cleanThick
           ) {
+            // 3. USA as variáveis na atualização
             return {
               ...prev,
-              material: partInfo.material,
-              espessura: partInfo.espessura,
+              material: cleanMat,
+              espessura: cleanThick,
             };
           }
           return prev;
         });
       }
     }
-  }, [nestingResult, parts]); // Executa toda vez que o arranjo na mesa muda
+  }, [nestingResult, parts]);
+
+
   // --- 4. EFEITOS (COM SEGURANÇA AGORA) ---
   useEffect(() => {
     if (initialSearchQuery && parts.length === 0) {
@@ -1468,14 +1480,21 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     if (!partOnTable) return;
 
     // 3. Verifica se houve um conflito
+    // ⬇️ CORREÇÃO: Função auxiliar para limpar espaços invisíveis
+    const clean = (val: string) => String(val || "").trim();
+    
+    // 3. Verifica se houve um conflito (Comparando limpo com limpo)
+    // Se o filtro estiver vazio, não há conflito.
     const materialConflict =
-      filters.material && filters.material !== partOnTable.material;
+      filters.material && clean(filters.material) !== clean(partOnTable.material);
+      
     const thicknessConflict =
-      filters.espessura && filters.espessura !== partOnTable.espessura;
+      filters.espessura && clean(filters.espessura) !== clean(partOnTable.espessura);
 
-    // 4. Se houver conflito, reseta tudo
+    // 4. Se houver conflito REAL, reseta tudo
     if (materialConflict || thicknessConflict) {
       console.log("♻️ Filtro alterado: Limpando mesa incompatível...");
+      console.log(`Filtro: '${filters.material}' vs Peça: '${partOnTable.material}'`);
 
       resetNestingResult([]);
       setTotalBins(1);
@@ -1487,8 +1506,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   }, [
     filters.material,
     filters.espessura,
-    // --- Dependências exigidas pelo ESLint abaixo ---
-    nestingResult,
+    nestingResult, // O nestingResult muda quando o cálculo termina, disparando esta verificação
     parts,
     resetNestingResult,
     setTotalBins,
@@ -1496,7 +1514,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     resetAllSaveStatus,
     setCropLines,
   ]);
-
   const handleSaveClick = async () => {
     // Validação básica se tem peças
     const partsInBin = nestingResult.filter((p) => p.binId === currentBinIndex);

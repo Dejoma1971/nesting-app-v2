@@ -25,6 +25,16 @@ interface MaterialConfigModalProps {
 
 export const MaterialConfigModal: React.FC<MaterialConfigModalProps> = ({ user, theme, onClose, onUpdate }) => {
     const [activeTab, setActiveTab] = useState<'materials' | 'thicknesses'>('materials');
+
+    // ⬇️ --- COLE ISTO AQUI (Logo abaixo de activeTab) --- ⬇️
+    const [hideStandard, setHideStandard] = useState(() => {
+        return localStorage.getItem("nesting_hide_standard") === "true";
+    });
+
+    useEffect(() => {
+        localStorage.setItem("nesting_hide_standard", String(hideStandard));
+    }, [hideStandard]);
+    // ⬆️ ------------------------------------------------ ⬆️
     
     // Estados de Adição
     const [newItemName, setNewItemName] = useState('');
@@ -176,6 +186,17 @@ export const MaterialConfigModal: React.FC<MaterialConfigModalProps> = ({ user, 
             <div style={modalContentStyle}>
                 <div style={headerStyle}>
                     <h3 style={{ margin: 0, fontSize: '16px' }}>Configurar Padrões</h3>
+                    {/* ⬇️ --- COLE ISTO AQUI (Entre o Título e o Botão Fechar) --- ⬇️ */}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', cursor: 'pointer', userSelect: 'none', color: theme.text, marginLeft: 'auto', marginRight: '15px' }}>
+                        <input 
+                            type="checkbox" 
+                            checked={hideStandard} 
+                            onChange={(e) => setHideStandard(e.target.checked)}
+                            style={{ cursor: 'pointer' }}
+                        />
+                        Ocultar Padrão
+                    </label>
+                    {/* ⬆️ ------------------------------------------------------- ⬆️ */}
                     <button onClick={onClose} style={{ background: 'rgba(0,0,0,0.05)', border: 'none', fontSize: '16px', cursor: 'pointer', color: theme.text, width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                 </div>
 

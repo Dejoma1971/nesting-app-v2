@@ -176,30 +176,37 @@ const MultiSelect = ({
   );
 };
 
-// --- COMPONENTE PRINCIPAL (ATUALIZADO) ---
+// --- COMPONENTE PRINCIPAL (CORRIGIDO) ---
 export const PartFilter: React.FC<PartFilterProps> = ({
   allParts,
   filters,
   onFilterChange,
   theme,
 }) => {
-  // --- LÓGICA DE CASCATA ---
+  // --- LÓGICA DE CASCATA (CORRIGIDA COM TRIM) ---
   const options = useMemo(() => {
+    // Helper para limpar strings (remove espaços extras)
+    const clean = (val: string) => String(val || "").trim();
+
     const getUnique = (parts: ImportedPart[], key: keyof ImportedPart) =>
       Array.from(
-        new Set(parts.map((p) => String(p[key] || "").trim()).filter(Boolean))
+        new Set(parts.map((p) => clean(String(p[key]))).filter(Boolean))
       ).sort();
 
     const materiais = getUnique(allParts, "material");
 
+    // FILTRO 1: MATERIAL (Com comparação segura)
     const partsByMaterial = filters.material
-      ? allParts.filter((p) => p.material === filters.material)
+      ? allParts.filter((p) => clean(p.material) === filters.material)
       : allParts;
+      
     const espessuras = getUnique(partsByMaterial, "espessura");
 
+    // FILTRO 2: ESPESSURA (Com comparação segura)
     const partsByMatAndThick = partsByMaterial.filter(
-      (p) => !filters.espessura || p.espessura === filters.espessura
+      (p) => !filters.espessura || clean(p.espessura) === filters.espessura
     );
+    
     const pedidos = getUnique(partsByMatAndThick, "pedido");
     const ops = getUnique(partsByMatAndThick, "op");
 
@@ -228,13 +235,19 @@ export const PartFilter: React.FC<PartFilterProps> = ({
     onFilterChange({ ...filters, [field]: values });
   };
 
+  // --- CONTADOR (CORRIGIDO COM TRIM) ---
   const filteredCount = allParts.filter((p) => {
+    const clean = (val: string) => String(val || "").trim();
+
     const matchPedido =
       filters.pedido.length === 0 || filters.pedido.includes(p.pedido);
     const matchOp = filters.op.length === 0 || filters.op.includes(p.op);
-    const matchMaterial = !filters.material || p.material === filters.material;
+    
+    // CORREÇÃO AQUI: Normalizamos antes de comparar
+    const matchMaterial = !filters.material || clean(p.material) === filters.material;
     const matchEspessura =
-      !filters.espessura || p.espessura === filters.espessura;
+      !filters.espessura || clean(p.espessura) === filters.espessura;
+      
     return matchPedido && matchOp && matchMaterial && matchEspessura;
   }).length;
 
@@ -274,7 +287,7 @@ export const PartFilter: React.FC<PartFilterProps> = ({
         gap: "10px",
       }}
     >
-      {/* CABEÇALHO REORGANIZADO */}
+      {/* CABEÇALHO (MANTIDO IGUAL) */}
       <div
         style={{
           display: "flex",
@@ -282,7 +295,6 @@ export const PartFilter: React.FC<PartFilterProps> = ({
           alignItems: "center",
         }}
       >
-        {/* GRUPO ESQUERDA: TÍTULO + BOTÃO LIMPAR */}
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <span
             style={{ fontSize: "12px", fontWeight: "bold", color: theme.text }}
@@ -317,7 +329,6 @@ export const PartFilter: React.FC<PartFilterProps> = ({
           )}
         </div>
 
-        {/* GRUPO DIREITA: CONTADOR */}
         <span
           style={{
             fontSize: "11px",

@@ -2121,7 +2121,10 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         <MaterialConfigModal
           user={user}
           theme={theme}
-          onClose={() => setIsMaterialModalOpen(false)}
+          onClose={() => {
+            setIsMaterialModalOpen(false); // 1. Fecha o modal
+            refreshData(); // 2. Força a atualização das listas imediatamente
+          }}
           onUpdate={() => {
             console.log("Atualizando listas...");
             refreshData(); // <--- AGORA SIM: ATUALIZA SEM RECARREGAR

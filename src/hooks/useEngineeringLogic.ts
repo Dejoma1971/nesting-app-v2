@@ -79,6 +79,9 @@ export const useEngineeringLogic = ({
   const refreshData = useCallback(async () => {
     if (!user || !user.token) return;
 
+    // 1. LER A PREFERÊNCIA DO USUÁRIO (NOVO)
+    const hideStandard = localStorage.getItem("nesting_hide_standard") === "true";
+
     try {
       // 1. Verifica Status da Assinatura
       const subData = await EngineeringService.getSubscriptionStatus(
@@ -94,33 +97,49 @@ export const useEngineeringLogic = ({
         // MODO ASSINANTE: Busca do Banco
         setIsTrial(false);
 
-        // Busca em paralelo para ser mais rápido
+        // 1. BUSCA OS DADOS (Feche o Promise.all aqui!)
         const [mats, thicks] = await Promise.all([
           EngineeringService.getCustomMaterials(user.token),
           EngineeringService.getCustomThicknesses(user.token),
-        ]);
+        ]); 
 
-        // Processa Materiais
-        if (mats && (mats as CustomMaterial[]).length > 0) {
-          const nomesUnicos = Array.from(
-            new Set((mats as CustomMaterial[]).map((m) => m.nome)),
-          );
-          setMaterialList(nomesUnicos as string[]);
-        } else {
-          // Fallback: Se assinante não tiver nada cadastrado, usa estático para não quebrar
-          setMaterialList(STATIC_MATERIALS);
-        }
+        // ⬇️ --- LÓGICA DE FILTRO (AGORA FORA DO PROMISE.ALL) --- ⬇️
 
-        // Processa Espessuras
-        if (thicks && (thicks as CustomThickness[]).length > 0) {
-          const valoresUnicos = Array.from(
-            new Set((thicks as CustomThickness[]).map((t) => t.valor)),
-          );
-          setThicknessList(valoresUnicos as string[]);
+        // 2. Tipagem Forte: Dizemos que é o Tipo Importado E tem 'origem'
+        const typedMats = mats ? (mats as (CustomMaterial & { origem: string })[]) : [];
+        const typedThicks = thicks ? (thicks as (CustomThickness & { origem: string })[]) : [];
+
+        // ---------------- MATERIAIS ----------------
+        let finalMaterials: string[] = [];
+
+        if (hideStandard) {
+          // SE OCULTAR: Filtra apenas os que têm origem 'custom'
+          finalMaterials = typedMats
+            .filter((m) => m.origem === 'custom')
+            .map((m) => m.nome);
         } else {
-          // Fallback
-          setThicknessList(STATIC_THICKNESS);
+          // SE MOSTRAR: Junta Estáticos + Todos do Banco (Padrão e Custom)
+          const apiNames = typedMats.map((m) => m.nome);
+          finalMaterials = Array.from(new Set([...STATIC_MATERIALS, ...apiNames]));
         }
+        setMaterialList(finalMaterials);
+
+        // ---------------- ESPESSURAS ----------------
+        let finalThicknesses: string[] = [];
+
+        if (hideStandard) {
+          // SE OCULTAR: Apenas customizados
+          finalThicknesses = typedThicks
+            .filter((t) => t.origem === 'custom')
+            .map((t) => t.valor);
+        } else {
+          // SE MOSTRAR: Estáticos + Todos do Banco
+          const apiValues = typedThicks.map((t) => t.valor);
+          finalThicknesses = Array.from(new Set([...STATIC_THICKNESS, ...apiValues]));
+        }
+        setThicknessList(finalThicknesses);
+        
+        // ⬆️ -------------------------------------------------------- ⬆️
       }
     } catch (err) {
       console.error("Erro ao atualizar dados:", err);
@@ -143,38 +162,46 @@ export const useEngineeringLogic = ({
   };
 
   // Alteração: Adicionamos um terceiro parâmetro opcional 'forceSkipConfirm'
-const applyToAll = (
-  field: keyof ImportedPart, 
-  idsToUpdate?: string[], 
-  forceSkipConfirm: boolean = false // <--- NOVO PARÂMETRO
-) => {
-  const value = batchDefaults[field as keyof BatchDefaults];
-  if (value === undefined) return;
+  const applyToAll = (
+    field: keyof ImportedPart,
+    idsToUpdate?: string[],
+    forceSkipConfirm: boolean = false, // <--- NOVO PARÂMETRO
+  ) => {
+    const value = batchDefaults[field as keyof BatchDefaults];
+    if (value === undefined) return;
 
-  // CENÁRIO 1: Aplicação Seletiva (Checkboxes marcados)
-  if (idsToUpdate && idsToUpdate.length > 0) {
-    // Só pergunta se NÃO foi forçado a pular (pelo sessionApprovals da UI)
+    // CENÁRIO 1: Aplicação Seletiva (Checkboxes marcados)
+    if (idsToUpdate && idsToUpdate.length > 0) {
+      // Só pergunta se NÃO foi forçado a pular (pelo sessionApprovals da UI)
+      if (!forceSkipConfirm) {
+        if (
+          !window.confirm(
+            `Confirma a aplicação de "${value}" em ${field.toUpperCase()} apenas para as ${idsToUpdate.length} peças selecionadas?`,
+          )
+        )
+          return;
+      }
+
+      setParts((prev) =>
+        prev.map((p) =>
+          idsToUpdate.includes(p.id) ? { ...p, [field]: value } : p,
+        ),
+      );
+      return;
+    }
+
+    // CENÁRIO 2: Aplicação Total (Ninguém selecionado)
     if (!forceSkipConfirm) {
-      if (!window.confirm(`Confirma a aplicação de "${value}" em ${field.toUpperCase()} apenas para as ${idsToUpdate.length} peças selecionadas?`))
+      if (
+        !window.confirm(
+          `Nenhuma seleção detectada.\n\nDeseja aplicar "${value}" em ${field.toUpperCase()} para TODAS as ${parts.length} peças da lista?`,
+        )
+      )
         return;
     }
 
-    setParts((prev) =>
-      prev.map((p) =>
-        idsToUpdate.includes(p.id) ? { ...p, [field]: value } : p,
-      ),
-    );
-    return;
-  }
-
-  // CENÁRIO 2: Aplicação Total (Ninguém selecionado)
-  if (!forceSkipConfirm) {
-    if (!window.confirm(`Nenhuma seleção detectada.\n\nDeseja aplicar "${value}" em ${field.toUpperCase()} para TODAS as ${parts.length} peças da lista?`))
-      return;
-  }
-
-  setParts((prev) => prev.map((p) => ({ ...p, [field]: value })));
-};
+    setParts((prev) => prev.map((p) => ({ ...p, [field]: value })));
+  };
 
   const handleRowChange = (id: string, field: string, value: any) => {
     setParts((prev) =>
@@ -195,15 +222,23 @@ const applyToAll = (
   };
 
   // 2. Ajuste no handleBulkDelete
-const handleBulkDelete = (idsToRemove: string[], forceSkipConfirm: boolean = false) => {
-  if (idsToRemove.length === 0) return;
+  const handleBulkDelete = (
+    idsToRemove: string[],
+    forceSkipConfirm: boolean = false,
+  ) => {
+    if (idsToRemove.length === 0) return;
 
-  if (!forceSkipConfirm) {
-    if (!window.confirm(`Tem certeza que deseja excluir ${idsToRemove.length} peças selecionadas?`)) return;
-  }
+    if (!forceSkipConfirm) {
+      if (
+        !window.confirm(
+          `Tem certeza que deseja excluir ${idsToRemove.length} peças selecionadas?`,
+        )
+      )
+        return;
+    }
 
-  setParts((prev) => prev.filter((p) => !idsToRemove.includes(p.id)));
-};
+    setParts((prev) => prev.filter((p) => !idsToRemove.includes(p.id)));
+  };
 
   const handleReset = () => {
     if (
@@ -250,21 +285,34 @@ const handleBulkDelete = (idsToRemove: string[], forceSkipConfirm: boolean = fal
   };
 
   // 3. Ajuste no handleConvertAllToBlocks
-const handleConvertAllToBlocks = (forceSkipConfirm: boolean = false) => {
-  if (!forceSkipConfirm) {
-    if (!window.confirm("Deseja converter todas as peças em Blocos?")) return;
-  }
+  const handleConvertAllToBlocks = (forceSkipConfirm: boolean = false) => {
+    if (!forceSkipConfirm) {
+      if (!window.confirm("Deseja converter todas as peças em Blocos?")) return;
+    }
 
-  setParts((prev) =>
-    prev.map((p) => {
-      if (p.entities.length === 1 && p.entities[0].type === "INSERT") return p;
-      const blockName = `BLOCK_${p.id.substring(0, 8).toUpperCase()}`;
-      const newBlocks = { ...p.blocks };
-      newBlocks[blockName] = { entities: p.entities };
-      return { ...p, entities: [{ type: "INSERT", name: blockName, position: { x: 0, y: 0 }, scale: { x: 1, y: 1, z: 1 }, rotation: 0 }], blocks: newBlocks };
-    })
-  );
-};
+    setParts((prev) =>
+      prev.map((p) => {
+        if (p.entities.length === 1 && p.entities[0].type === "INSERT")
+          return p;
+        const blockName = `BLOCK_${p.id.substring(0, 8).toUpperCase()}`;
+        const newBlocks = { ...p.blocks };
+        newBlocks[blockName] = { entities: p.entities };
+        return {
+          ...p,
+          entities: [
+            {
+              type: "INSERT",
+              name: blockName,
+              position: { x: 0, y: 0 },
+              scale: { x: 1, y: 1, z: 1 },
+              rotation: 0,
+            },
+          ],
+          blocks: newBlocks,
+        };
+      }),
+    );
+  };
 
   const savePartsToDB = async (silent: boolean = false): Promise<boolean> => {
     if (parts.length === 0) {
