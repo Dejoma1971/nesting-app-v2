@@ -17,7 +17,6 @@ import { InteractiveCanvas } from "./InteractiveCanvas";
 import { useUndoRedo } from "../hooks/useUndoRedo";
 import { PartFilter, type FilterState } from "./PartFilter";
 import NestingWorker from "../workers/nesting.worker?worker";
-import WiseNestingWorker from "../workers/wiseNesting.worker?worker";
 import SmartNestNewWorker from "../workers/smartNestNew.worker?worker";
 import SmartNestV3Worker from "../workers/smartNestV3.worker?worker";
 import { useTheme } from "../context/ThemeContext";
@@ -44,6 +43,8 @@ import { calculatePartNetArea } from "../utils/areaCalculator";
 // Adicione junto com os outros imports
 import { rotatePartsGroup } from "../utils/transformUtils";
 import { calculateSmartLabel } from "../utils/labelUtils";
+
+import { useNfpNesting } from "../hooks/useNfpNesting";
 
 interface Size {
   width: number;
@@ -371,6 +372,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const [showOnlySelected, setShowOnlySelected] = useState(false);
   // =========================================================
 
+  // ⬇️ --- [INSERÇÃO 1] ESTADOS PARA O RESIZE DA BARRA LATERAL --- ⬇️
+  const [sidebarWidth, setSidebarWidth] = useState(500); // Começa com 500px
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  // ⬆️ ----------------------------------------------------------- ⬆️
+
   const [viewKey, setViewKey] = useState(0); // Controla o reset visual do Canvas
 
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -467,7 +473,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const [gap, setGap] = useState(5);
   const [margin, setMargin] = useState(5);
   const [strategy, setStrategy] = useState<
-    "guillotine" | "true-shape" | "true-shape-v2" | "true-shape-v3" | "wise"
+    | "guillotine"
+    | "true-shape"
+    | "true-shape-v2"
+    | "true-shape-v3"
+    | "wise"
+    | "nfp" // <--- Adicione | "nfp"
   >("true-shape-v2");
   const [direction, setDirection] = useState<
     "auto" | "vertical" | "horizontal"
@@ -523,6 +534,42 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     };
   }, []);
 
+  // ⬇️ --- [INSERÇÃO 2] LÓGICA DO ARRASTO (MOUSE MOVE) --- ⬇️
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizingSidebar) return;
+
+      // A largura é: Largura da Janela - Posição X do Mouse
+      // (Porque a barra está na direita, quanto menor o X, maior a barra)
+      const newWidth = window.innerWidth - e.clientX;
+
+      // Limites
+      const minWidth = 500;
+      const maxWidth = window.innerWidth * 0.5; // 50% da tela
+
+      // Aplica com as restrições
+      setSidebarWidth(Math.max(minWidth, Math.min(maxWidth, newWidth)));
+    };
+
+    const handleMouseUp = () => {
+      setIsResizingSidebar(false);
+      document.body.style.cursor = "default"; // Restaura cursor
+    };
+
+    if (isResizingSidebar) {
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "ew-resize"; // Força cursor de redimensionamento
+    }
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "default";
+    };
+  }, [isResizingSidebar]);
+  // ⬆️ --------------------------------------------------- ⬆️
+
   const thumbnailRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
   const {
@@ -545,6 +592,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     canUndo,
     canRedo,
   ] = useUndoRedo<PlacedPart[]>([]);
+
+  const {
+    startNesting: startNfpNesting,
+    isNesting: isNfpRunning,
+    progress: nfpProgress,
+    placedParts: nfpResultData,
+  } = useNfpNesting(binSize.width, binSize.height);
 
   // --- AUTO-SAVE HOOK ---
   // Agrupa o estado atual para passar para o hook
@@ -813,7 +867,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         gap,
         margin,
         strategy:
-          strategy === "true-shape-v2" || strategy === "true-shape-v3"
+          strategy === "true-shape-v2" ||
+          strategy === "true-shape-v3" ||
+          strategy === "nfp"
             ? "true-shape"
             : strategy,
         direction,
@@ -865,13 +921,21 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const displayedParts = useMemo(() => {
     const filtered = parts.filter((p) => {
+      // ⬇️ CORREÇÃO: Função auxiliar para limpar espaços invisíveis
+      const clean = (val: string) => String(val || "").trim();
+
       const matchPedido =
         filters.pedido.length === 0 || filters.pedido.includes(p.pedido);
       const matchOp = filters.op.length === 0 || filters.op.includes(p.op);
+
+      // ⬇️ Comparação Inteligente (Ignora espaços)
       const matchMaterial =
-        !filters.material || p.material === filters.material;
+        !filters.material || clean(p.material) === filters.material;
+      
       const matchEspessura =
-        !filters.espessura || p.espessura === filters.espessura;
+        !filters.espessura || clean(p.espessura) === filters.espessura;
+      // ⬆️ ------------------------------------
+
       return matchPedido && matchOp && matchMaterial && matchEspessura;
     });
 
@@ -989,6 +1053,40 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     });
   }, [parts, filters, labelStates, theme]);
 
+  // --- SINCRONIZAÇÃO DO NFP COM A MESA ---
+  useEffect(() => {
+    if (strategy === "nfp" && !isNfpRunning && nfpResultData.length > 0) {
+      setNestingResult(nfpResultData);
+
+      const totalRequested = displayedParts.filter(
+        (p) => !disabledNestingIds.has(p.id),
+      ).length;
+      const totalPlaced = nfpResultData.length;
+      setFailedCount(Math.max(0, totalRequested - totalPlaced));
+
+      // 👇👇👇 CÓDIGO NOVO PARA DETECTAR TOTAL DE CHAPAS 👇👇👇
+      // Descobre qual foi o maior ID de chapa gerado
+      const maxBinId = nfpResultData.reduce(
+        (max, p) => Math.max(max, p.binId),
+        0,
+      );
+      setTotalBins(maxBinId + 1); // Se o ID for 2, temos 3 chapas (0, 1, 2)
+      // 👆👆👆 ------------------------------------------- 👆👆👆
+
+      setIsComputing(false);
+
+      if (totalPlaced === 0) alert("Nenhuma peça coube (NFP Nest)!");
+    }
+  }, [
+    isNfpRunning,
+    nfpResultData,
+    strategy,
+    displayedParts,
+    disabledNestingIds,
+    setNestingResult,
+    setTotalBins,
+  ]); // Adicione setTotalBins nas dependências
+
   const currentPlacedParts = useMemo(
     () => nestingResult.filter((p) => p.binId === currentBinIndex),
     [nestingResult, currentBinIndex],
@@ -1097,37 +1195,41 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   // ... (outros useEffects)
 
-  // =====================================================================
+ // =====================================================================
   // --- NOVO: SINCRONIZAR FILTRO COM A MESA DE CORTE ---
-  // Se houver peças na mesa (nestingResult), forçamos o filtro a assumir
-  // o material e espessura dessas peças para evitar misturas.
   // =====================================================================
   useEffect(() => {
     // 1. Verifica se há peças posicionadas na mesa
     if (nestingResult.length > 0) {
       // Pega a primeira peça da mesa para usar como referência
-      // (Assumimos que não se deve misturar materiais na mesma chapa)
       const firstPlaced = nestingResult[0];
       const partInfo = parts.find((p) => p.id === firstPlaced.partId);
 
       if (partInfo) {
         setFilters((prev) => {
-          // Só atualiza se for diferente para evitar loops de renderização
+          // 1. Declara as variáveis limpas
+          const cleanMat = String(partInfo.material || "").trim();
+          const cleanThick = String(partInfo.espessura || "").trim();
+
+          // 2. USA as variáveis na comparação (Aqui estava o erro: você devia estar usando partInfo ainda)
           if (
-            prev.material !== partInfo.material ||
-            prev.espessura !== partInfo.espessura
+            prev.material !== cleanMat ||
+            prev.espessura !== cleanThick
           ) {
+            // 3. USA as variáveis na atualização
             return {
               ...prev,
-              material: partInfo.material,
-              espessura: partInfo.espessura,
+              material: cleanMat,
+              espessura: cleanThick,
             };
           }
           return prev;
         });
       }
     }
-  }, [nestingResult, parts]); // Executa toda vez que o arranjo na mesa muda
+  }, [nestingResult, parts]);
+
+
   // --- 4. EFEITOS (COM SEGURANÇA AGORA) ---
   useEffect(() => {
     if (initialSearchQuery && parts.length === 0) {
@@ -1378,14 +1480,21 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     if (!partOnTable) return;
 
     // 3. Verifica se houve um conflito
+    // ⬇️ CORREÇÃO: Função auxiliar para limpar espaços invisíveis
+    const clean = (val: string) => String(val || "").trim();
+    
+    // 3. Verifica se houve um conflito (Comparando limpo com limpo)
+    // Se o filtro estiver vazio, não há conflito.
     const materialConflict =
-      filters.material && filters.material !== partOnTable.material;
+      filters.material && clean(filters.material) !== clean(partOnTable.material);
+      
     const thicknessConflict =
-      filters.espessura && filters.espessura !== partOnTable.espessura;
+      filters.espessura && clean(filters.espessura) !== clean(partOnTable.espessura);
 
-    // 4. Se houver conflito, reseta tudo
+    // 4. Se houver conflito REAL, reseta tudo
     if (materialConflict || thicknessConflict) {
       console.log("♻️ Filtro alterado: Limpando mesa incompatível...");
+      console.log(`Filtro: '${filters.material}' vs Peça: '${partOnTable.material}'`);
 
       resetNestingResult([]);
       setTotalBins(1);
@@ -1397,8 +1506,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   }, [
     filters.material,
     filters.espessura,
-    // --- Dependências exigidas pelo ESLint abaixo ---
-    nestingResult,
+    nestingResult, // O nestingResult muda quando o cálculo termina, disparando esta verificação
     parts,
     resetNestingResult,
     setTotalBins,
@@ -1406,7 +1514,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     resetAllSaveStatus,
     setCropLines,
   ]);
-
   const handleSaveClick = async () => {
     // Validação básica se tem peças
     const partsInBin = nestingResult.filter((p) => p.binId === currentBinIndex);
@@ -1432,7 +1539,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         user,
         cropLines,
         motor:
-          strategy === "true-shape-v2" || strategy === "true-shape-v3"
+          strategy === "true-shape-v2" ||
+          strategy === "true-shape-v3" ||
+          strategy === "nfp"
             ? "true-shape"
             : strategy,
 
@@ -1522,34 +1631,58 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
         if (result.placed.length === 0) alert("Nenhuma peça coube!");
       }, 50);
+    } else if (strategy === "nfp") {
+      // --- MOTOR NFP (NOVO) ---
+      startNfpNesting(partsToNest);
+      // O loading será controlado pelo useEffect que criamos no passo 4
     } else if (strategy === "wise") {
-      // --- 3. MOTOR WISE NEST (Melhor Aproveitamento / Furos) ---
+      // --- 3. MOTOR WISE NEST (Clipper / Geometria Real) ---
       if (wiseNestingWorkerRef.current)
         wiseNestingWorkerRef.current.terminate();
-      wiseNestingWorkerRef.current = new WiseNestingWorker();
+
+      // Inicializa em modo Clássico para permitir importScripts no Worker
+      wiseNestingWorkerRef.current = new Worker(
+        new URL("../workers/wiseNesting.worker.ts", import.meta.url),
+        { type: "classic" },
+      );
 
       wiseNestingWorkerRef.current.onmessage = (e) => {
-        const result = e.data;
-        const duration = (Date.now() - startTime) / 1000;
-        setCalculationTime(duration);
+        const { type, progress, message, result } = e.data;
 
-        resetNestingResult(result.placed);
-        setFailedCount(result.failed.length);
-        setTotalBins(result.totalBins || 1);
-        setIsComputing(false);
+        if (type === "PROGRESS") {
+          // Opcional: Você pode criar um estado para mostrar "Processando 10%..."
+          console.log(`[WiseNest] ${progress}% - ${message}`);
+        } else if (type === "COMPLETED") {
+          const duration = (Date.now() - startTime) / 1000;
+          setCalculationTime(duration);
 
-        if (result.placed.length === 0)
-          alert("Nenhuma peça coube no Wise Nest!");
+          // Atualiza a mesa com o resultado
+          if (result.placed && result.placed.length > 0) {
+            resetNestingResult(result.placed);
+            setFailedCount(result.failed.length);
+            setTotalBins(result.totalBins || 1);
+          } else {
+            alert("Nenhuma peça coube com as configurações atuais.");
+          }
+
+          setIsComputing(false);
+        } else if (type === "ERROR") {
+          console.error("Erro no Wise Nest:", message);
+          setIsComputing(false);
+          alert("Erro técnico no processamento do Nesting.");
+        }
       };
 
+      // Envia os dados PLANOS, exatamente como o Worker novo espera
       wiseNestingWorkerRef.current.postMessage({
+        type: "START_NESTING", // Comando explicito
         parts: JSON.parse(JSON.stringify(partsToNest)),
-        quantities,
-        gap,
-        margin,
+        quantities, // Objeto { "id": quantidade }
         binWidth: binSize.width,
         binHeight: binSize.height,
-        rotationStep: 5,
+        gap: Number(gap), // Força número
+        margin: Number(margin), // Força número
+        rotationStep: 90, // Rotação permitida (0, 90, 180, 270)
       });
     } else if (strategy === "true-shape-v3") {
       // --- 5. MOTOR SMART NEST V3 (Memória + Furos) ---
@@ -1672,7 +1805,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     iterations,
     rotationStep,
     direction,
-    // REMOVIDO: useSmartNestV2 (Não usamos mais essa variável)
+    startNfpNesting,
   ]);
 
   const handleCheckGuillotineCollisions = useCallback(() => {
@@ -2263,6 +2396,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     return () => clearInterval(intervalId);
   }, [parts, user]);
 
+  // ⬇️ --- INSERIR AQUI --- ⬇️
+  const buttonHeight = "30px";
+  // ⬆️ -------------------- ⬆️
+
   const containerStyle: React.CSSProperties = {
     display: "flex",
     flexDirection: "column",
@@ -2272,7 +2409,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     color: theme.text,
   };
   const topBarStyle: React.CSSProperties = {
-    padding: "10px 20px",
+    padding: "5px 20px",
     borderBottom: `1px solid ${theme.border}`,
     display: "flex",
     justifyContent: "space-between",
@@ -2280,7 +2417,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     backgroundColor: theme.headerBg,
   };
   const toolbarStyle: React.CSSProperties = {
-    padding: "10px 20px",
+    padding: "5px 20px",
     borderBottom: `1px solid ${theme.border}`,
     display: "flex",
     gap: "15px",
@@ -2310,7 +2447,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     cursor: "pointer",
     background: "transparent",
     outline: "none",
-    border: "none",
+    // ⬇️ --- CORREÇÃO: SUBSTITUIR 'border: "none"' POR LADOS ESPECÍFICOS --- ⬇️
+    borderTop: "none",
+    borderLeft: "none",
+    borderRight: "none",
+    // O 'border' genérico conflitava com o 'borderBottom' abaixo
+    // ⬆️ ------------------------------------------------------------------- ⬆️
     borderBottom: active ? "2px solid #28a745" : "2px solid transparent",
     color: active ? theme.text : theme.label,
     fontWeight: active ? "bold" : "normal",
@@ -3077,8 +3219,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               display: "flex",
               gap: "5px",
               marginRight: "10px",
-              borderRight: `1px solid ${theme.border}`,
-              paddingRight: "15px",
+              // borderRight: `1px solid ${theme.border}`,
+              // paddingRight: "15px",
             }}
           >
             {/* Input Oculto para Carregar */}
@@ -3125,7 +3267,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 gap: "5px",
               }}
             >
-              💾 Salvar Projeto
+              💾 Salvar
             </button>
           </div>
           {/* ----------------------------------- */}
@@ -3224,28 +3366,27 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
           <button
             onClick={handleClearTable}
-            title="Reiniciar Página"
+            title="Reiniciar Página (Limpar Mesa e Cache)"
+            // ⬇️ --- NOVO ESTILO PADRONIZADO (VERMELHO SÓLIDO) --- ⬇️
             style={{
-              background: "transparent",
-              color: "#6610f2",
-              border: `1px solid #6610f2`,
-              padding: "5px 10px",
+              background: "#dc3545", // Vermelho "Danger" (Igual Engenharia)
+              color: "white",
+              border: "none", // Remove borda para ficar sólido
+              padding: "6px 12px", // Mesmo tamanho dos botões vizinhos
               borderRadius: "4px",
               cursor: "pointer",
               fontWeight: "bold",
               fontSize: "13px",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              transition: "all 0.3s ease",
             }}
+            // ⬆️ ------------------------------------------------ ⬆️
           >
-            🗑️
+            🗑️ Reset
           </button>
-          <div
-            style={{
-              width: 1,
-              height: 24,
-              background: theme.border,
-              margin: "0 5px",
-            }}
-          ></div>
+
           <SidebarMenu
             onNavigate={(screen) => {
               // 1. Lógica para Home
@@ -3305,20 +3446,27 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             <option value="true-shape">🧩 Smart Nest</option>
             <option value="true-shape-v2">⚡ Smart Nest V2</option>
             {/* ADICIONE ESTA OPÇÃO: */}
-            <option
+            {/* <option
               value="true-shape-v3"
               style={{ fontWeight: "bold", color: "#007bff" }}
             >
               🚀 Smart Nest V3 (Furos)
-            </option>
+            </option> */}
             {/* ALTERAÇÃO AQUI: Adicionado disabled e estilo de cor/opacidade */}
-            <option
+            {/* <option
               value="wise"
-              disabled
-              style={{ color: "#999", fontStyle: "italic", opacity: 0.5 }}
+              style={{ fontWeight: "bold", color: "#6f42c1" }}
             >
-              🧠 Wise Nest (em Breve)
-            </option>
+              🧠 Wise Nest (Clipper Engine)
+            </option> */}
+            {/* --- NOVA OPÇÃO --- */}
+            {/* <option
+              value="nfp"
+              style={{ fontWeight: "bold", color: "#e83e8c" }}
+            >
+              🧬 NFP Nest (Geometria Real)
+            </option> */}
+            {/* ------------------ */}
             {/* <--- INSERIR ESTA LINHA */}
           </select>
         </div>
@@ -3485,7 +3633,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             onChange={(e) => setShowDebug(e.target.checked)}
             style={{ marginRight: "5px", backgroundColor: theme.checkboxBg }}
           />{" "}
-          Ver Box
+          Box
         </label>
         {/* ⬇️ --- BOTÃO DE REFRESH COM ÍCONE PADRÃO --- ⬇️ */}
         <button
@@ -3496,13 +3644,18 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             background: "transparent",
             border: `1px solid ${theme.border}`,
             color: theme.text,
-            padding: "5px 6px", // Ajustei levemente o padding
+            // --- ALTERAÇÃO: TAMANHO FIXO ---
+            height: buttonHeight,
+            width: buttonHeight,
+            padding: 0, // Remove padding para centrar o ícone
+            gap: 0,
+            // -------------------------------
             borderRadius: "4px",
             cursor: isRefreshing ? "wait" : "pointer", // Cursor de espera
             fontSize: "12px",
             display: "flex",
             alignItems: "center",
-            gap: "6px",
+            justifyContent: "center",
             marginLeft: "10px",
             transition: "background 0.2s",
           }}
@@ -3526,7 +3679,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             style={{
               // A Mágica da Rotação:
               transformOrigin: "center",
-              transformBox: "fill-box",
+              transformBox: "view-box",
               transition: "transform 0.7s ease",
               transform: isRefreshing ? "rotate(360deg)" : "rotate(0deg)",
             }}
@@ -3544,21 +3697,24 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             onClick={handleCheckGuillotineCollisions}
             title="Validação rápida para cortes retos"
             style={{
-              background: "#ee390cff",
+              background: "#dc3545",
               border: `1px solid ${theme.border}`,
               color: "#fff",
-              padding: "5px 10px",
+              // --- ALTERAÇÃO: ALTURA FIXA ---
+              height: buttonHeight,
+              padding: "0 10px", // Padding lateral apenas
+              // ------------------------------
               borderRadius: "4px",
               cursor: "pointer",
               fontWeight: "bold",
-              fontSize: "11px",
+              fontSize: "12px",
               display: "flex",
               alignItems: "center",
               gap: "5px",
               marginLeft: "10px",
             }}
           >
-            📏 Validar Guilhotina
+            Guilhotina
           </button>
         ) : (
           <button
@@ -3568,7 +3724,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               background: "#dc3545",
               border: `1px solid ${theme.border}`,
               color: "#fff",
-              padding: "5px 10px",
+              // --- ALTERAÇÃO: ALTURA FIXA ---
+              height: buttonHeight,
+              padding: "0 10px",
+              // ------------------------------
               borderRadius: "4px",
               cursor: "pointer",
               fontWeight: "bold",
@@ -3588,10 +3747,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           onClick={handleAddBin}
           title="Criar uma nova chapa vazia para nesting manual"
           style={{
-            background: theme.buttonBg,
+            background: " #0056b3",
             border: `1px solid ${theme.border}`,
-            color: theme.text,
-            padding: "5px 10px",
+            color: "white",
+            // --- ALTERAÇÃO: ALTURA FIXA ---
+            height: buttonHeight,
+            padding: "0 10px",
+            // ------------------------------
             borderRadius: "4px",
             cursor: "pointer",
             fontWeight: "bold",
@@ -3602,11 +3764,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             marginLeft: "10px",
           }}
         >
-          <span
-            style={{ color: "#28a745", fontSize: "14px", marginRight: "3px" }}
-          >
-            +
-          </span>{" "}
           Nova Chapa
         </button>
 
@@ -3622,27 +3779,35 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
         <button
           onClick={handleCalculate}
-          disabled={isComputing}
+          // 👇 ATUALIZADO: Adicionamos isNfpRunning para travar o botão
+          disabled={isComputing || isNfpRunning}
           style={{
             marginLeft: "auto",
-            background: isComputing ? theme.panelBg : "#28a745",
-            color: isComputing ? theme.text : "white",
-            border: isComputing ? `1px solid ${theme.border}` : "none",
-            padding: "8px 12px",
-            cursor: isComputing ? "wait" : "pointer",
+            // 👇 ATUALIZADO: Muda a cor se estiver rodando
+            background: isComputing || isNfpRunning ? theme.panelBg : "#28a745",
+            color: isComputing || isNfpRunning ? theme.text : "white",
+            border:
+              isComputing || isNfpRunning
+                ? `1px solid ${theme.border}`
+                : "none",
+            // --- ALTERAÇÃO: ALTURA FIXA ---
+            height: buttonHeight,
+            padding: "0 15px", // Um pouco mais largo pois é o principal
+            // ------------------------------
+            cursor: isComputing || isNfpRunning ? "wait" : "pointer",
             borderRadius: "4px",
             fontWeight: "bold",
-            fontSize: "13px",
+            fontSize: "16px",
             whiteSpace: "nowrap",
             boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
             display: "flex",
             alignItems: "center",
             gap: "8px",
-            minWidth: "140px",
+            minWidth: "120px",
             justifyContent: "center",
           }}
         >
-          {isComputing ? (
+          {isComputing || isNfpRunning ? ( // 👇 ATUALIZADO: Verifica ambos os estados
             <>
               {/* Animação CSS inline mantida */}
               <style>
@@ -3667,10 +3832,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                 </svg>
               </div>
-              <span>Processando...</span> {/* SEM OS SEGUNDOS AQUI */}
+              {/* 👇 ATUALIZADO: Mostra a porcentagem se for NFP, senão "Processando..." */}
+              <span>
+                {strategy === "nfp" ? `NFP: ${nfpProgress}%` : "Processando..."}
+              </span>
             </>
           ) : (
-            <>Calcular Nesting</>
+            <>Nesting</>
           )}
         </button>
       </div>
@@ -3845,7 +4013,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             margin={margin}
             showDebug={showDebug}
             strategy={
-              strategy === "true-shape-v2" || strategy === "true-shape-v3"
+              // Adicione a verificação para 'nfp' aqui
+              strategy === "true-shape-v2" ||
+              strategy === "true-shape-v3" ||
+              strategy === "nfp"
                 ? "true-shape"
                 : strategy
             }
@@ -4100,17 +4271,50 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           </div>
         </div>
 
+        {/* ⬇️ --- [INSERÇÃO 3] BARRA LATERAL REDIMENSIONÁVEL --- ⬇️ */}
         <div
           style={{
-            width: "500px",
+            width: sidebarWidth, // <--- Agora usa a variável de estado
+            // minWidth: "500px", // (Opcional, já tratado na lógica, mas bom garantir)
             borderLeft: `1px solid ${theme.border}`,
             display: "flex",
             flexDirection: "column",
             backgroundColor: theme.panelBg,
             zIndex: 5,
             color: theme.text,
+            position: "relative", // <--- IMPORTANTE: Para posicionar o "puxador"
           }}
         >
+          {/* --- O "PUXADOR" (Área sensível ao clique) --- */}
+          <div
+            onMouseDown={(e) => {
+              e.preventDefault(); // Evita seleção de texto
+              setIsResizingSidebar(true);
+            }}
+            title="Arraste para redimensionar"
+            style={{
+              position: "absolute",
+              left: "-4px", // Fica levemente sobre a borda para facilitar o clique
+              top: 0,
+              bottom: 0,
+              width: "8px", // Área de clique confortável (invisível visualmente)
+              cursor: "ew-resize",
+              zIndex: 100, // Garante que fique acima de tudo
+              background: isResizingSidebar
+                ? "rgba(0, 123, 255, 0.2)" // Feedback visual azul quando arrasta
+                : "transparent",
+              transition: "background 0.2s",
+            }}
+            // Opcional: Feedback visual ao passar o mouse (hover)
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.background = "rgba(0, 123, 255, 0.1)")
+            }
+            onMouseLeave={(e) => {
+              if (!isResizingSidebar)
+                e.currentTarget.style.background = "transparent";
+            }}
+          />
+          {/* --------------------------------------------- */}
           <PartFilter
             allParts={parts}
             filters={filters}

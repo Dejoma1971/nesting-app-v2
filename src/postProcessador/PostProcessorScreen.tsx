@@ -29,13 +29,18 @@ import { LeadParamsModal } from "../postProcessador/modals/LeadParamsModal";
 import { DEFAULT_LEAD_PARAMS } from "../postProcessador/modals/leadTypes";
 import type { LeadParams } from "../postProcessador/modals/leadTypes";
 // ----------------------------------
+import { GenerateGCodeModal } from "./modals/GenerateGCodeModal";
+import type { PlacedPart } from "../../src/utils/nestingCore";
+import type { ImportedPart } from "../components/types";
 
 // --- DEFINIÇÃO DE TIPOS ---
 type TabType = "file" | "home" | "draw" | "nest" | "cnc" | "view";
 
 interface PostProcessorProps {
   onBack: () => void;
-  nestingResult?: Record<string, unknown>[];
+  // --- INSERÇÃO: NOVAS PROPS OBRIGATÓRIAS ---
+  placedParts: PlacedPart[];
+  allParts: ImportedPart[];
 }
 
 interface RibbonButtonProps {
@@ -64,6 +69,9 @@ interface JogButtonProps {
 // ============================================================================
 export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
   onBack,
+  // --- INSERÇÃO: RECEBENDO OS DADOS COM VALOR PADRÃO VAZIO ---
+  placedParts = [],
+  allParts = [],
 }) => {
   // 1. ESTADOS (HOOKS)
   const [activeTab, setActiveTab] = useState<TabType>("file");
@@ -74,6 +82,9 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
   // --- NOVO: ESTADOS DO LEAD ---
   const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
   const [leadParams, setLeadParams] = useState<LeadParams>(DEFAULT_LEAD_PARAMS);
+
+  // --- INSERÇÃO 2: ESTADO DO NOVO MODAL ---
+  const [isGCodeModalOpen, setIsGCodeModalOpen] = useState(false);
 
   // 2. FUNÇÕES AUXILIARES (DEVEM ESTAR AQUI, ANTES DO RETURN)
   const handleNotImplemented = (feature: string) => {
@@ -157,7 +168,7 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
               <RibbonButton
                 icon={<FaSave />}
                 label="Save"
-                onClick={() => handleNotImplemented("Save")}
+                onClick={() => setIsGCodeModalOpen(true)}
               />
               <RibbonButton
                 icon={<FaFileExport />}
@@ -318,6 +329,13 @@ export const PostProcessorScreen: React.FC<PostProcessorProps> = ({
         onClose={() => setIsLeadModalOpen(false)}
         onApply={handleLeadApply}
         currentParams={leadParams}
+      />
+      {/* --- INSERÇÃO 3: MODAL G-CODE --- */}
+      <GenerateGCodeModal
+        isOpen={isGCodeModalOpen}
+        onClose={() => setIsGCodeModalOpen(false)}
+        placedParts={placedParts} // Passa as peças que recebemos via props
+        allParts={allParts} // Passa os desenhos originais
       />
     </div>
   );

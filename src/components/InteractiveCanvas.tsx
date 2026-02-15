@@ -78,7 +78,12 @@ interface InteractiveCanvasProps {
   canRedo: boolean;
 
   onCanvasDrop?: (partId: string, x: number, y: number) => void;
-  onCropLineContextMenu?: (e: React.MouseEvent, lineId: string, x: number, y: number) => void;
+  onCropLineContextMenu?: (
+    e: React.MouseEvent,
+    lineId: string,
+    x: number,
+    y: number,
+  ) => void;
 }
 
 interface BoundingBoxCache {
@@ -1503,26 +1508,26 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                     }}
                     // Evento de Clique (Novo - Trim)
                     onClick={(e) => handleLineClick(e, line)}
-                   // --- ALTERAÇÃO AQUI: CLIQUE DIREITO COM COORDENADAS ---
-    onContextMenu={(e) => {
-      e.preventDefault();
-      e.stopPropagation();
+                    // --- ALTERAÇÃO AQUI: CLIQUE DIREITO COM COORDENADAS ---
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
 
-      if (onCropLineContextMenu) {
-         // 1. Calcula a posição exata na chapa (igual fizemos no Trim anterior)
-         const svgPos = getSVGPoint(e.clientX, e.clientY);
-         const currentT = transformRef.current;
-         const visualX = (svgPos.x - currentT.x) / currentT.k;
-         const visualY = (svgPos.y - currentT.y) / currentT.k;
-         
-         const binX = visualX;
-         const binY = binHeight - visualY;
+                      if (onCropLineContextMenu) {
+                        // 1. Calcula a posição exata na chapa (igual fizemos no Trim anterior)
+                        const svgPos = getSVGPoint(e.clientX, e.clientY);
+                        const currentT = transformRef.current;
+                        const visualX = (svgPos.x - currentT.x) / currentT.k;
+                        const visualY = (svgPos.y - currentT.y) / currentT.k;
 
-         // 2. Envia tudo para o NestingBoard
-         onCropLineContextMenu(e, line.id, binX, binY);
-      }
-    }}
-    // -----------------------------------------------------
+                        const binX = visualX;
+                        const binY = binHeight - visualY;
+
+                        // 2. Envia tudo para o NestingBoard
+                        onCropLineContextMenu(e, line.id, binX, binY);
+                      }
+                    }}
+                    // -----------------------------------------------------
                     style={{ cursor: cursor }}
                   >
                     {/* 1. Área de clique (Invisível mas grossa) */}
@@ -1545,7 +1550,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                       stroke={line.isSelected ? "#ff0000" : "#00ff3cff"} // Exemplo: muda cor se selecionado
                       strokeWidth={strokeW}
                       // --- ADICIONE ESTA LINHA: ---
-                      strokeLinecap="square" 
+                      strokeLinecap="square"
                       // ----------------------------
                       vectorEffect="non-scaling-stroke"
                       style={{ pointerEvents: "none" }}

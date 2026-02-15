@@ -1,0 +1,1641 @@
+[
+  {
+    "id": "f4b3820f-f4d3-4839-88aa-cd1e983be686",
+    "name": "A$C8285 (PEDIDO_34856 - PORNO PIZZA 750X650X600.DXF)",
+    "entities": [
+      {
+        "type": "INSERT",
+        "name": "BLOCK_F4B3820F",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "scale": {
+          "x": 1,
+          "y": 1,
+          "z": 1
+        },
+        "rotation": 0
+      }
+    ],
+    "blocks": {
+      "BLOCK_F4B3820F": {
+        "entities": [
+          {
+            "type": "CIRCLE",
+            "handle": "1D3",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 155.4678097245,
+              "y": 155.4678097245751
+            },
+            "radius": 80
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 310.935619449,
+                "y": 59.04280972457505
+              },
+              {
+                "x": 310.935619449,
+                "y": 251.89280972457507
+              }
+            ],
+            "handle": "1D4",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 251.8928097245,
+                "y": 59.04280972457505
+              },
+              {
+                "x": 310.935619449,
+                "y": 59.04280972457505
+              }
+            ],
+            "handle": "1D5",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 251.8928097245,
+                "y": 7.504930010782118e-11
+              },
+              {
+                "x": 251.8928097245,
+                "y": 59.04280972457505
+              }
+            ],
+            "handle": "1D6",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 59.04280972449999,
+                "y": 59.04280972457505
+              },
+              {
+                "x": 59.04280972449999,
+                "y": 7.504930010782118e-11
+              }
+            ],
+            "handle": "1D7",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 0,
+                "y": 59.04280972457505
+              },
+              {
+                "x": 59.04280972449999,
+                "y": 59.04280972457505
+              }
+            ],
+            "handle": "1D8",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 0,
+                "y": 59.04280972457505
+              },
+              {
+                "x": 0,
+                "y": 251.89280972457507
+              }
+            ],
+            "handle": "1D9",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 59.04280972449999,
+                "y": 251.89280972457507
+              },
+              {
+                "x": 0,
+                "y": 251.89280972457507
+              }
+            ],
+            "handle": "1DA",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 59.04280972449999,
+                "y": 310.93561944907503
+              },
+              {
+                "x": 59.04280972449999,
+                "y": 251.89280972457507
+              }
+            ],
+            "handle": "1DB",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 251.8928097245,
+                "y": 251.89280972457507
+              },
+              {
+                "x": 251.8928097245,
+                "y": 310.93561944907503
+              }
+            ],
+            "handle": "1DC",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 310.935619449,
+                "y": 251.89280972457507
+              },
+              {
+                "x": 251.8928097245,
+                "y": 251.89280972457507
+              }
+            ],
+            "handle": "1DD",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "ARC",
+            "handle": "1DE",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 155.4678097245,
+              "y": -362.90865003682507
+            },
+            "radius": 375.5002914734035,
+            "startAngle": 1.3110961997916066,
+            "endAngle": 1.830496453798187,
+            "angleLength": 0.5194002540065803
+          },
+          {
+            "type": "ARC",
+            "handle": "1DF",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 155.4678097245,
+              "y": 673.844269485975
+            },
+            "radius": 375.5002914734034,
+            "startAngle": 4.452688853383145,
+            "endAngle": 4.972089107387981,
+            "angleLength": 0.5194002540048359
+          }
+        ]
+      }
+    },
+    "width": 310.935619449,
+    "height": 310.9356194491501,
+    "grossArea": 96680.95944218003,
+    "netArea": 20106.192982974677,
+    "quantity": 1,
+    "pedido": "15",
+    "op": "",
+    "material": "Galvanizado",
+    "espessura": "Chapa #24 (0,60mm)",
+    "autor": "Matheus Ribeiro",
+    "dataCadastro": "2026-02-13T00:52:01.197Z",
+    "hasOpenGeometry": false
+  },
+  {
+    "id": "ba4d4b22-eca0-41de-8270-9f684fa32143",
+    "name": "A$C30901 (PEDIDO_34856 - PORNO PIZZA 750X650X600.DXF)",
+    "entities": [
+      {
+        "type": "INSERT",
+        "name": "BLOCK_BA4D4B22",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "scale": {
+          "x": 1,
+          "y": 1,
+          "z": 1
+        },
+        "rotation": 0
+      }
+    ],
+    "blocks": {
+      "BLOCK_BA4D4B22": {
+        "entities": [
+          {
+            "type": "CIRCLE",
+            "handle": "B4",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 158.05809338789993,
+              "y": 65
+            },
+            "radius": 1.75
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "B5",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 158.05809338789993,
+              "y": 25
+            },
+            "radius": 1.75
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "B6",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 173.05809338789993,
+              "y": 10
+            },
+            "radius": 1.749999999999915
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "B7",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 230.2009505307999,
+              "y": 10
+            },
+            "radius": 1.749999999999943
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "B8",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 287.34380767359994,
+              "y": 10
+            },
+            "radius": 1.750000000000057
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "B9",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 401.62952195930006,
+              "y": 10
+            },
+            "radius": 1.749999999999972
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "BA",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 458.7723791021999,
+              "y": 10
+            },
+            "radius": 1.750000000000071
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "BB",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 515.915236245,
+              "y": 10
+            },
+            "radius": 1.749999999999915
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "BC",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 573.0580933879,
+              "y": 10
+            },
+            "radius": 1.75
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "BD",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 588.0580933879,
+              "y": 25
+            },
+            "radius": 1.750000000000028
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "BE",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 588.0580933879,
+              "y": 65
+            },
+            "radius": 1.75
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "BF",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 556.0580933879,
+              "y": 402
+            },
+            "radius": 10.49999999999991
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "C0",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 344.4866648165,
+              "y": 10
+            },
+            "radius": 1.750000000000075
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 116.4353167861999,
+                "y": 174.8683298051
+              },
+              {
+                "x": 148.05809338789993,
+                "y": 80
+              }
+            ],
+            "handle": "C1",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 148.05809338789993,
+                "y": 80
+              },
+              {
+                "x": 598.0580933879,
+                "y": 80
+              }
+            ],
+            "handle": "C2",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 598.0580933879,
+                "y": 80
+              },
+              {
+                "x": 629.6808699896001,
+                "y": 174.8683298051
+              }
+            ],
+            "handle": "C3",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 0,
+                "y": 149.866379952
+              },
+              {
+                "x": 49.95545998400007,
+                "y": 0
+              }
+            ],
+            "handle": "C4",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 49.95545998400007,
+                "y": 0
+              },
+              {
+                "x": 696.1607267918,
+                "y": 0
+              }
+            ],
+            "handle": "C5",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 696.1607267918,
+                "y": 0
+              },
+              {
+                "x": 746.1161867757999,
+                "y": 149.866379952
+              }
+            ],
+            "handle": "C6",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "ARC",
+            "handle": "C7",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 373.0580933878998,
+              "y": 129.3761576573
+            },
+            "radius": 260.6238423427136,
+            "startAngle": 0.17544982658111333,
+            "endAngle": 2.9661428270086794,
+            "angleLength": 2.790693000427566
+          },
+          {
+            "type": "ARC",
+            "handle": "C8",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 373.0580933878998,
+              "y": 218.117544468
+            },
+            "radius": 379.2499999999999,
+            "startAngle": 6.102235942734117,
+            "endAngle": 3.322542018037006,
+            "angleLength": -2.779693924697111
+          }
+        ]
+      }
+    },
+    "width": 752.3080933878998,
+    "height": 597.3675444679999,
+    "grossArea": 449404.43843053246,
+    "netArea": 461.81412007769336,
+    "quantity": 1,
+    "pedido": "15",
+    "op": "",
+    "material": "Galvanizado",
+    "espessura": "Chapa #24 (0,60mm)",
+    "autor": "Matheus Ribeiro",
+    "dataCadastro": "2026-02-13T00:52:01.203Z",
+    "hasOpenGeometry": false
+  },
+  {
+    "id": "02936120-ddde-4dd9-bb06-29aff7064ee0",
+    "name": "A$C20545 (PEDIDO_34856 - PORNO PIZZA 750X650X600.DXF)",
+    "entities": [
+      {
+        "type": "INSERT",
+        "name": "BLOCK_02936120",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "scale": {
+          "x": 1,
+          "y": 1,
+          "z": 1
+        },
+        "rotation": 0
+      }
+    ],
+    "blocks": {
+      "BLOCK_02936120": {
+        "entities": [
+          {
+            "type": "CIRCLE",
+            "handle": "501",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 32.59202656642816,
+              "y": 75.64471160719995
+            },
+            "radius": 2.5
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "502",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 374.0300130071281,
+              "y": 591.1837722340001
+            },
+            "radius": 2.499999999999956
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "503",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 696.8409822677282,
+              "y": 404.8087722340001
+            },
+            "radius": 2.5
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "504",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 51.219043746428156,
+              "y": 404.8087722340001
+            },
+            "radius": 2.5
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "505",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 715.4679994478282,
+              "y": 75.64471160719995
+            },
+            "radius": 2.5
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 698.0813297092283,
+                "y": 0
+              },
+              {
+                "x": 748.0574040836283,
+                "y": 149.92822312329997
+              }
+            ],
+            "handle": "506",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 0.002621930728139432,
+                "y": 149.92822312320004
+              },
+              {
+                "x": 49.97869630522814,
+                "y": 0
+              }
+            ],
+            "handle": "507",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 49.97869630522814,
+                "y": 0
+              },
+              {
+                "x": 65.63477433902818,
+                "y": 0
+              }
+            ],
+            "handle": "508",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 65.63477433902818,
+                "y": 0
+              },
+              {
+                "x": 14.754635621628154,
+                "y": 152.64041615229996
+              }
+            ],
+            "handle": "509",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 733.305390392628,
+                "y": 152.64041615229996
+              },
+              {
+                "x": 682.4252516752282,
+                "y": 0
+              }
+            ],
+            "handle": "50A",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 682.4252516752282,
+                "y": 0
+              },
+              {
+                "x": 698.0813297092283,
+                "y": 0
+              }
+            ],
+            "handle": "50B",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "ARC",
+            "handle": "50C",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 747.9862528561281,
+              "y": 149.95194019999997
+            },
+            "radius": 0.0749999794216005,
+            "startAngle": 5.961434741383259,
+            "endAngle": 6.102064290546423,
+            "angleLength": 0.1406295491631635
+          },
+          {
+            "type": "ARC",
+            "handle": "50D",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 374.0300130071281,
+              "y": 218.433772234
+            },
+            "radius": 380.2500000000501,
+            "startAngle": 6.102064264226841,
+            "endAngle": 3.3227136965425386,
+            "angleLength": -2.7793505676843018
+          },
+          {
+            "type": "ARC",
+            "handle": "50E",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 0.07377317812813544,
+              "y": 149.9519402057
+            },
+            "radius": 0.0749999999938219,
+            "startAngle": 3.3227136965339557,
+            "endAngle": 3.4633432079912287,
+            "angleLength": 0.1406295114572722
+          },
+          {
+            "type": "ARC",
+            "handle": "50F",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 374.0300130071281,
+              "y": 218.433772234
+            },
+            "radius": 365.2499999999998,
+            "startAngle": 6.102064264226841,
+            "endAngle": 3.322713696542538,
+            "angleLength": -2.7793505676843018
+          }
+        ]
+      }
+    },
+    "width": 754.2800130071781,
+    "height": 598.6837722340501,
+    "grossArea": 451575.2035078858,
+    "netArea": 98.17477042468036,
+    "quantity": 1,
+    "pedido": "15",
+    "op": "",
+    "material": "Galvanizado",
+    "espessura": "Chapa #24 (0,60mm)",
+    "autor": "Matheus Ribeiro",
+    "dataCadastro": "2026-02-13T00:52:01.204Z",
+    "hasOpenGeometry": false
+  },
+  {
+    "id": "a4882a94-32c0-49c3-a891-7a20a49107a1",
+    "name": "A$C27580 (PEDIDO_34856 - PORNO PIZZA 750X650X600.DXF)",
+    "entities": [
+      {
+        "type": "INSERT",
+        "name": "BLOCK_A4882A94",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "scale": {
+          "x": 1,
+          "y": 1,
+          "z": 1
+        },
+        "rotation": 0
+      }
+    ],
+    "blocks": {
+      "BLOCK_A4882A94": {
+        "entities": [
+          {
+            "type": "CIRCLE",
+            "handle": "D6",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 614.6175413654,
+              "y": 15.3754446797
+            },
+            "radius": 1.749999999999943
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "D7",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 130.2536225547001,
+              "y": 171.5461574811
+            },
+            "radius": 1.750000000000085
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "D8",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 190.6035565553002,
+              "y": 251.4623854747
+            },
+            "radius": 1.749999999999972
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "D9",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 275.74726541300015,
+              "y": 304.1811380447
+            },
+            "radius": 1.749999999999957
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "DA",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 374.1856194490001,
+              "y": 322.5824555319999
+            },
+            "radius": 1.750000000000015
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "DB",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 472.6239734850001,
+              "y": 304.1811380447
+            },
+            "radius": 1.749999999999972
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "DC",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 557.7676823427,
+              "y": 251.4623854747
+            },
+            "radius": 1.75
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "DD",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 632.0100684964,
+              "y": 67.5530260724
+            },
+            "radius": 1.749999999999943
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "DE",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 116.3611704015998,
+              "y": 67.5530260724
+            },
+            "radius": 1.749999999999943
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "DF",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 133.7536975326002,
+              "y": 15.3754446797
+            },
+            "radius": 1.749999999999972
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "E0",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 618.1176163433001,
+              "y": 171.5461574811
+            },
+            "radius": 1.749999999999943
+          },
+          {
+            "type": "CIRCLE",
+            "handle": "E1",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 557.1856194490001,
+              "y": 323.69999999999993
+            },
+            "radius": 7.5
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 598.1105420711001,
+                "y": 0
+              },
+              {
+                "x": 598.1105420711001,
+                "y": 1.6999999999999886
+              }
+            ],
+            "handle": "E2",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 598.1105420711001,
+                "y": 1.6999999999999886
+              },
+              {
+                "x": 588.9772087378001,
+                "y": 1.6999999999999886
+              }
+            ],
+            "handle": "E3",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 620.5104462853001,
+                "y": 96.29971264269999
+              },
+              {
+                "x": 588.9772087378001,
+                "y": 1.6999999999999886
+              }
+            ],
+            "handle": "E4",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 159.39403016020015,
+                "y": 1.6999999999999886
+              },
+              {
+                "x": 127.86079261270015,
+                "y": 96.29971264269999
+              }
+            ],
+            "handle": "E5",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 159.39403016020015,
+                "y": 1.6999999999999886
+              },
+              {
+                "x": 150.26069682690013,
+                "y": 1.6999999999999886
+              }
+            ],
+            "handle": "E6",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 150.26069682690013,
+                "y": 1.6999999999999886
+              },
+              {
+                "x": 150.26069682690013,
+                "y": 0
+              }
+            ],
+            "handle": "E7",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 150.26069682690013,
+                "y": 0
+              }
+            ],
+            "handle": "E8",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": 244.974047261
+              }
+            ],
+            "handle": "E9",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 0,
+                "y": 244.974047261
+              },
+              {
+                "x": 83.07706507479998,
+                "y": 244.974047261
+              }
+            ],
+            "handle": "EA",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 83.07706507479998,
+                "y": 244.974047261
+              },
+              {
+                "x": 19.368604957000116,
+                "y": 298.2941265075
+              }
+            ],
+            "handle": "EB",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 19.368604957000116,
+                "y": 298.2941265075
+              },
+              {
+                "x": 165.80329484510003,
+                "y": 473.2587689541
+              }
+            ],
+            "handle": "EC",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 165.80329484510003,
+                "y": 473.2587689541
+              },
+              {
+                "x": 229.4900556388002,
+                "y": 419.9568507128
+              }
+            ],
+            "handle": "ED",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 229.4900556388002,
+                "y": 419.9568507128
+              },
+              {
+                "x": 229.4900556388002,
+                "y": 503.00561944899994
+              }
+            ],
+            "handle": "EE",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 229.4900556388002,
+                "y": 503.00561944899994
+              },
+              {
+                "x": 518.8811832592,
+                "y": 503.00561944899994
+              }
+            ],
+            "handle": "EF",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 518.8811832592,
+                "y": 503.00561944899994
+              },
+              {
+                "x": 518.8811832592,
+                "y": 419.9568507128
+              }
+            ],
+            "handle": "F0",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 518.8811832592,
+                "y": 419.9568507128
+              },
+              {
+                "x": 582.5679440529002,
+                "y": 473.2587689541
+              }
+            ],
+            "handle": "F1",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 582.5679440529002,
+                "y": 473.2587689541
+              },
+              {
+                "x": 729.0026339410001,
+                "y": 298.2941265076
+              }
+            ],
+            "handle": "F2",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 748.3712388980002,
+                "y": 244.974047261
+              },
+              {
+                "x": 748.3712388980002,
+                "y": 0
+              }
+            ],
+            "handle": "F3",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 598.1105420711001,
+                "y": 0
+              },
+              {
+                "x": 748.3712388980002,
+                "y": 0
+              }
+            ],
+            "handle": "F4",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 665.2941738232003,
+                "y": 244.974047261
+              },
+              {
+                "x": 748.3712388980002,
+                "y": 244.974047261
+              }
+            ],
+            "handle": "F5",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "LINE",
+            "vertices": [
+              {
+                "x": 729.0026339410001,
+                "y": 298.2941265076
+              },
+              {
+                "x": 665.2941738232003,
+                "y": 244.974047261
+              }
+            ],
+            "handle": "F6",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous"
+          },
+          {
+            "type": "ARC",
+            "handle": "F7",
+            "layer": "0",
+            "colorIndex": 7,
+            "color": 16777215,
+            "lineweight": 25,
+            "lineTypeScale": 1,
+            "lineType": "Continuous",
+            "center": {
+              "x": 374.1856194490001,
+              "y": 50.0786131893
+            },
+            "radius": 250.6238423427136,
+            "startAngle": 0.1854859720526782,
+            "endAngle": 2.956106681537115,
+            "angleLength": 2.7706207094844366
+          }
+        ]
+      }
+    },
+    "width": 748.3712388980002,
+    "height": 503.00561944899994,
+    "grossArea": 376434.9385997041,
+    "netArea": 282.5469892822292,
+    "quantity": 1,
+    "pedido": "15",
+    "op": "",
+    "material": "Galvanizado",
+    "espessura": "Chapa #24 (0,60mm)",
+    "autor": "Matheus Ribeiro",
+    "dataCadastro": "2026-02-13T00:52:01.414Z",
+    "hasOpenGeometry": false
+  }
+]
