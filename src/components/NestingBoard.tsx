@@ -931,7 +931,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       // ⬇️ Comparação Inteligente (Ignora espaços)
       const matchMaterial =
         !filters.material || clean(p.material) === filters.material;
-      
+
       const matchEspessura =
         !filters.espessura || clean(p.espessura) === filters.espessura;
       // ⬆️ ------------------------------------
@@ -1195,7 +1195,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   // ... (outros useEffects)
 
- // =====================================================================
+  // =====================================================================
   // --- NOVO: SINCRONIZAR FILTRO COM A MESA DE CORTE ---
   // =====================================================================
   useEffect(() => {
@@ -1212,10 +1212,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           const cleanThick = String(partInfo.espessura || "").trim();
 
           // 2. USA as variáveis na comparação (Aqui estava o erro: você devia estar usando partInfo ainda)
-          if (
-            prev.material !== cleanMat ||
-            prev.espessura !== cleanThick
-          ) {
+          if (prev.material !== cleanMat || prev.espessura !== cleanThick) {
             // 3. USA as variáveis na atualização
             return {
               ...prev,
@@ -1228,7 +1225,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       }
     }
   }, [nestingResult, parts]);
-
 
   // --- 4. EFEITOS (COM SEGURANÇA AGORA) ---
   useEffect(() => {
@@ -1482,19 +1478,23 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     // 3. Verifica se houve um conflito
     // ⬇️ CORREÇÃO: Função auxiliar para limpar espaços invisíveis
     const clean = (val: string) => String(val || "").trim();
-    
+
     // 3. Verifica se houve um conflito (Comparando limpo com limpo)
     // Se o filtro estiver vazio, não há conflito.
     const materialConflict =
-      filters.material && clean(filters.material) !== clean(partOnTable.material);
-      
+      filters.material &&
+      clean(filters.material) !== clean(partOnTable.material);
+
     const thicknessConflict =
-      filters.espessura && clean(filters.espessura) !== clean(partOnTable.espessura);
+      filters.espessura &&
+      clean(filters.espessura) !== clean(partOnTable.espessura);
 
     // 4. Se houver conflito REAL, reseta tudo
     if (materialConflict || thicknessConflict) {
       console.log("♻️ Filtro alterado: Limpando mesa incompatível...");
-      console.log(`Filtro: '${filters.material}' vs Peça: '${partOnTable.material}'`);
+      console.log(
+        `Filtro: '${filters.material}' vs Peça: '${partOnTable.material}'`,
+      );
 
       resetNestingResult([]);
       setTotalBins(1);
@@ -2264,50 +2264,59 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     e.dataTransfer.effectAllowed = "copy";
   };
 
-
   // [NestingBoard.tsx] - Adicione esta função junto com os outros handlers
 
-const handleDeleteOrder = useCallback(async (pedidoToDelete: string) => {
-  if (!window.confirm(`TEM CERTEZA?\n\nIsso excluirá PERMANENTEMENTE o pedido "${pedidoToDelete}" e todas as suas peças do banco de dados.\n\nContinuar?`)) {
-    return;
-  }
+  const handleDeleteOrder = useCallback(
+    async (pedidoToDelete: string) => {
+      if (
+        !window.confirm(
+          `TEM CERTEZA?\n\nIsso excluirá PERMANENTEMENTE o pedido "${pedidoToDelete}" e todas as suas peças do banco de dados.\n\nContinuar?`,
+        )
+      ) {
+        return;
+      }
 
-  if (!user || !user.token) return;
+      if (!user || !user.token) return;
 
-  try {
-    const encodedPedido = encodeURIComponent(pedidoToDelete);
-    const response = await fetch(`http://localhost:3001/api/pedidos/${encodedPedido}`, {
-      method: "DELETE",
-      headers: {
-        "Authorization": `Bearer ${user.token}`,
-      },
-    });
+      try {
+        const encodedPedido = encodeURIComponent(pedidoToDelete);
+        const response = await fetch(
+          `http://localhost:3001/api/pedidos/${encodedPedido}`,
+          {
+            method: "DELETE",
+            headers: {
+              Authorization: `Bearer ${user.token}`,
+            },
+          },
+        );
 
-    const data = await response.json();
+        const data = await response.json();
 
-    if (!response.ok) {
-      // Mostra a mensagem de erro vinda do backend (ex: Permissão Negada)
-      alert(`❌ ERRO: ${data.message || data.error}`);
-      return;
-    }
+        if (!response.ok) {
+          // Mostra a mensagem de erro vinda do backend (ex: Permissão Negada)
+          alert(`❌ ERRO: ${data.message || data.error}`);
+          return;
+        }
 
-    // Sucesso: Removemos o pedido da lista visualmente sem precisar recarregar
-    setAvailableOrders((prev) => prev.filter((o) => o.pedido !== pedidoToDelete));
-    
-    // Se o pedido estava selecionado na busca, removemos ele do input também
-    setSearchQuery((prev) => {
-      const parts = prev.split(",").map(s => s.trim());
-      return parts.filter(p => p !== pedidoToDelete).join(", ");
-    });
+        // Sucesso: Removemos o pedido da lista visualmente sem precisar recarregar
+        setAvailableOrders((prev) =>
+          prev.filter((o) => o.pedido !== pedidoToDelete),
+        );
 
-    alert("✅ Pedido excluído com sucesso!");
+        // Se o pedido estava selecionado na busca, removemos ele do input também
+        setSearchQuery((prev) => {
+          const parts = prev.split(",").map((s) => s.trim());
+          return parts.filter((p) => p !== pedidoToDelete).join(", ");
+        });
 
-  } catch (error) {
-    console.error(error);
-    alert("Erro de conexão ao tentar excluir.");
-  }
-}, [user, setAvailableOrders, setSearchQuery]);
-
+        alert("✅ Pedido excluído com sucesso!");
+      } catch (error) {
+        console.error(error);
+        alert("Erro de conexão ao tentar excluir.");
+      }
+    },
+    [user, setAvailableOrders, setSearchQuery],
+  );
 
   const handleExternalDrop = useCallback(
     (partId: string, x: number, y: number) => {
@@ -2887,114 +2896,123 @@ const handleDeleteOrder = useCallback(async (pedidoToDelete: string) => {
                               background: isOrderChecked
                                 ? "rgba(0,123,255,0.05)"
                                 : "transparent",
-                              justifyContent: "space-between" // Garante espaçamento para o botão da direita  
+                              justifyContent: "space-between", // Garante espaçamento para o botão da direita
+                              cursor: "pointer", // O cursor agora indica que a linha toda é clicável
+                              userSelect: "none", // Evita seleção de texto acidental ao clicar rápido
                             }}
+                            onClick={() =>
+                              toggleOrderSelection(orderData.pedido)
+                            }
                           >
-                          {/* ESQUERDA: Toggle + Checkbox + Nome */}
-  <div style={{ display: "flex", alignItems: "center", flex: 1 }}>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleExpandOrder(orderData.pedido);
-                              }}
+                            {/* ESQUERDA: Toggle + Checkbox + Nome */}
+                            <div
                               style={{
-                                marginRight: "8px",
-                                border: "none",
-                                background: "transparent",
-                                cursor: "pointer",
-                                fontWeight: "bold",
-                                color: theme.label,
-                                visibility: hasOps ? "visible" : "hidden",
-                                width: "20px",
-                                fontSize: "10px",
-                              }}
-                            >
-                              {isExpanded ? "▼" : "▶"}
-                            </button>
-
-                            <input
-                              type="checkbox"
-                              checked={isOrderChecked}
-                              onChange={() =>
-                                toggleOrderSelection(orderData.pedido)
-                              }
-                              style={{
-                                marginRight: "8px",
-                                cursor: "pointer",
-                              }}
-                            />
-
-                            <span
-                              style={{
-                                fontWeight: "bold",
-                                fontSize: "13px",
-                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
                                 flex: 1,
-                                color: theme.text,
                               }}
-                              onClick={() =>
-                                toggleExpandOrder(orderData.pedido)
-                              }
                             >
-                              Pedido {orderData.pedido}
-                              <span
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleExpandOrder(orderData.pedido);
+                                }}
                                 style={{
-                                  fontSize: "11px",
-                                  fontWeight: "normal",
-                                  marginLeft: "6px",
-                                  opacity: 0.7,
+                                  marginRight: "8px",
+                                  border: "none",
+                                  background: "transparent",
+                                  cursor: "pointer",
+                                  fontWeight: "bold",
+                                  color: theme.label,
+                                  visibility: hasOps ? "visible" : "hidden",
+                                  width: "20px",
+                                  fontSize: "10px",
+                                  padding: "4px", // Aumenta um pouco a área de clique da seta
                                 }}
                               >
-                                ({orderData.ops.length} OPs)
-                              </span>
-                            </span>
-                          </div>
+                                {isExpanded ? "▼" : "▶"}
+                              </button>
 
-                          {/* DIREITA: BOTÃO DE DELETAR */}
-  <button
-    onClick={(e) => {
-      e.stopPropagation(); // Não expandir/selecionar ao clicar na lixeira
-      handleDeleteOrder(orderData.pedido);
-    }}
-    title="Excluir pedido do banco de dados"
-    style={{
-      background: "transparent",
-      border: "none",
-      cursor: "pointer",
-      color: "#dc3545", // Vermelho
-      padding: "4px 8px",
-      borderRadius: "4px",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      opacity: 0.7,
-      transition: "all 0.2s"
-    }}
-    onMouseEnter={(e) => {
-      e.currentTarget.style.background = "rgba(220, 53, 69, 0.1)";
-      e.currentTarget.style.opacity = "1";
-    }}
-    onMouseLeave={(e) => {
-      e.currentTarget.style.background = "transparent";
-      e.currentTarget.style.opacity = "0.7";
-    }}
-  >
-    {/* Ícone de Lixeira SVG */}
-    <svg 
-      width="14" 
-      height="14" 
-      viewBox="0 0 24 24" 
-      fill="none" 
-      stroke="currentColor" 
-      strokeWidth="2" 
-      strokeLinecap="round" 
-      strokeLinejoin="round"
-    >
-      <polyline points="3 6 5 6 21 6"></polyline>
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-    </svg>
-  </button>
-</div>
+                              <input
+                                type="checkbox"
+                                checked={isOrderChecked}
+                                onChange={() => {}} // O onClick da div pai já resolve isso
+                                style={{
+                                  marginRight: "8px",
+                                  cursor: "pointer",
+                                  pointerEvents: "none", // O clique passa direto para a div pai (opcional, mas bom para UX)
+                                }}
+                              />
+
+                              <span
+                                style={{
+                                  fontWeight: "bold",
+                                  fontSize: "13px",                                 
+                                  color: theme.text,
+                                }}
+                                
+                              >
+                                Pedido {orderData.pedido}
+                                <span
+                                  style={{
+                                    fontSize: "11px",
+                                    fontWeight: "normal",
+                                    marginLeft: "6px",
+                                    opacity: 0.7,
+                                  }}
+                                >
+                                  ({orderData.ops.length} OPs)
+                                </span>
+                              </span>
+                            </div>
+
+                            {/* DIREITA: BOTÃO DE DELETAR */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation(); // Não expandir/selecionar ao clicar na lixeira
+                                handleDeleteOrder(orderData.pedido);
+                              }}
+                              title="Excluir pedido do banco de dados"
+                              style={{
+                                background: "transparent",
+                                border: "none",
+                                cursor: "pointer",
+                                color: "#dc3545", // Vermelho
+                                padding: "4px 8px",
+                                borderRadius: "4px",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                opacity: 0.7,
+                                transition: "all 0.2s",
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background =
+                                  "rgba(220, 53, 69, 0.1)";
+                                e.currentTarget.style.opacity = "1";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background =
+                                  "transparent";
+                                e.currentTarget.style.opacity = "0.7";
+                              }}
+                            >
+                              {/* Ícone de Lixeira SVG */}
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                              </svg>
+                            </button>
+                          </div>
 
                           {/* LISTA DE OPs (FILHOS) */}
                           {isExpanded && hasOps && (
