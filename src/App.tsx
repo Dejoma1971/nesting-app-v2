@@ -78,6 +78,22 @@ function ProtectedApp() {
     setCurrentScreen("nesting");
   };
 
+  // ⬇️ --- [NOVO] FUNÇÃO PARA RECEBER PEÇAS PARA EDIÇÃO --- ⬇️
+  // Esta função é chamada pelo NestingBoard quando o usuário clica no "Lápis"
+  const handleEditOrder = (partsToEdit: ImportedPart[]) => {
+    console.log("🔄 Recebendo pedido para edição na Engenharia:", partsToEdit.length, "peças");
+    
+    // 1. Carrega as peças no estado da Engenharia
+    setEngineeringParts(partsToEdit);
+    
+    // 2. Limpa o estado do Nesting (opcional, mas bom para evitar confusão)
+    setPartsForNesting([]); 
+    
+    // 3. Redireciona para a tela de Engenharia
+    setCurrentScreen("engineering");
+  };
+  // ⬆️ ----------------------------------------------------- ⬆️
+
   return (
     <>
       {currentScreen === "home" && (
@@ -105,6 +121,7 @@ function ProtectedApp() {
           onNavigate={(screen) => setCurrentScreen(screen)}
           onBack={() => setCurrentScreen("engineering")}
           onOpenTeam={() => setIsTeamModalOpen(true)}
+          onEditOrder={handleEditOrder}
         />
       )}
       {currentScreen === "dashboard" && (
