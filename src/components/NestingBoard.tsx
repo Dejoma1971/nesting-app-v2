@@ -379,7 +379,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   // --- NOVO: Estado para bloquear recursos do Trial ---
   const [isTrial, setIsTrial] = useState(false);
-  const [isRestoring, setIsRestoring] = useState(true); // Começa carregando
+  
   // Estado para controlar o modal da equipe
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
 
@@ -393,6 +393,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // ⬆️ ----------------------------------------------------------- ⬆️
 
   const [viewKey, setViewKey] = useState(0); // Controla o reset visual do Canvas
+
+  const [isRestoring, setIsRestoring] = useState(true);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -648,27 +650,28 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   );
 
   // --- EFEITO: RESTAURAÇÃO DE ESTADO (AUTO-LOAD) ---
-  // --- EFEITO: RESTAURAÇÃO DE ESTADO (AUTO-LOAD) ---
-  useEffect(() => {
-    // Função interna para gerenciar o fluxo assíncrono visual
-    const restoreSession = async () => {
-      // Pequeno delay para garantir que o React renderize a tela de "Carregando"
-      await new Promise((resolve) => setTimeout(resolve, 200));
+  // [NestingBoard.tsx]
 
-      // Cenário A: Usuário veio da Engenharia com peças novas (Prioridade)
+  // --- EFEITO: RESTAURAÇÃO DE ESTADO (SEM DELAY E SEM TELA BRANCA) ---
+  // [NestingBoard.tsx]
+
+  // --- EFEITO: RESTAURAÇÃO DE ESTADO ---
+  useEffect(() => {
+    const restoreSession = () => {
+      // Cenário A: Veio da Engenharia (Prioridade)
       if (initialParts && initialParts.length > 0) {
-        setIsRestoring(false); // Libera a tela
+        setIsRestoring(false); // Libera a tela imediatamente
         return;
       }
 
-      // Cenário B: Tenta restaurar do backup
+      // Cenário B: Tenta restaurar do LocalStorage
       const savedData = loadSavedState();
 
       if (savedData && !isTrial) {
         if (savedData.parts.length > 0 || savedData.nestingResult.length > 0) {
-          console.log("Restaurando sessão anterior...");
-
-          // Batch updates
+          console.log("Restaurando sessão...");
+          
+          // Carrega todos os dados
           setParts(savedData.parts);
           setQuantities(savedData.quantities);
           setNestingResult(savedData.nestingResult);
@@ -676,38 +679,22 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           setTotalBins(savedData.totalBins);
           setCurrentBinIndex(savedData.currentBinIndex);
           if (setCropLines) setCropLines(savedData.cropLines);
-
-          // --- INSERIR ESTE BLOCO NOVO AQUI ---
-          if (savedData.labelStates) {
-            setLabelStates(savedData.labelStates);
-          }
-          // ------------------------------------
-
-          // Restaura o tempo de cálculo (Densidade)
-          if (savedData.calculationTime !== undefined) {
-            setCalculationTime(savedData.calculationTime);
-          }
+          if (savedData.labelStates) setLabelStates(savedData.labelStates);
+          if (savedData.calculationTime !== undefined) setCalculationTime(savedData.calculationTime);
         }
-      } // <--- ESTE FECHAMENTO ESTAVA FALTANDO (Fecha o if !isTrial)
-
-      // Finaliza o loading independente se achou dados ou não
+      }
+      
+      // FINALMENTE: Desliga o loader (mesmo se não tiver dados)
       setIsRestoring(false);
     };
 
-    restoreSession();
+    // Pequeno timeout (0ms ou 50ms) ajuda a garantir que o navegador renderize o loader antes de travar processando o JSON
+    setTimeout(restoreSession, 50);
+
   }, [
-    initialParts,
-    isTrial,
-    loadSavedState,
-    setParts,
-    setQuantities,
-    setNestingResult,
-    setBinSize,
-    setTotalBins,
-    setCurrentBinIndex,
-    setCropLines,
-    setCalculationTime, // Adicionei setCalculationTime nas dependências também por segurança
-    setLabelStates,
+    initialParts, isTrial, loadSavedState, setParts, setQuantities, 
+    setNestingResult, setBinSize, setTotalBins, setCurrentBinIndex, 
+    setCropLines, setCalculationTime, setLabelStates
   ]);
 
   const {
@@ -2780,53 +2767,48 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // }, [nestingResult, parts, binSize, user]);
 
   return (
-    <div style={containerStyle}>
-      {/* --- TELA DE CARREGAMENTO (LOADING OVERLAY) --- */}
-      {isRestoring && (
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            backgroundColor: "rgba(255, 255, 255, 0.9)", // Fundo branco semi-transparente
-            zIndex: 9999, // Fica acima de tudo
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
-            alignItems: "center",
-            color: "#333",
-          }}
-        >
-          {/* Animação CSS simples */}
-          <style>
-            {`
-              @keyframes spin-large {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-              }
-            `}
-          </style>
-          <div
-            style={{
-              width: "50px",
-              height: "50px",
-              border: "5px solid #e0e0e0",
-              borderTop: "5px solid #007bff",
-              borderRadius: "50%",
-              animation: "spin-large 1s linear infinite",
-              marginBottom: "20px",
-            }}
+  <>
+    {/* 3. BLOQUEIO DE TELA (LOADING LARANJA) */}
+    {isRestoring && (
+      <div
+        style={{
+          height: "100vh",
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "column",
+          background: "#1e1e1e", // Mesmo fundo escuro do AppLoader
+          color: "#e0e0e0",
+          position: "fixed",
+          top: 0,
+          left: 0,
+          zIndex: 99999, // Garante que fique acima de tudo
+        }}
+      >
+        <style>{`
+          @keyframes rotate { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+          .app-loader-ring { animation: rotate 1s linear infinite; transform-origin: center; }
+        `}</style>
+        <svg width="60" height="60" viewBox="0 0 512 512" fill="none">
+          <path d="M256 32L210 160H302L256 32Z" fill="#fd7e14" />
+          <circle
+            cx="256"
+            cy="256"
+            r="80"
+            stroke="#fd7e14"
+            strokeWidth="20"
+            strokeDasharray="300"
+            className="app-loader-ring"
           />
-          <h2 style={{ fontSize: "24px", margin: 0 }}>
-            Restaurando sua mesa...
-          </h2>
-          <p style={{ color: "#666", marginTop: "10px" }}>
-            Isso pode levar alguns segundos.
-          </p>
-        </div>
-      )}
+          <path d="M256 480L302 352H210L256 480Z" fill="#fd7e14" />
+        </svg>
+        <p style={{ marginTop: 20, fontSize: "0.9rem", opacity: 0.7 }}>
+          Restaurando sessão...
+        </p>
+      </div>
+    )}   
+    <div style={containerStyle}>    
 
       {/* ========================================================= */}
       {/* INÍCIO DO MODAL DE BUSCA (ATUALIZADO E CORRIGIDO)         */}
@@ -5222,5 +5204,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         theme={theme}
       />
     </div>
+   </> 
   );
 };
