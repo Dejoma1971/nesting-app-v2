@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { DashboardScreen } from "./components/DashboardScreen";
+import { useState, useEffect, lazy, Suspense } from "react";
+
 import {
   BrowserRouter,
   Routes,
@@ -10,16 +10,11 @@ import {
 
 // Componentes
 import { Home } from "./components/Home";
-import { DxfReader } from "./components/DxfReader";
-import { EngineeringScreen } from "./components/EngineeringScreen";
+
 import { LoginScreen } from "./components/LoginScreen";
 import { RegisterScreen } from "./components/RegisterScreen";
 import { LandingPage } from "./components/LandingPage"; // <--- Novo
 import { TeamManagementScreen } from "./components/TeamManagementScreen"; // <--- 1. IMPORTE O MODAL
-import { PostProcessorScreen } from "./postProcessador/PostProcessorScreen";
-
-
-
 // Tipos
 import type { ImportedPart } from "./components/types";
 
@@ -36,6 +31,52 @@ type ScreenType =
   | "nesting"
   | "dashboard"
   | "postprocessor";
+
+  // --- COMPONENTE DE LOADING (Igual ao Splash Screen) ---
+const AppLoader = () => (
+  <div style={{
+    height: "100vh",
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "column",
+    background: "#1e1e1e",
+    color: "#e0e0e0"
+  }}>
+    <style>{`
+      @keyframes rotate { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+      .app-loader-ring { animation: rotate 1s linear infinite; transform-origin: center; }
+    `}</style>
+    <svg width="60" height="60" viewBox="0 0 512 512" fill="none">
+      <path d="M256 32L210 160H302L256 32Z" fill="#fd7e14" />
+      <circle cx="256" cy="256" r="80" stroke="#fd7e14" strokeWidth="20" strokeDasharray="300" className="app-loader-ring" />
+      <path d="M256 480L302 352H210L256 480Z" fill="#fd7e14" />
+    </svg>
+    <p style={{ marginTop: 20, fontSize: "0.9rem", opacity: 0.7 }}>Carregando módulo...</p>
+  </div>
+);
+
+// --- IMPORTS LAZY (Carregamento sob demanda) ---
+// Substitua os imports estáticos do topo por estes:
+
+const EngineeringScreen = lazy(() => 
+  import("./components/EngineeringScreen").then(module => ({ default: module.EngineeringScreen }))
+);
+
+const DxfReader = lazy(() => 
+  import("./components/DxfReader").then(module => ({ default: module.DxfReader }))
+);
+
+const DashboardScreen = lazy(() => 
+  import("./components/DashboardScreen").then(module => ({ default: module.DashboardScreen }))
+);
+
+const PostProcessorScreen = lazy(() => 
+  import("./postProcessador/PostProcessorScreen").then(module => ({ default: module.PostProcessorScreen }))
+);
+
+// ---------------------------------------------------------
 
 // =================================================================
 // 1. COMPONENTE DO SISTEMA INTERNO (PROTEGIDO)
@@ -94,55 +135,62 @@ function ProtectedApp() {
   };
   // ⬆️ ----------------------------------------------------- ⬆️
 
+  // [App.tsx] - Dentro de ProtectedApp, no return:
+
   return (
     <>
+      {/* A HOME CONTINUA FORA DO SUSPENSE (Carrega Instantaneamente) */}
       {currentScreen === "home" && (
         <Home
           onNavigate={(screen) => setCurrentScreen(screen)}
-          onOpenTeam={() => setIsTeamModalOpen(true)} // <--- CONECTADO
-        />
-      )}
-
-      {currentScreen === "engineering" && (
-        <EngineeringScreen
-          parts={engineeringParts}
-          setParts={setEngineeringParts}
-          onBack={goHome}
-          onSendToNesting={handleSendToNesting}
-          onOpenTeam={() => setIsTeamModalOpen(true)}
-          onNavigate={(screen) => setCurrentScreen(screen)}
-        />
-      )}
-
-      {currentScreen === "nesting" && (
-        <DxfReader
-          preLoadedParts={partsForNesting}
-          autoSearchQuery={initialSearchQuery}
-          onNavigate={(screen) => setCurrentScreen(screen)}
-          onBack={() => setCurrentScreen("engineering")}
-          onOpenTeam={() => setIsTeamModalOpen(true)}
-          onEditOrder={handleEditOrder}
-        />
-      )}
-      {currentScreen === "dashboard" && (
-        <DashboardScreen
-          onNavigate={(screen) => setCurrentScreen(screen)}
           onOpenTeam={() => setIsTeamModalOpen(true)}
         />
       )}
 
-      {/* --- ADICIONE ESTE BLOCO AQUI --- */}
-      {/* AQUI ESTÁ A MUDANÇA: O componente real agora é chamado */}
-      {currentScreen === "postprocessor" && (
-        <PostProcessorScreen 
-          onBack={() => setCurrentScreen("home")} 
-          // 👇 Correção: Passando as props obrigatórias
-          placedParts={[]} // Passamos vazio por enquanto para corrigir o erro
-          allParts={partsForNesting} // Passamos as peças carregadas na memória
-        />
-      )}
+      {/* ⬇️ --- ENVOLVER AS OUTRAS TELAS COM SUSPENSE --- ⬇️ */}
+      <Suspense fallback={<AppLoader />}>
+        
+        {currentScreen === "engineering" && (
+          <EngineeringScreen
+            parts={engineeringParts}
+            setParts={setEngineeringParts}
+            onBack={goHome}
+            onSendToNesting={handleSendToNesting}
+            onOpenTeam={() => setIsTeamModalOpen(true)}
+            onNavigate={(screen) => setCurrentScreen(screen)}
+          />
+        )}
 
-      {/* 4. O MODAL FLUTUANTE (Renderiza em cima de tudo se estiver true) */}
+        {currentScreen === "nesting" && (
+          <DxfReader
+            preLoadedParts={partsForNesting}
+            autoSearchQuery={initialSearchQuery}
+            onNavigate={(screen) => setCurrentScreen(screen)}
+            onBack={() => setCurrentScreen("engineering")}
+            onOpenTeam={() => setIsTeamModalOpen(true)}
+            onEditOrder={handleEditOrder}
+          />
+        )}
+        
+        {currentScreen === "dashboard" && (
+          <DashboardScreen
+            onNavigate={(screen) => setCurrentScreen(screen)}
+            onOpenTeam={() => setIsTeamModalOpen(true)}
+          />
+        )}
+
+        {currentScreen === "postprocessor" && (
+          <PostProcessorScreen 
+            onBack={() => setCurrentScreen("home")} 
+            placedParts={[]} 
+            allParts={partsForNesting} 
+          />
+        )}
+
+      </Suspense>
+      {/* ⬆️ ---------------------------------------------- ⬆️ */}
+
+      {/* 4. O MODAL FLUTUANTE */}
       {isTeamModalOpen && (
         <TeamManagementScreen onClose={() => setIsTeamModalOpen(false)} />
       )}
