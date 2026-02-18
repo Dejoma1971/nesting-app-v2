@@ -149,6 +149,8 @@ export const LandingPage: React.FC = () => {
         color: theme.text,
         fontFamily: "'Segoe UI', Roboto, sans-serif",
         position: "relative",
+        userSelect: "none", // <--- ADICIONE ESTA LINHA
+        WebkitUserSelect: "none", // <--- E ESTA
       }}
     >
       <CNCBackground />

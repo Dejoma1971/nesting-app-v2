@@ -2589,6 +2589,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     width: "100%",
     background: theme.bg,
     color: theme.text,
+    userSelect: "none", // <--- ADICIONE ESTA LINHA
+    WebkitUserSelect: "none", // Para garantir compatibilidade com Safari/Chrome antigos
   };
   const topBarStyle: React.CSSProperties = {
     padding: "5px 20px",
@@ -3013,6 +3015,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                           key={orderData.pedido}
                           style={{
                             borderBottom: `1px solid ${theme.hoverRow}`,
+                            userSelect: "none",
                           }}
                         >
                           {/* LINHA DO PEDIDO (PAI) */}

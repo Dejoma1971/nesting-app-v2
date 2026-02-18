@@ -76,6 +76,8 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
     fontFamily: "Segoe UI, Roboto, Helvetica, Arial, sans-serif",
     transition: "0.3s",
     overflowY: "auto", // Garante scroll se a tela for pequena
+    userSelect: "none", // <--- ADICIONE ESTA LINHA
+    WebkitUserSelect: "none", // <--- E ESTA (para Safari/Chrome antigos)
   };
 
   const cardsContainerStyle: React.CSSProperties = {

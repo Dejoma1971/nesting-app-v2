@@ -619,6 +619,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     background: theme.bg,
     color: theme.text,
     fontFamily: "Arial",
+    userSelect: "none", // <--- ADICIONE ESTA LINHA
+    WebkitUserSelect: "none",
   };
   const batchContainerStyle: React.CSSProperties = {
     display: "flex",
