@@ -783,12 +783,12 @@ app.get("/api/pedidos/disponiveis", authenticateToken, async (req, res) => {
         AND pe.status = 'AGUARDANDO' 
         AND pe.pedido IS NOT NULL 
         AND pe.pedido != '' 
-        AND (pe.nome_arquivo, pe.data_cadastro) IN (
-            SELECT nome_arquivo, MAX(data_cadastro)
-            FROM pecas_engenharia
-            WHERE empresa_id = ?
-            GROUP BY nome_arquivo
-        )
+        AND (pe.pedido, pe.nome_arquivo, pe.data_cadastro) IN (
+        SELECT pedido, nome_arquivo, MAX(data_cadastro)
+        FROM pecas_engenharia
+        WHERE empresa_id = ?
+        GROUP BY pedido, nome_arquivo
+      )
       ORDER BY pe.pedido DESC, pe.op ASC
     `;
 

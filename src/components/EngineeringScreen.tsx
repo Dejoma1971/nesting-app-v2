@@ -45,7 +45,15 @@ const PRODUCTION_TYPES = [
 
 // ⬇️ --- 2. ADICIONE ESTE COMPONENTE AUXILIAR (FORA DA FUNÇÃO PRINCIPAL) --- ⬇️
 // Este componente cria o "envelope" arrastável mantendo seus estilos originais
-const SortablePart = ({ id, style, className, children, ...props }: any) => {
+// Adicionamos o idHtml na desestruturação para tirá-lo do ...props
+const SortablePart = ({
+  id,
+  idHtml,
+  style,
+  className,
+  children,
+  ...props
+}: any) => {
   const {
     attributes,
     listeners,
@@ -56,22 +64,23 @@ const SortablePart = ({ id, style, className, children, ...props }: any) => {
   } = useSortable({ id });
 
   const combinedStyle = {
-    ...style, // Mantém o estilo original do seu Card
+    ...style,
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1, // Fica meio transparente quando arrasta
-    zIndex: isDragging ? 999 : style.zIndex, // Garante que a peça flutue por cima
-    touchAction: "none", // Importante para evitar scroll enquanto arrasta no touch
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 999 : style.zIndex,
+    touchAction: "none",
   };
 
   return (
     <div
+      id={idHtml} // <--- Aplicamos como o atributo HTML 'id' real
       ref={setNodeRef}
       style={combinedStyle}
       className={className}
       {...attributes}
       {...listeners}
-      {...props}
+      {...props} // Agora o idHtml não está mais aqui para sujar a div!
     >
       {children}
     </div>
@@ -147,20 +156,17 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
 
   const { parts, onBack, onOpenTeam } = props as any;
 
-  // ⬇️ --- [INSERÇÃO CIRÚRGICA] PREENCHIMENTO AUTOMÁTICO DO AUTOR --- ⬇️
+  // ⬇️ --- PREENCHIMENTO AUTOMÁTICO DO AUTOR --- ⬇️
   React.useEffect(() => {
-    // Se o usuário está logado (tem nome) e o campo autor está vazio...
-    if (
-      user &&
-      user.name &&
-      (!batchDefaults.autor || batchDefaults.autor === "")
-    ) {
-      console.log("👤 Definindo autor automático:", user.name);
+    // Se temos o nome do usuário, mas o lote ainda não tem autor definido...
+    if (user?.name && !batchDefaults.autor) {
+      console.log("👤 Definindo autor automático na tela:", user.name);
       handleDefaultChange("autor", user.name);
     }
+    // Observamos especificamente o nome do usuário para carregar assim que o login resolver
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
-  // ⬆️ --------------------------------------------------------------- ⬆️
+  }, [user?.name]);
+  // ⬆️ ------------------------------------------ ⬆️
 
   // --- NOVO: EFEITO PARA DETECTAR GEOMETRIA ABERTA NO MODAL ---
   // CORREÇÃO: Removemos 'props.' e usamos as variáveis locais 'parts' e 'viewingPartId'
@@ -552,6 +558,12 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
       const partsFinal = partsToSave.map((part: any) => {
         // Garante padrão NORMAL se vazio
         if (!part.tipo_producao) part.tipo_producao = "NORMAL";
+
+        // ⬇️ --- CORREÇÃO AQUI: APLICAÇÃO AUTOMÁTICA DO AUTOR --- ⬇️
+        // Pega o valor que está no campo superior e injeta em todas as peças.
+        // Se por acaso estiver vazio, garante pelo menos o nome do usuário logado.
+        part.autor = batchDefaults.autor || user?.name || "Desconhecido";
+        // ⬆️ ---------------------------------------------------- ⬆️
 
         const key = `${part.pedido}|${part.name}`;
         const existsInDb = duplicadasNoBanco.some(
@@ -994,7 +1006,10 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   selectedIds.length > 0
                     ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
                     : "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("pedido", selectedIds, true), // <--- AQUI ESTÁ O SEGREDO
+                  () => {
+                    applyToAll("pedido", selectedIds, true);
+                    handleDefaultChange("pedido", ""); // <-- Limpa o campo
+                  },
                 )
               }
             >
@@ -1019,9 +1034,12 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 executeWithSessionConfirmation(
                   "applyAll",
                   selectedIds.length > 0
-                    ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
-                    : "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("op", selectedIds, true), // <--- AQUI ESTÁ O SEGREDO
+                    ? `Deseja aplicar esta OP nas ${selectedIds.length} peças selecionadas?`
+                    : "Deseja aplicar este valor de OP a todas as peças?",
+                  () => {
+                    applyToAll("op", selectedIds, true);
+                    handleDefaultChange("op", ""); // <-- Limpa o campo
+                  },
                 )
               }
             >
@@ -1090,9 +1108,12 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 executeWithSessionConfirmation(
                   "applyAll",
                   selectedIds.length > 0
-                    ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
-                    : "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("material", selectedIds, true), // <--- AQUI ESTÁ O SEGREDO
+                    ? `Deseja aplicar este MATERIAL nas ${selectedIds.length} peças selecionadas?`
+                    : "Deseja aplicar este valor de MATERIAL a todas as peças?",
+                  () => {
+                    applyToAll("material", selectedIds, true);
+                    handleDefaultChange("material", ""); // <-- Limpa o campo (volta para "Selecione...")
+                  },
                 )
               }
             >
@@ -1163,9 +1184,12 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 executeWithSessionConfirmation(
                   "applyAll",
                   selectedIds.length > 0
-                    ? `Deseja aplicar este PEDIDO nas ${selectedIds.length} peças selecionadas?`
-                    : "Deseja aplicar este valor de PEDIDO a todas as peças?",
-                  () => applyToAll("espessura", selectedIds, true), // <--- AQUI ESTÁ O SEGREDO
+                    ? `Deseja aplicar esta ESPESSURA nas ${selectedIds.length} peças selecionadas?`
+                    : "Deseja aplicar este valor de ESPESSURA a todas as peças?",
+                  () => {
+                    applyToAll("espessura", selectedIds, true);
+                    handleDefaultChange("espessura", ""); // <-- Limpa o campo (volta para "Selecione...")
+                  },
                 )
               }
             >
@@ -1209,7 +1233,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           </label>
           <input
             style={inputStyle}
-            value={batchDefaults.autor}
+            // Garante que mostre o nome do usuário como padrão se o batchDefaults ainda não estiver pronto
+            value={batchDefaults.autor !== undefined ? batchDefaults.autor : (user?.name || "")}
             onChange={(e) => handleDefaultChange("autor", e.target.value)}
             placeholder="Ex: Matheus"
           />
@@ -1235,6 +1260,11 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             type="file"
             accept=".dxf"
             multiple
+            onClick={(e) => {
+              // Zera o valor gravado no input toda vez que o usuário clica.
+              // Assim o navegador é forçado a disparar o onChange mesmo se for o mesmo arquivo.
+              (e.target as HTMLInputElement).value = "";
+            }}
             onChange={handleFileUpload}
             style={{ display: "none" }}
           />
@@ -1758,7 +1788,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                 const entColor =
                   entCount === 1
                     ? "#28a745"
-                    : entCount > 10
+                    : entCount > 1
                       ? "#ff4d4d"
                       : theme.label;
 
