@@ -24,6 +24,28 @@ export default defineConfig({
       ]
     })
   ],
+  // ⬇️ --- ADICIONE ESTE BLOCO 'build' --- ⬇️
+  build: {
+    chunkSizeWarningLimit: 1000, // Aumenta o limite do aviso para 1MB (reduz ruído)
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          // Separa bibliotecas de node_modules em arquivos diferentes (vendor chunks)
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
+              return 'vendor-react';
+            }
+            if (id.includes('@dnd-kit')) {
+              return 'vendor-dnd';
+            }
+            // O restante vai para um arquivo genérico
+            return 'vendor';
+          }
+        }
+      }
+    }
+  },
+  // ⬆️ ----------------------------------- ⬆️
   worker: {
     format: 'es',
   }

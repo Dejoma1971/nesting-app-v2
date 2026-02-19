@@ -1473,6 +1473,73 @@ app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, "../dist", "index.html"));
 });
 
+// [server.cjs] - ADICIONE ISTO ANTES DE app.listen(...)
+
+// --- EXCLUIR PEDIDO (COM VALIDAÇÃO DE ADMIN) ---
+app.delete("/api/pedidos/:pedido", authenticateToken, async (req, res) => {
+  const { pedido } = req.params;
+  const empresaId = req.user.empresa_id;
+  const userCargo = req.user.cargo; // 'admin' ou 'operador'
+
+  if (!pedido) return res.status(400).json({ error: "Pedido obrigatório." });
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 1. VERIFICA STATUS DAS PEÇAS DESSE PEDIDO
+    const [rows] = await connection.query(
+      `SELECT status FROM pecas_engenharia WHERE empresa_id = ? AND pedido = ?`,
+      [empresaId, pedido]
+    );
+
+    if (rows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: "Pedido não encontrado." });
+    }
+
+    // Verifica se existe alguma peça que NÃO esteja 'AGUARDANDO'
+    // (ex: 'EM PRODUÇÃO', 'CONCLUÍDO', 'SUBSTITUIDO')
+    const temPecasEmProducao = rows.some(r => r.status !== 'AGUARDANDO');
+
+    // 2. APLICA A REGRA DE NEGÓCIO
+    // Se tiver peças em produção e o usuário NÃO for admin, bloqueia.
+    if (temPecasEmProducao && userCargo !== 'admin') {
+      await connection.rollback();
+      return res.status(403).json({
+        error: "Permissão Negada",
+        message: "Este pedido possui itens em produção ou concluídos. Apenas Administradores podem excluí-lo."
+      });
+    }
+
+    // 3. EXECUTA A EXCLUSÃO
+    // Nota: Dependendo das suas chaves estrangeiras (Foreign Keys), 
+    // isso pode apagar o histórico de produção (cascade) ou dar erro.
+    // Assumindo que queremos limpar o cadastro atual:
+    await connection.query(
+      "DELETE FROM pecas_engenharia WHERE empresa_id = ? AND pedido = ?",
+      [empresaId, pedido]
+    );
+
+    await connection.commit();
+    res.json({ message: `Pedido ${pedido} excluído com sucesso.` });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error("Erro ao excluir pedido:", error);
+    // Tratamento para erro de Foreign Key (caso tenha histórico travado)
+    if (error.code && error.code.includes("ROW_IS_REFERENCED")) {
+       return res.status(409).json({ 
+         error: "Não é possível excluir", 
+         message: "Este pedido já possui histórico de produção vinculado e não pode ser apagado totalmente." 
+       });
+    }
+    res.status(500).json({ error: "Erro interno ao excluir pedido." });
+  } finally {
+    connection.release();
+  }
+});
+
 // ==========================================
 
 const PORT = process.env.PORT || 3001;

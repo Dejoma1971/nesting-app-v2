@@ -71,6 +71,20 @@ interface NestingBoardProps {
     screen: "home" | "engineering" | "nesting" | "dashboard",
   ) => void;
   onOpenTeam?: () => void; // <--- ADICIONE ESTA LINHA
+  onEditOrder?: (parts: ImportedPart[]) => void;
+}
+
+// [NestingBoard.tsx]
+interface NestingBoardProps {
+  initialParts: ImportedPart[];
+  initialSearchQuery?: string;
+  onBack?: () => void;
+  onNavigate?: (
+    screen: "home" | "engineering" | "nesting" | "dashboard",
+  ) => void;
+  onOpenTeam?: () => void;
+  // ⬇️ NOVO: Função para enviar peças para edição na Engenharia
+  onEditOrder?: (parts: ImportedPart[]) => void;
 }
 
 // --- FUNÇÃO AUXILIAR: GERAR COR BASEADA NO TEXTO (PEDIDO) ---
@@ -358,13 +372,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   onBack,
   onNavigate,
   onOpenTeam,
+  onEditOrder,
 }) => {
   // --- 2. PEGAR O USUÁRIO DO CONTEXTO DE SEGURANÇA ---
   const { user } = useAuth();
 
   // --- NOVO: Estado para bloquear recursos do Trial ---
   const [isTrial, setIsTrial] = useState(false);
-  const [isRestoring, setIsRestoring] = useState(true); // Começa carregando
+  
   // Estado para controlar o modal da equipe
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
 
@@ -378,6 +393,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // ⬆️ ----------------------------------------------------------- ⬆️
 
   const [viewKey, setViewKey] = useState(0); // Controla o reset visual do Canvas
+
+  const [isRestoring, setIsRestoring] = useState(true);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -633,27 +650,28 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   );
 
   // --- EFEITO: RESTAURAÇÃO DE ESTADO (AUTO-LOAD) ---
-  // --- EFEITO: RESTAURAÇÃO DE ESTADO (AUTO-LOAD) ---
-  useEffect(() => {
-    // Função interna para gerenciar o fluxo assíncrono visual
-    const restoreSession = async () => {
-      // Pequeno delay para garantir que o React renderize a tela de "Carregando"
-      await new Promise((resolve) => setTimeout(resolve, 200));
+  // [NestingBoard.tsx]
 
-      // Cenário A: Usuário veio da Engenharia com peças novas (Prioridade)
+  // --- EFEITO: RESTAURAÇÃO DE ESTADO (SEM DELAY E SEM TELA BRANCA) ---
+  // [NestingBoard.tsx]
+
+  // --- EFEITO: RESTAURAÇÃO DE ESTADO ---
+  useEffect(() => {
+    const restoreSession = () => {
+      // Cenário A: Veio da Engenharia (Prioridade)
       if (initialParts && initialParts.length > 0) {
-        setIsRestoring(false); // Libera a tela
+        setIsRestoring(false); // Libera a tela imediatamente
         return;
       }
 
-      // Cenário B: Tenta restaurar do backup
+      // Cenário B: Tenta restaurar do LocalStorage
       const savedData = loadSavedState();
 
       if (savedData && !isTrial) {
         if (savedData.parts.length > 0 || savedData.nestingResult.length > 0) {
-          console.log("Restaurando sessão anterior...");
-
-          // Batch updates
+          console.log("Restaurando sessão...");
+          
+          // Carrega todos os dados
           setParts(savedData.parts);
           setQuantities(savedData.quantities);
           setNestingResult(savedData.nestingResult);
@@ -661,38 +679,22 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           setTotalBins(savedData.totalBins);
           setCurrentBinIndex(savedData.currentBinIndex);
           if (setCropLines) setCropLines(savedData.cropLines);
-
-          // --- INSERIR ESTE BLOCO NOVO AQUI ---
-          if (savedData.labelStates) {
-            setLabelStates(savedData.labelStates);
-          }
-          // ------------------------------------
-
-          // Restaura o tempo de cálculo (Densidade)
-          if (savedData.calculationTime !== undefined) {
-            setCalculationTime(savedData.calculationTime);
-          }
+          if (savedData.labelStates) setLabelStates(savedData.labelStates);
+          if (savedData.calculationTime !== undefined) setCalculationTime(savedData.calculationTime);
         }
-      } // <--- ESTE FECHAMENTO ESTAVA FALTANDO (Fecha o if !isTrial)
-
-      // Finaliza o loading independente se achou dados ou não
+      }
+      
+      // FINALMENTE: Desliga o loader (mesmo se não tiver dados)
       setIsRestoring(false);
     };
 
-    restoreSession();
+    // Pequeno timeout (0ms ou 50ms) ajuda a garantir que o navegador renderize o loader antes de travar processando o JSON
+    setTimeout(restoreSession, 50);
+
   }, [
-    initialParts,
-    isTrial,
-    loadSavedState,
-    setParts,
-    setQuantities,
-    setNestingResult,
-    setBinSize,
-    setTotalBins,
-    setCurrentBinIndex,
-    setCropLines,
-    setCalculationTime, // Adicionei setCalculationTime nas dependências também por segurança
-    setLabelStates,
+    initialParts, isTrial, loadSavedState, setParts, setQuantities, 
+    setNestingResult, setBinSize, setTotalBins, setCurrentBinIndex, 
+    setCropLines, setCalculationTime, setLabelStates
   ]);
 
   const {
@@ -931,7 +933,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       // ⬇️ Comparação Inteligente (Ignora espaços)
       const matchMaterial =
         !filters.material || clean(p.material) === filters.material;
-      
+
       const matchEspessura =
         !filters.espessura || clean(p.espessura) === filters.espessura;
       // ⬆️ ------------------------------------
@@ -1195,7 +1197,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   // ... (outros useEffects)
 
- // =====================================================================
+  // =====================================================================
   // --- NOVO: SINCRONIZAR FILTRO COM A MESA DE CORTE ---
   // =====================================================================
   useEffect(() => {
@@ -1212,10 +1214,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           const cleanThick = String(partInfo.espessura || "").trim();
 
           // 2. USA as variáveis na comparação (Aqui estava o erro: você devia estar usando partInfo ainda)
-          if (
-            prev.material !== cleanMat ||
-            prev.espessura !== cleanThick
-          ) {
+          if (prev.material !== cleanMat || prev.espessura !== cleanThick) {
             // 3. USA as variáveis na atualização
             return {
               ...prev,
@@ -1228,7 +1227,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       }
     }
   }, [nestingResult, parts]);
-
 
   // --- 4. EFEITOS (COM SEGURANÇA AGORA) ---
   useEffect(() => {
@@ -1482,19 +1480,23 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     // 3. Verifica se houve um conflito
     // ⬇️ CORREÇÃO: Função auxiliar para limpar espaços invisíveis
     const clean = (val: string) => String(val || "").trim();
-    
+
     // 3. Verifica se houve um conflito (Comparando limpo com limpo)
     // Se o filtro estiver vazio, não há conflito.
     const materialConflict =
-      filters.material && clean(filters.material) !== clean(partOnTable.material);
-      
+      filters.material &&
+      clean(filters.material) !== clean(partOnTable.material);
+
     const thicknessConflict =
-      filters.espessura && clean(filters.espessura) !== clean(partOnTable.espessura);
+      filters.espessura &&
+      clean(filters.espessura) !== clean(partOnTable.espessura);
 
     // 4. Se houver conflito REAL, reseta tudo
     if (materialConflict || thicknessConflict) {
       console.log("♻️ Filtro alterado: Limpando mesa incompatível...");
-      console.log(`Filtro: '${filters.material}' vs Peça: '${partOnTable.material}'`);
+      console.log(
+        `Filtro: '${filters.material}' vs Peça: '${partOnTable.material}'`,
+      );
 
       resetNestingResult([]);
       setTotalBins(1);
@@ -2264,6 +2266,173 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     e.dataTransfer.effectAllowed = "copy";
   };
 
+  // [NestingBoard.tsx] - Adicione esta função junto com os outros handlers
+
+  // --- FUNÇÃO PARA DELETAR PEDIDO (COM TRAVA DE SEGURANÇA) ---
+  const handleDeleteOrder = useCallback(async (pedidoToDelete: string) => {
+    // 1. VALIDAÇÃO DE SEGURANÇA (IGUAL À EDIÇÃO)
+    
+    // A. Verifica se tem peças deste pedido na MESA DE CORTE
+    const hasOnTable = nestingResult.some(placed => {
+      // Busca a peça original na memória para conferir o número do pedido
+      const original = parts.find(p => p.id === placed.partId);
+      return original?.pedido === pedidoToDelete;
+    });
+
+    // B. Verifica se tem peças deste pedido na LISTA LATERAL
+    const hasInList = parts.some(p => p.pedido === pedidoToDelete);
+
+    // Se estiver em uso, BLOQUEIA e avisa
+    if (hasOnTable || hasInList) {
+      alert(
+        `⛔ AÇÃO BLOQUEADA\n\n` +
+        `O pedido "${pedidoToDelete}" está carregado na sua área de trabalho (na Mesa ou na Lista).\n\n` +
+        `Para evitar erros graves de sistema, você deve limpar essas peças da tela antes de excluir o pedido do banco de dados.\n` + 
+        `Dica: Use o botão "Reset" ou remova as peças manualmente.`
+      );
+      return; // <--- O CÓDIGO PARA AQUI
+    }
+
+    // 2. CONFIRMAÇÃO DO USUÁRIO (FLUXO NORMAL)
+    if (!window.confirm(
+      `TEM CERTEZA?\n\n` +
+      `Isso excluirá PERMANENTEMENTE o pedido "${pedidoToDelete}" e todas as suas peças do banco de dados.\n\n` +
+      `Essa ação não pode ser desfeita. Continuar?`
+    )) {
+      return;
+    }
+
+    if (!user || !user.token) return;
+
+    try {
+      const encodedPedido = encodeURIComponent(pedidoToDelete);
+      const response = await fetch(`http://localhost:3001/api/pedidos/${encodedPedido}`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${user.token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        alert(`❌ ERRO: ${data.message || data.error}`);
+        return;
+      }
+
+      // Sucesso: Removemos o pedido da lista visualmente
+      setAvailableOrders((prev) => prev.filter((o) => o.pedido !== pedidoToDelete));
+      
+      // Se o pedido estava selecionado no input de busca, removemos ele do texto
+      setSearchQuery((prev) => {
+        const parts = prev.split(",").map(s => s.trim());
+        return parts.filter(p => p !== pedidoToDelete).join(", ");
+      });
+
+      // Se esse pedido estava expandido na árvore, remove da lista de expandidos
+      setExpandedOrders(prev => prev.filter(p => p !== pedidoToDelete));
+
+      alert("✅ Pedido excluído com sucesso!");
+
+    } catch (error) {
+      console.error(error);
+      alert("Erro de conexão ao tentar excluir.");
+    }
+  }, [user, setAvailableOrders, setSearchQuery, nestingResult, parts]); 
+  // ⬆️ Adicionamos nestingResult e parts nas dependências do useCallback
+
+  // [NestingBoard.tsx] - Função de Edição com Travas de Segurança
+
+  const handleEditOrder = useCallback(
+    async (pedidoToEdit: string) => {
+      // 1. VALIDAÇÃO DE SEGURANÇA (TRAVA LOCAL)
+
+      // A. Verifica se tem peças deste pedido na MESA DE CORTE (Nesting)
+      const hasOnTable = nestingResult.some((placed) => {
+        // Busca a peça original para conferir o pedido
+        const original = parts.find((p) => p.id === placed.partId);
+        return original?.pedido === pedidoToEdit;
+      });
+
+      // B. Verifica se tem peças deste pedido no BANCO DE PEÇAS (Lista Lateral)
+      const hasInList = parts.some((p) => p.pedido === pedidoToEdit);
+
+      if (hasOnTable || hasInList) {
+        alert(
+          `⛔ AÇÃO BLOQUEADA\n\n` +
+            `O pedido "${pedidoToEdit}" já está carregado na sua área de trabalho.\n\n` +
+            `Para evitar conflitos de versão, você deve limpar as peças deste pedido da mesa e da lista lateral antes de baixá-lo novamente para edição.`,
+        );
+        return;
+      }
+
+      // 2. BUSCA NO BANCO DE DADOS (Lógica de Carregamento)
+      if (!user || !user.token) return;
+
+      try {
+        const encodedPedido = encodeURIComponent(pedidoToEdit);
+        // A rota /buscar já filtra por status='AGUARDANDO', ignorando 'EM PRODUÇÃO'
+        const response = await fetch(
+          `http://localhost:3001/api/pecas/buscar?pedido=${encodedPedido}`,
+          {
+            method: "GET",
+            headers: { Authorization: `Bearer ${user.token}` },
+          },
+        );
+
+        if (response.status === 404) {
+          alert(
+            "Nenhuma peça 'Aguardando' encontrada para este pedido.\n\nProvavelmente todas já foram produzidas ou excluídas.",
+          );
+          return;
+        }
+
+        const data = await response.json();
+
+        if (Array.isArray(data) && data.length > 0) {
+          // Mapeia os dados (mesma lógica do handleDBSearch)
+          const partsToEdit: ImportedPart[] = data.map((item: any) => ({
+            id: item.id,
+            name: item.name,
+            entities: item.entities,
+            blocks: item.blocks || {},
+            width: Number(item.width),
+            height: Number(item.height),
+            grossArea: Number(item.grossArea),
+            netArea: Number(item.grossArea), // ou calculatePartNetArea(item.entities)
+            quantity: Number(item.quantity) || 1,
+            pedido: item.pedido,
+            op: item.op,
+            material: item.material,
+            espessura: item.espessura,
+            autor: item.autor,
+            dataCadastro: item.dataCadastro,
+            tipo_producao: item.tipo_producao, // Importante trazer isso
+            isRotationLocked: item.isRotationLocked,
+          }));
+
+          // 3. NAVEGAÇÃO
+          if (onEditOrder && onNavigate) {
+            if (
+              confirm(
+                `Deseja carregar ${partsToEdit.length} peças do pedido ${pedidoToEdit} na Engenharia para edição?`,
+              )
+            ) {
+              onEditOrder(partsToEdit); // Atualiza o estado global/pai
+              onNavigate("engineering"); // Troca a tela
+            }
+          } else {
+            console.warn("Função onEditOrder ou onNavigate não fornecida.");
+          }
+        }
+      } catch (error) {
+        console.error("Erro ao carregar para edição:", error);
+        alert("Erro ao buscar dados do pedido.");
+      }
+    },
+    [nestingResult, parts, user, onEditOrder, onNavigate],
+  );
+
   const handleExternalDrop = useCallback(
     (partId: string, x: number, y: number) => {
       const part = parts.find((p) => p.id === partId);
@@ -2407,6 +2576,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     width: "100%",
     background: theme.bg,
     color: theme.text,
+    userSelect: "none", // <--- ADICIONE ESTA LINHA
+    WebkitUserSelect: "none", // Para garantir compatibilidade com Safari/Chrome antigos
   };
   const topBarStyle: React.CSSProperties = {
     padding: "5px 20px",
@@ -2596,53 +2767,48 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // }, [nestingResult, parts, binSize, user]);
 
   return (
-    <div style={containerStyle}>
-      {/* --- TELA DE CARREGAMENTO (LOADING OVERLAY) --- */}
-      {isRestoring && (
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            backgroundColor: "rgba(255, 255, 255, 0.9)", // Fundo branco semi-transparente
-            zIndex: 9999, // Fica acima de tudo
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
-            alignItems: "center",
-            color: "#333",
-          }}
-        >
-          {/* Animação CSS simples */}
-          <style>
-            {`
-              @keyframes spin-large {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-              }
-            `}
-          </style>
-          <div
-            style={{
-              width: "50px",
-              height: "50px",
-              border: "5px solid #e0e0e0",
-              borderTop: "5px solid #007bff",
-              borderRadius: "50%",
-              animation: "spin-large 1s linear infinite",
-              marginBottom: "20px",
-            }}
+  <>
+    {/* 3. BLOQUEIO DE TELA (LOADING LARANJA) */}
+    {isRestoring && (
+      <div
+        style={{
+          height: "100vh",
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "column",
+          background: "#1e1e1e", // Mesmo fundo escuro do AppLoader
+          color: "#e0e0e0",
+          position: "fixed",
+          top: 0,
+          left: 0,
+          zIndex: 99999, // Garante que fique acima de tudo
+        }}
+      >
+        <style>{`
+          @keyframes rotate { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+          .app-loader-ring { animation: rotate 1s linear infinite; transform-origin: center; }
+        `}</style>
+        <svg width="60" height="60" viewBox="0 0 512 512" fill="none">
+          <path d="M256 32L210 160H302L256 32Z" fill="#fd7e14" />
+          <circle
+            cx="256"
+            cy="256"
+            r="80"
+            stroke="#fd7e14"
+            strokeWidth="20"
+            strokeDasharray="300"
+            className="app-loader-ring"
           />
-          <h2 style={{ fontSize: "24px", margin: 0 }}>
-            Restaurando sua mesa...
-          </h2>
-          <p style={{ color: "#666", marginTop: "10px" }}>
-            Isso pode levar alguns segundos.
-          </p>
-        </div>
-      )}
+          <path d="M256 480L302 352H210L256 480Z" fill="#fd7e14" />
+        </svg>
+        <p style={{ marginTop: 20, fontSize: "0.9rem", opacity: 0.7 }}>
+          Restaurando sessão...
+        </p>
+      </div>
+    )}   
+    <div style={containerStyle}>    
 
       {/* ========================================================= */}
       {/* INÍCIO DO MODAL DE BUSCA (ATUALIZADO E CORRIGIDO)         */}
@@ -2831,6 +2997,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                           key={orderData.pedido}
                           style={{
                             borderBottom: `1px solid ${theme.hoverRow}`,
+                            userSelect: "none",
                           }}
                         >
                           {/* LINHA DO PEDIDO (PAI) */}
@@ -2842,64 +3009,150 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                               background: isOrderChecked
                                 ? "rgba(0,123,255,0.05)"
                                 : "transparent",
+                              justifyContent: "space-between", // Garante espaçamento para o botão da direita
+                              cursor: "pointer", // O cursor agora indica que a linha toda é clicável
+                              userSelect: "none", // Evita seleção de texto acidental ao clicar rápido
                             }}
+                            onClick={() =>
+                              toggleOrderSelection(orderData.pedido)
+                            }
                           >
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleExpandOrder(orderData.pedido);
-                              }}
+                            {/* ESQUERDA: Toggle + Checkbox + Nome */}
+                            <div
                               style={{
-                                marginRight: "8px",
-                                border: "none",
-                                background: "transparent",
-                                cursor: "pointer",
-                                fontWeight: "bold",
-                                color: theme.label,
-                                visibility: hasOps ? "visible" : "hidden",
-                                width: "20px",
-                                fontSize: "10px",
-                              }}
-                            >
-                              {isExpanded ? "▼" : "▶"}
-                            </button>
-
-                            <input
-                              type="checkbox"
-                              checked={isOrderChecked}
-                              onChange={() =>
-                                toggleOrderSelection(orderData.pedido)
-                              }
-                              style={{
-                                marginRight: "8px",
-                                cursor: "pointer",
-                              }}
-                            />
-
-                            <span
-                              style={{
-                                fontWeight: "bold",
-                                fontSize: "13px",
-                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
                                 flex: 1,
-                                color: theme.text,
                               }}
-                              onClick={() =>
-                                toggleExpandOrder(orderData.pedido)
-                              }
                             >
-                              Pedido {orderData.pedido}
-                              <span
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleExpandOrder(orderData.pedido);
+                                }}
                                 style={{
-                                  fontSize: "11px",
-                                  fontWeight: "normal",
-                                  marginLeft: "6px",
-                                  opacity: 0.7,
+                                  marginRight: "8px",
+                                  border: "none",
+                                  background: "transparent",
+                                  cursor: "pointer",
+                                  fontWeight: "bold",
+                                  color: theme.label,
+                                  visibility: hasOps ? "visible" : "hidden",
+                                  width: "20px",
+                                  fontSize: "10px",
+                                  padding: "4px", // Aumenta um pouco a área de clique da seta
                                 }}
                               >
-                                ({orderData.ops.length} OPs)
+                                {isExpanded ? "▼" : "▶"}
+                              </button>
+
+                              <input
+                                type="checkbox"
+                                checked={isOrderChecked}
+                                onChange={() => {}} // O onClick da div pai já resolve isso
+                                style={{
+                                  marginRight: "8px",
+                                  cursor: "pointer",
+                                  pointerEvents: "none", // O clique passa direto para a div pai (opcional, mas bom para UX)
+                                }}
+                              />
+
+                              <span
+                                style={{
+                                  fontWeight: "bold",
+                                  fontSize: "13px",
+                                  color: theme.text,
+                                }}
+                              >
+                                Pedido {orderData.pedido}
+                                <span
+                                  style={{
+                                    fontSize: "11px",
+                                    fontWeight: "normal",
+                                    marginLeft: "6px",
+                                    opacity: 0.7,
+                                  }}
+                                >
+                                  ({orderData.ops.length} OPs)
+                                </span>
                               </span>
-                            </span>
+                            </div>
+
+                            {/* LADO DIREITO: Botões de Ação (Editar e Excluir) */}
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "5px",
+                              }}
+                            >
+                              {/* BOTÃO EDITAR (Lápis) */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEditOrder(orderData.pedido);
+                                }}
+                                title="Editar pedido na Engenharia"
+                                style={{
+                                  background: "transparent",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  color: "#007bff",
+                                  padding: "4px 6px",
+                                  opacity: 0.7,
+                                  display: "flex", // Garante alinhamento do ícone
+                                  alignItems: "center",
+                                }}
+                              >
+                                <svg
+                                  width="14"
+                                  height="14"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                </svg>
+                              </button>
+
+                              {/* BOTÃO EXCLUIR (Lixeira) */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  // handleDeleteOrder(orderData.pedido); // Descomente se tiver a função
+                                  handleDeleteOrder(orderData.pedido); // Placeholder se não tiver a função ainda
+                                }}
+                                title="Excluir pedido"
+                                style={{
+                                  background: "transparent",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  color: "#dc3545",
+                                  padding: "4px 6px",
+                                  opacity: 0.7,
+                                  display: "flex", // Garante alinhamento do ícone
+                                  alignItems: "center",
+                                }}
+                              >
+                                <svg
+                                  width="14"
+                                  height="14"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <polyline points="3 6 5 6 21 6"></polyline>
+                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                              </button>
+                            </div>
                           </div>
 
                           {/* LISTA DE OPs (FILHOS) */}
@@ -4951,5 +5204,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         theme={theme}
       />
     </div>
+   </> 
   );
 };
