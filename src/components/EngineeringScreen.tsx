@@ -13,6 +13,7 @@ import type { EngineeringScreenProps, ImportedPart } from "./types";
 import { useEngineeringLogic } from "../hooks/useEngineeringLogic"; // Ajuste o caminho se necessário (ex: ../hooks/)
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
 import { FaPuzzlePiece } from "react-icons/fa";
+import { calculatePartNetArea } from "../utils/areaCalculator";
 
 import { PartViewerModalOptimized } from "../components/PartViewerModalOptimized";
 
@@ -569,6 +570,11 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         // Se por acaso estiver vazio, garante pelo menos o nome do usuário logado.
         part.autor = batchDefaults.autor || user?.name || "Desconhecido";
         // ⬆️ ---------------------------------------------------- ⬆️
+
+        // --- NOVO: GARANTE O CÁLCULO DA ÁREA LÍQUIDA ANTES DE SALVAR ---
+        // Se a peça não tiver netArea, calcula agora usando as entidades dela
+        part.netArea = part.netArea || calculatePartNetArea(part.entities) || part.grossArea;
+        // --------------------------------------------------------------
 
         const key = `${part.pedido}|${part.name}`;
         const existsInDb = duplicadasNoBanco.some(
@@ -1761,7 +1767,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   Qtd.
                 </th>
                 <th style={tableHeaderStyle}>Dimensões</th>
-                <th style={tableHeaderStyle}>Área (m²)</th>
+                <th style={tableHeaderStyle}>Área Líq.(m²)</th>
                 <th style={tableHeaderStyle} title="Complexidade da peça">
                   Entity
                 </th>
@@ -2002,7 +2008,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                         opacity: 0.7,
                       }}
                     >
-                      {(part.grossArea / 1000000).toFixed(4)}
+                      {/* Calcula a área líquida na hora da exibição caso o part.netArea ainda não exista */}
+                      {((part.netArea || calculatePartNetArea(part.entities) || part.grossArea) / 1000000).toFixed(4)}
                     </td>
                     <td
                       style={{

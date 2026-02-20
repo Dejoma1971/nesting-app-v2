@@ -500,30 +500,79 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
     }
 
     // =================================================================
-    // 2. SUBSTITUIÇÃO CIRÚRGICA (PARA RETRABALHOS E EDIÇÕES)
+    // 2. VALIDAÇÃO RIGOROSA E SUBSTITUIÇÃO CIRÚRGICA
     // =================================================================
-    // Regra: Se a peça NÃO é Normal (é uma correção), devemos "aposentar"
-    // a versão anterior dela (se estiver Aguardando) para não duplicar no Nesting.
-
-    const pecasCorrecao = parts.filter(
-      (p) => p.tipo_producao && p.tipo_producao !== "NORMAL",
+    // Filtramos tudo que não for NORMAL
+    const pecasEspeciais = parts.filter(
+      (p) => p.tipo_producao && p.tipo_producao.toUpperCase() !== "NORMAL"
     );
 
-    // Processamos uma a uma para garantir a precisão (Nome + Pedido)
-    for (const p of pecasCorrecao) {
+    for (const p of pecasEspeciais) {
       if (p.pedido && p.name) {
-        // "Mata" a peça antiga específica daquele pedido que ainda não foi produzida
-        await connection.query(
-          `UPDATE pecas_engenharia 
-           SET status = 'SUBSTITUIDO' 
-           WHERE empresa_id = ? 
-             AND pedido = ? 
-             AND nome_arquivo = ? 
-             AND status = 'AGUARDANDO'`,
-          [empresaId, p.pedido, p.name],
-        );
+        
+        // Agora pegamos EXATAMENTE o value enviado pelo frontend
+        const tipoReq = p.tipo_producao.toUpperCase().trim(); 
+        
+        // --- TRAVA PARA EDIÇÃO DE CADASTRO (Lendo com Underline!) ---
+        if (tipoReq === "EDITAR_CADASTRO") {
+          
+          // 1. Verifica qual é o status atual da peça no banco de dados
+          const [statusCheck] = await connection.query(
+            `SELECT status FROM pecas_engenharia 
+             WHERE empresa_id = ? AND pedido = ? AND nome_arquivo = ?
+             ORDER BY data_cadastro DESC LIMIT 1`,
+            [empresaId, p.pedido, p.name]
+          );
+
+          if (statusCheck.length > 0) {
+            const statusAtual = statusCheck[0].status.toUpperCase(); 
+            
+            // Se a peça já passou do estágio de planejamento, BLOQUEIA a edição!
+            if (statusAtual === "EM PRODUÇÃO" || statusAtual === "CONCLUÍDO") {
+              await connection.rollback();
+              connection.release();
+              
+              // Devolve um erro 409 que será lido pelo 'alert' do seu EngineeringScreen.tsx
+              return res.status(409).json({
+                error: "Edição Bloqueada",
+                message: `A peça "${p.name}" já foi enviada para corte (Status: ${statusAtual}).\n\nA "Edição de Cadastro" é permitida apenas para peças que ainda estão aguardando.\nPara repor o material desta peça, altere o Tipo de Produção para "Erro de Processo", "Erro de Projeto", etc.`
+              });
+            }
+          }
+
+          // 2. Se passou pela trava (está AGUARDANDO), deleta a antiga para a nova tomar o lugar
+          await connection.query(
+            `DELETE FROM pecas_engenharia 
+             WHERE empresa_id = ? AND pedido = ? AND nome_arquivo = ? AND status = 'AGUARDANDO'`,
+            [empresaId, p.pedido, p.name]
+          );
+        }
+        
+        // --- LÓGICA DO RETRABALHO ---
+        // Se for RETRABALHO_PERDA, RETRABALHO_PROCESSO, ERRO_ENGENHARIA ou ERRO_COMERCIAL,
+        // ele não entra no if acima. Não apaga a antiga e simplesmente insere a nova no Passo 4.
       }
     }
+
+    // const pecasCorrecao = parts.filter(
+    //   (p) => p.tipo_producao && p.tipo_producao !== "NORMAL",
+    // );
+
+    // // Processamos uma a uma para garantir a precisão (Nome + Pedido)
+    // for (const p of pecasCorrecao) {
+    //   if (p.pedido && p.name) {
+    //     // "Mata" a peça antiga específica daquele pedido que ainda não foi produzida
+    //     await connection.query(
+    //       `UPDATE pecas_engenharia 
+    //        SET status = 'SUBSTITUIDO' 
+    //        WHERE empresa_id = ? 
+    //          AND pedido = ? 
+    //          AND nome_arquivo = ? 
+    //          AND status = 'AGUARDANDO'`,
+    //       [empresaId, p.pedido, p.name],
+    //     );
+    //   }
+    // }
 
     // =================================================================
     // 3. VERIFICAÇÕES DE PLANO (TRIAL / LIMITES)
@@ -568,7 +617,7 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
     const sql = `
       INSERT INTO pecas_engenharia 
       (id, usuario_id, empresa_id, nome_arquivo, pedido, op, material, espessura, autor, quantidade, cliente, 
-      largura, altura, area_bruta, geometria, blocos_def, status, tipo_producao, is_rotation_locked)
+      largura, altura, area_bruta, area_liquida, geometria, blocos_def, status, tipo_producao, is_rotation_locked)
       VALUES ?
     `;
 
@@ -587,6 +636,7 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
       p.width,
       p.height,
       p.grossArea,
+      p.netArea || p.grossArea,
       JSON.stringify(p.entities),
       JSON.stringify(p.blocks || {}),
       "AGUARDANDO", // Sempre entra como AGUARDANDO (a antiga virou SUBSTITUIDO)
@@ -734,6 +784,7 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
       width: Number(row.largura),
       height: Number(row.altura),
       grossArea: Number(row.area_bruta),
+      netArea: Number(row.area_liquida) || Number(row.area_bruta),
       entities: safeJsonParse(row.geometria, []),
       blocks: safeJsonParse(row.blocos_def, {}),
       dataCadastro: row.data_cadastro,
@@ -1152,6 +1203,19 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
   if (!itens || itens.length === 0)
     return res.status(400).json({ error: "Nenhum item informado." });
 
+  // --- 🛠️ INÍCIO DA CORREÇÃO 1: SANITIZAÇÃO DE NÚMEROS COM VÍRGULA ---
+  // Esta função garante que qualquer string ("85,5") vire um número real (85.5) para o banco
+  const limpaNumero = (val) => {
+    if (val === undefined || val === null) return 0;
+    return parseFloat(String(val).replace(',', '.')) || 0;
+  };
+
+  const aproveitamentoReal = limpaNumero(aproveitamento);
+  const consumoReal = limpaNumero(consumo);
+  const retalhoLinearReal = limpaNumero(retalhoLinear);
+  const areaRetalhoReal = limpaNumero(areaRetalho);
+  // --- FIM DA CORREÇÃO 1 ---
+
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
@@ -1165,8 +1229,32 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
     );
     if (pecaRows.length > 0) {
       materialReal = pecaRows[0].material;
-      espessuraReal = pecaRows[0].espessura || "0";
+      // --- 🛠️ CORREÇÃO 2: SANITIZAÇÃO DA ESPESSURA ---
+      // Se a peça original vier com "0,60" do DXF, aqui ela vira o número 0.6 para o banco
+      espessuraReal = limpaNumero(pecaRows[0].espessura); 
+      // --- FIM DA CORREÇÃO 2 ---
     }
+
+    // --- 🛠️ CORREÇÃO 3: BUSCA DA DENSIDADE DINÂMICA DO MATERIAL ---
+    let densidadeReal = 7.85; // Fallback: Valor padrão (Aço Carbono) caso algo dê errado
+
+    if (materialReal && materialReal !== "Desconhecido") {
+      // Busca nas duas tabelas (Padrão e Personalizados da Empresa)
+      const [materialRows] = await connection.query(
+        `SELECT densidade FROM (
+           SELECT nome, densidade FROM materiais_padrao
+           UNION ALL
+           SELECT nome, densidade FROM materiais_personalizados WHERE empresa_id = ?
+         ) AS m WHERE nome = ? LIMIT 1`,
+        [empresaId, materialReal]
+      );
+
+      if (materialRows.length > 0 && materialRows[0].densidade) {
+        // Aproveitamos a mesma função de limpar número para garantir que a densidade não venha com vírgula do banco!
+        densidadeReal = limpaNumero(materialRows[0].densidade);
+      }
+    }
+    // --- FIM DA CORREÇÃO 3 ---
 
     // INSERT ATUALIZADO COM OS NOVOS CAMPOS
     const [result] = await connection.query(
@@ -1177,16 +1265,16 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
         empresaId,
         usuarioId,
         chapaIndex,
-        aproveitamento, // Global
+        aproveitamentoReal, // Global
         7.85, // Densidade do MATERIAL (Aço), não do arranjo
         materialReal,
         espessuraReal,
         motor || "Smart Nest",
         larguraChapa || 0,
         alturaChapa || 0,
-        consumo || 0, // NOVO
-        retalhoLinear || 0, // NOVO
-        areaRetalho || 0, // NOVO
+        consumoReal,        // <-- AQUI: Usando o valor limpo [cite: 149]
+        retalhoLinearReal,  // <-- AQUI: Usando o valor limpo [cite: 149]
+        areaRetalhoReal,
       ],
     );
 
