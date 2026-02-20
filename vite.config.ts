@@ -14,23 +14,28 @@ export default defineConfig({
     viteStaticCopy({
       targets: [
         {
-          // Encontra qualquer arquivo .wasm dentro do pacote
           src: normalizePath(path.resolve(__dirname, 'node_modules/clipper2-wasm/**/*.wasm')),
-          dest: '.', // Define o destino como a raiz
-          // Esta função faz o papel do antigo "flatten: true"
-          // Ela pega apenas o nome e a extensão, descartando as pastas do caminho original
+          dest: '.',
           rename: (name, extension) => `${name}.${extension}`
         }
       ]
     })
   ],
-  // ⬇️ --- ADICIONE ESTE BLOCO 'build' --- ⬇️
+  resolve: {
+    // Garante que apenas uma instância do React seja usada no build
+    dedupe: ['react', 'react-dom'],
+  },
   build: {
-    chunkSizeWarningLimit: 1000, // Aumenta o limite do aviso para 1MB (reduz ruído)
+    chunkSizeWarningLimit: 1000,
+    commonjsOptions: {
+      // Essencial para o Rollup traduzir bibliotecas que misturam CommonJS e ESM (ex: @dnd-kit)
+      transformMixedEsModules: true,
+    },
+    // ⬇️ TEMPORARIAMENTE COMENTADO para permitir que o Vite gerencie a ordem correta ⬇️
+    /*
     rollupOptions: {
       output: {
         manualChunks(id) {
-          // Separa bibliotecas de node_modules em arquivos diferentes (vendor chunks)
           if (id.includes('node_modules')) {
             if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
               return 'vendor-react';
@@ -38,14 +43,13 @@ export default defineConfig({
             if (id.includes('@dnd-kit')) {
               return 'vendor-dnd';
             }
-            // O restante vai para um arquivo genérico
             return 'vendor';
           }
         }
       }
     }
+    */
   },
-  // ⬆️ ----------------------------------- ⬆️
   worker: {
     format: 'es',
   }
