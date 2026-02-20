@@ -223,38 +223,43 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
     // Busca a peça usando viewingPartId diretamente
     const currentPart = parts.find((p: ImportedPart) => p.id === viewingPartId);
 
-    if (!currentPart || openPoints.length < 2) return;
+    if (!currentPart) return;
 
-    // 1. Tenta gerar o fechamento inteligente
-    const fixedEntities = closeOpenPath(currentPart.entities, openPoints);
+    // 1. Tenta gerar o fechamento inteligente APENAS se houver pontos detectados
+    if (openPoints.length >= 2) {
+      const fixedEntities = closeOpenPath(currentPart.entities, openPoints);
 
-    // 2. Verifica se o fechamento ocorreu ou foi abortado por segurança
-    if (fixedEntities.length === currentPart.entities.length) {
-      // CASO 1: Abertura muito grande (> 1mm). O sistema abortou a edição geométrica.
-      alert(
-        "Atenção: A abertura é maior que o limite de segurança (1mm).\n\n" +
-          "O fechamento automático foi cancelado para evitar riscar a peça incorretamente.\n" +
-          "O alerta visual será removido, mas lembre-se que a geometria continua aberta.",
-      );
-      // NOTA: Não fazemos 'return' aqui. O código segue abaixo para remover o alerta visual (Ignorar).
+      // 2. Verifica se o fechamento ocorreu ou foi abortado por segurança
+      if (fixedEntities.length === currentPart.entities.length) {
+        // CASO 1: Abertura maior que o limite (ex: 1mm). Abortou a edição geométrica.
+        alert(
+          "Atenção: A abertura é maior que o limite de segurança.\n\n" +
+            "O fechamento automático foi cancelado para evitar riscar a peça incorretamente na máquina CNC.\n" +
+            "O alerta visual será removido, mas lembre-se que o vetor continua aberto."
+        );
+      } else {
+        // CASO 2: Fechamento bem sucedido. Atualizamos a geometria.
+        currentPart.entities = fixedEntities;
+      }
     } else {
-      // CASO 2: Fechamento bem sucedido. Atualizamos a geometria.
-      currentPart.entities = fixedEntities;
-      // Feedback opcional (pode comentar se achar muito intrusivo)
-      // alert("Geometria fechada com sucesso!");
+      // CASO 3: A abertura é tão grande (ex: 75mm) que o detector nem listou os pontos.
+      // O return silencioso foi removido. Agora avisamos o usuário e permitimos prosseguir.
+      alert(
+        "Atenção: Foi detectada uma desconexão grave neste desenho (gap muito grande).\n\n" +
+          "Não é possível prever o fechamento automático com segurança. O alerta visual será removido para você continuar, mas recomenda-se corrigir o arquivo CAD original."
+      );
     }
 
-    // 3. Em AMBOS os casos (Corrigido ou Ignorado Automaticamente), removemos a flag de erro.
-    // Isso faz a miniatura e a tabela pararem de piscar imediatamente.
+    // 3. Em TODOS os casos (Corrigido, Abortado ou Gap Gigante), removemos a flag de erro.
+    // Isso destrava o usuário e faz a miniatura parar de piscar.
     currentPart.hasOpenGeometry = false;
 
-    // 4. Limpa o estado local do modal (some a barra amarela)
+    // 4. Limpa o estado local do modal
     setOpenPoints([]);
 
-    // 5. Força a atualização da tela para refletir a mudança de cor/borda
+    // 5. Força a atualização da tela para refletir a mudança
     refreshData();
   };
-
   // --- [INSERÇÃO 2] FUNÇÃO INTELIGENTE DE CONFIRMAÇÃO ---
   const executeWithSessionConfirmation = (
     key: keyof typeof sessionApprovals,

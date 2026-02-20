@@ -66,12 +66,46 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
   const { user } = useAuth();
   const { theme } = useTheme();
 
-  const [startDate, setStartDate] = useState(
-    new Date().toISOString().split("T")[0],
-  );
-  const [endDate, setEndDate] = useState(
-    new Date().toISOString().split("T")[0],
-  );
+  // 1. Função auxiliar para formatar a data localmente no padrão YYYY-MM-DD
+  // (Exigência do <input type="date">, embora ele mostre dd/mm/aaaa na tela)
+  const formatLocalISODate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  // Transforma YYYY-MM-DD em "19 fev 2026"
+  const getCustomDateText = (dateString: string) => {
+    if (!dateString) return "Selecione...";
+    const [year, month, day] = dateString.split("-");
+    const meses = [
+      "jan",
+      "fev",
+      "mar",
+      "abr",
+      "mai",
+      "jun",
+      "jul",
+      "ago",
+      "set",
+      "out",
+      "nov",
+      "dez",
+    ];
+    return `${day} ${meses[parseInt(month) - 1]} ${year}`;
+  };
+
+  // 2. Calcula as datas dinamicamente
+  const today = new Date();
+
+  const twoDaysAgo = new Date();
+  twoDaysAgo.setDate(today.getDate() - 2);
+
+  // 3. Inicializa os estados
+  const [startDate, setStartDate] = useState(formatLocalISODate(twoDaysAgo));
+  const [endDate, setEndDate] = useState(formatLocalISODate(today));
+
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -146,7 +180,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
     borderRadius: "6px",
   };
 
- // Função auxiliar para converter espessura em "Gauge" aproximado
+  // Função auxiliar para converter espessura em "Gauge" aproximado
   const getGaugeLabel = (thickness: string | number) => {
     // 1. Garante que é string, troca vírgula por ponto para o cálculo matemático
     const safeThickness = String(thickness).replace(",", ".");
@@ -157,13 +191,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
 
     // Tabela aproximada de bitolas MSG para mm
     if (t >= 0.55 && t <= 0.65) return `#24 (${thickness}mm)`;
-    if (t >= 0.70 && t <= 0.80) return `#22 (${thickness}mm)`;
+    if (t >= 0.7 && t <= 0.8) return `#22 (${thickness}mm)`;
     if (t >= 0.85 && t <= 0.95) return `#20 (${thickness}mm)`;
     if (t >= 1.15 && t <= 1.25) return `#18 (${thickness}mm)`;
     if (t >= 1.45 && t <= 1.55) return `#16 (${thickness}mm)`;
     if (t >= 1.85 && t <= 2.05) return `#14 (${thickness}mm)`;
-    if (t >= 2.60 && t <= 2.70) return `#12 (${thickness}mm)`;
-    
+    if (t >= 2.6 && t <= 2.7) return `#12 (${thickness}mm)`;
+
     return `${thickness}mm`;
   };
 
@@ -189,85 +223,298 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
             </p>
           </div>
 
-          <div style={{ display: "flex", gap: "5px", marginLeft: "20px", borderLeft: `1px solid ${theme.border}`, paddingLeft: "20px" }}>
-             <button onClick={() => onNavigate("home")} style={{...navButtonStyle, color: "#007bff"}}>🏠 Home</button>
-             <button onClick={() => onNavigate("engineering")} style={navButtonStyle}>🛠️ Engenharia</button>
-             <button onClick={() => onNavigate("nesting")} style={navButtonStyle}>🧩 Nesting</button>
+          <div
+            style={{
+              display: "flex",
+              gap: "5px",
+              marginLeft: "20px",
+              borderLeft: `1px solid ${theme.border}`,
+              paddingLeft: "20px",
+            }}
+          >
+            <button
+              onClick={() => onNavigate("home")}
+              style={{ ...navButtonStyle, color: "#007bff" }}
+            >
+              🏠 Home
+            </button>
+            <button
+              onClick={() => onNavigate("engineering")}
+              style={navButtonStyle}
+            >
+              🛠️ Engenharia
+            </button>
+            <button
+              onClick={() => onNavigate("nesting")}
+              style={navButtonStyle}
+            >
+              🧩 Nesting
+            </button>
           </div>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
-          <div style={{ display: "flex", gap: "10px" }}>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              style={{ padding: "6px", borderRadius: "4px", background: theme.inputBg, color: theme.text, border: `1px solid ${theme.border}` }}
-            />
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              style={{ padding: "6px", borderRadius: "4px", background: theme.inputBg, color: theme.text, border: `1px solid ${theme.border}` }}
-            />
+          <div style={{ display: "flex", gap: "15px" }}>
+            {/* --- INPUT DATA INICIAL (COM TRUQUE VISUAL) --- */}
+            <div style={{ position: "relative", display: "inline-block" }}>
+              <div
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: "4px",
+                  background: theme.inputBg,
+                  color: theme.text,
+                  border: `1px solid ${theme.border}`,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  minWidth: "110px",
+                  justifyContent: "center",
+                  fontWeight: "bold",
+                  fontSize: "13px",
+                }}
+              >
+                📅 {getCustomDateText(startDate)}
+              </div>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                onClick={(e) => {
+                  const target = e.target as HTMLInputElement;
+                  if (target.showPicker) target.showPicker();
+                }}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: "100%",
+                  opacity: 0,
+                  cursor: "pointer",
+                  zIndex: 10,
+                }}
+              />
+            </div>
+
+            {/* --- INPUT DATA FINAL (COM TRUQUE VISUAL) --- */}
+            <div style={{ position: "relative", display: "inline-block" }}>
+              <div
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: "4px",
+                  background: theme.inputBg,
+                  color: theme.text,
+                  border: `1px solid ${theme.border}`,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  minWidth: "110px",
+                  justifyContent: "center",
+                  fontWeight: "bold",
+                  fontSize: "13px",
+                }}
+              >
+                📅 {getCustomDateText(endDate)}
+              </div>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                onClick={(e) => {
+                  const target = e.target as HTMLInputElement;
+                  if (target.showPicker) target.showPicker();
+                }}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: "100%",
+                  opacity: 0,
+                  cursor: "pointer",
+                  zIndex: 10,
+                }}
+              />
+            </div>
           </div>
-          <SidebarMenu onNavigate={onNavigate} onOpenProfile={() => {}} onOpenTeam={onOpenTeam} />
+          <SidebarMenu
+            onNavigate={onNavigate}
+            onOpenProfile={() => {}}
+            onOpenTeam={onOpenTeam}
+          />
         </div>
       </div>
-
       {/* CORPO COM SCROLL */}
       <div style={scrollableContentStyle}>
         {loading ? (
-          <div style={{ padding: "100px", textAlign: "center" }}>Carregando estatísticas...</div>
+          <div style={{ padding: "100px", textAlign: "center" }}>
+            Carregando estatísticas...
+          </div>
         ) : (
           data && (
             <>
               {/* KPIs */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "20px", marginBottom: "30px" }}>
-                <div style={{ ...kpiCardStyle, borderLeft: "6px solid #007bff" }}>
-                  <span style={{ fontSize: "14px", color: theme.label }}>Entrada (Engenharia)</span>
-                  <h2 style={{ fontSize: "32px", margin: "5px 0" }}>{data.resumo.totalEntrada} <small style={{ fontSize: "14px", fontWeight: "normal" }}>pedidos</small></h2>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+                  gap: "20px",
+                  marginBottom: "30px",
+                }}
+              >
+                <div
+                  style={{ ...kpiCardStyle, borderLeft: "6px solid #007bff" }}
+                >
+                  <span style={{ fontSize: "14px", color: theme.label }}>
+                    Entrada (Engenharia)
+                  </span>
+                  <h2 style={{ fontSize: "32px", margin: "5px 0" }}>
+                    {data.resumo.totalEntrada}{" "}
+                    <small style={{ fontSize: "14px", fontWeight: "normal" }}>
+                      pedidos
+                    </small>
+                  </h2>
                 </div>
-                <div style={{ ...kpiCardStyle, borderLeft: "6px solid #28a745" }}>
-                  <span style={{ fontSize: "14px", color: theme.label }}>Saída (Nesting)</span>
-                  <h2 style={{ fontSize: "32px", margin: "5px 0" }}>{data.resumo.totalSaida} <small style={{ fontSize: "14px", fontWeight: "normal" }}>pedidos</small></h2>
+                <div
+                  style={{ ...kpiCardStyle, borderLeft: "6px solid #28a745" }}
+                >
+                  <span style={{ fontSize: "14px", color: theme.label }}>
+                    Saída (Nesting)
+                  </span>
+                  <h2 style={{ fontSize: "32px", margin: "5px 0" }}>
+                    {data.resumo.totalSaida}{" "}
+                    <small style={{ fontSize: "14px", fontWeight: "normal" }}>
+                      pedidos
+                    </small>
+                  </h2>
                 </div>
-                <div style={{ ...kpiCardStyle, borderLeft: `6px solid ${data.resumo.saldo >= 0 ? "#ffc107" : "#dc3545"}` }}>
-                  <span style={{ fontSize: "14px", color: theme.label }}>Saldo em Aberto</span>
-                  <h2 style={{ fontSize: "32px", margin: "5px 0" }}>{data.resumo.saldo}</h2>
+                <div
+                  style={{
+                    ...kpiCardStyle,
+                    borderLeft: `6px solid ${data.resumo.saldo >= 0 ? "#ffc107" : "#dc3545"}`,
+                  }}
+                >
+                  <span style={{ fontSize: "14px", color: theme.label }}>
+                    Saldo em Aberto
+                  </span>
+                  <h2 style={{ fontSize: "32px", margin: "5px 0" }}>
+                    {data.resumo.saldo}
+                  </h2>
                 </div>
               </div>
 
               {/* GRÁFICOS */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(450px, 1fr))", gap: "20px", marginBottom: "30px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(450px, 1fr))",
+                  gap: "20px",
+                  marginBottom: "30px",
+                }}
+              >
                 <div style={cardStyle}>
-                  <h3 style={{ marginBottom: "20px", fontSize: "16px" }}>Produtividade: Entrada por Usuário</h3>
-                  <div style={{ width: "100%", height: "300px" }}>
-                    <ResponsiveContainer width="100%" height="100%">
+                  <h3 style={{ marginBottom: "20px", fontSize: "16px" }}>
+                    Produtividade: Entrada por Usuário
+                  </h3>
+                  {/* ⬇️ Adicionado minWidth e minHeight aqui ⬇️ */}
+                  <div
+                    style={{
+                      width: "100%",
+                      height: 300,
+                      minWidth: 0,
+                      minHeight: 0,
+                    }}
+                  >
+                    {/* ⬇️ Alterado para 99% ⬇️ */}
+                    <ResponsiveContainer width="99%" height={300}>
                       <BarChart data={data.engenharia}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme.border} />
-                        <XAxis dataKey="usuario" stroke={theme.text} fontSize={11} />
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          vertical={false}
+                          stroke={theme.border}
+                        />
+                        <XAxis
+                          dataKey="usuario"
+                          stroke={theme.text}
+                          fontSize={11}
+                        />
                         <YAxis stroke={theme.text} fontSize={11} />
-                        <Tooltip contentStyle={{ background: theme.panelBg, border: `1px solid ${theme.border}` }} />
-                        <Bar dataKey="qtd_pedidos_entrada" name="Pedidos" fill="#007bff" radius={[4, 4, 0, 0]} />
+                        <Tooltip
+                          contentStyle={{
+                            background: theme.panelBg,
+                            border: `1px solid ${theme.border}`,
+                          }}
+                        />
+                        <Bar
+                          dataKey="qtd_pedidos_entrada"
+                          name="Pedidos"
+                          fill="#007bff"
+                          radius={[4, 4, 0, 0]}
+                        />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
 
                 <div style={cardStyle}>
-                  <h3 style={{ marginBottom: "20px", fontSize: "16px" }}>Produtividade: Nesting por Usuário</h3>
-                  <div style={{ width: "100%", height: "300px" }}>
-                    <ResponsiveContainer width="100%" height="100%">
+                  <h3 style={{ marginBottom: "20px", fontSize: "16px" }}>
+                    Produtividade: Nesting por Usuário
+                  </h3>
+                  {/* ⬇️ Adicionado minWidth e minHeight aqui ⬇️ */}
+                  <div
+                    style={{
+                      width: "100%",
+                      height: 300,
+                      minWidth: 0,
+                      minHeight: 0,
+                    }}
+                  >
+                    {/* ⬇️ Alterado para 99% ⬇️ */}
+                    <ResponsiveContainer width="99%" height={300}>
                       <ComposedChart data={data.producao}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme.border} />
-                        <XAxis dataKey="usuario" stroke={theme.text} fontSize={11} />
-                        <YAxis yAxisId="left" stroke={theme.text} fontSize={11} />
-                        <YAxis yAxisId="right" orientation="right" stroke="#ffc107" fontSize={11} />
-                        <Tooltip contentStyle={{ background: theme.panelBg, border: `1px solid ${theme.border}` }} />
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          vertical={false}
+                          stroke={theme.border}
+                        />
+                        <XAxis
+                          dataKey="usuario"
+                          stroke={theme.text}
+                          fontSize={11}
+                        />
+                        <YAxis
+                          yAxisId="left"
+                          stroke={theme.text}
+                          fontSize={11}
+                        />
+                        <YAxis
+                          yAxisId="right"
+                          orientation="right"
+                          stroke="#ffc107"
+                          fontSize={11}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            background: theme.panelBg,
+                            border: `1px solid ${theme.border}`,
+                          }}
+                        />
                         <Legend wrapperStyle={{ fontSize: "12px" }} />
-                        <Bar yAxisId="left" dataKey="qtd_pedidos_processados" name="Pedidos" fill="#28a745" radius={[4, 4, 0, 0]} />
-                        <Line yAxisId="right" type="monotone" dataKey="eficiencia_media" name="Efic. %" stroke="#ffc107" strokeWidth={3} />
+                        <Bar
+                          yAxisId="left"
+                          dataKey="qtd_pedidos_processados"
+                          name="Pedidos"
+                          fill="#28a745"
+                          radius={[4, 4, 0, 0]}
+                        />
+                        <Line
+                          yAxisId="right"
+                          type="monotone"
+                          dataKey="eficiencia_media"
+                          name="Efic. %"
+                          stroke="#ffc107"
+                          strokeWidth={3}
+                        />
                       </ComposedChart>
                     </ResponsiveContainer>
                   </div>
@@ -275,13 +522,30 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
               </div>
 
               {/* BLOCO 3: RELATÓRIO DE CHAPAS CONSUMIDAS (ATUALIZADO) */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "20px", marginBottom: "30px" }}>
-                
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+                  gap: "20px",
+                  marginBottom: "30px",
+                }}
+              >
                 {/* GRÁFICO DE PIZZA (RESUMO POR MATERIAL) */}
                 <div style={cardStyle}>
-                  <h3 style={{ fontSize: "16px", marginBottom: "10px" }}>Materiais mais Usados (Qtd Chapas)</h3>
-                  <div style={{ width: "100%", height: "300px" }}>
-                    <ResponsiveContainer width="100%" height="100%">
+                  <h3 style={{ fontSize: "16px", marginBottom: "10px" }}>
+                    Materiais mais Usados (Qtd Chapas)
+                  </h3>
+                  {/* ⬇️ Adicionado minWidth e minHeight aqui ⬇️ */}
+                  <div
+                    style={{
+                      width: "100%",
+                      height: 300,
+                      minWidth: 0,
+                      minHeight: 0,
+                    }}
+                  >
+                    {/* ⬇️ Alterado para 99% ⬇️ */}
+                    <ResponsiveContainer width="99%" height={300}>
                       <PieChart>
                         <Pie
                           data={data.estudoConsumo}
@@ -293,7 +557,10 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
                           label={({ payload }) => payload.material}
                         >
                           {data.estudoConsumo.map((_, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            <Cell
+                              key={`cell-${index}`}
+                              fill={COLORS[index % COLORS.length]}
+                            />
                           ))}
                         </Pie>
                         <Tooltip />
@@ -303,12 +570,28 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
                 </div>
 
                 {/* TABELA DETALHADA */}
-                <div style={{ ...cardStyle, height: "auto", minHeight: "420px" }}>
-                  <h3 style={{ fontSize: "16px", marginBottom: "15px" }}>Relação de Chapas Consumidas</h3>
+                <div
+                  style={{ ...cardStyle, height: "auto", minHeight: "420px" }}
+                >
+                  <h3 style={{ fontSize: "16px", marginBottom: "15px" }}>
+                    Relação de Chapas Consumidas
+                  </h3>
                   <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+                    <table
+                      style={{
+                        width: "100%",
+                        borderCollapse: "collapse",
+                        fontSize: "13px",
+                      }}
+                    >
                       <thead>
-                        <tr style={{ textAlign: "left", color: theme.label, borderBottom: `1px solid ${theme.border}` }}>
+                        <tr
+                          style={{
+                            textAlign: "left",
+                            color: theme.label,
+                            borderBottom: `1px solid ${theme.border}`,
+                          }}
+                        >
                           <th style={{ padding: "10px" }}>Material / Bitola</th>
                           <th style={{ padding: "10px" }}>Dimensão (mm)</th>
                           <th style={{ padding: "10px" }}>Qtd</th>
@@ -319,37 +602,75 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
                       </thead>
                       <tbody>
                         {data.estudoConsumo.map((item, idx) => (
-                          <tr key={idx} style={{ borderBottom: `1px solid ${theme.border}` }}>
+                          <tr
+                            key={idx}
+                            style={{
+                              borderBottom: `1px solid ${theme.border}`,
+                            }}
+                          >
                             {/* Material e Espessura */}
                             <td style={{ padding: "12px" }}>
-                              <div style={{ fontWeight: "bold" }}>{item.material}</div>
-                              <small style={{ opacity: 0.7 }}>{getGaugeLabel(item.espessura)}</small>
+                              <div style={{ fontWeight: "bold" }}>
+                                {item.material}
+                              </div>
+                              <small style={{ opacity: 0.7 }}>
+                                {getGaugeLabel(item.espessura)}
+                              </small>
                             </td>
 
                             {/* Dimensão da Chapa (Novo) */}
                             <td style={{ padding: "12px" }}>
-                               {item.largura_chapa} x {item.altura_chapa}
+                              {item.largura_chapa} x {item.altura_chapa}
                             </td>
 
                             {/* Quantidade */}
                             <td style={{ padding: "12px", fontWeight: "bold" }}>
-                                {item.total_chapas}
+                              {item.total_chapas}
                             </td>
 
                             {/* Aproveitamento Global */}
-                            <td style={{ fontWeight: "bold", color: item.avg_aproveitamento > 80 ? "#28a745" : "#ffc107" }}>
+                            <td
+                              style={{
+                                fontWeight: "bold",
+                                color:
+                                  item.avg_aproveitamento > 80
+                                    ? "#28a745"
+                                    : "#ffc107",
+                              }}
+                            >
                               {Number(item.avg_aproveitamento).toFixed(1)}%
                             </td>
 
                             {/* Consumo da Chapa (Novo) */}
-                            <td style={{ fontWeight: "bold", color: theme.text }}>
-                               {item.avg_consumo ? Number(item.avg_consumo).toFixed(1) + "%" : "-"}
+                            <td
+                              style={{ fontWeight: "bold", color: theme.text }}
+                            >
+                              {item.avg_consumo
+                                ? Number(item.avg_consumo).toFixed(1) + "%"
+                                : "-"}
                             </td>
 
                             {/* Barra Visual */}
                             <td>
-                              <div style={{ width: "60px", height: "6px", background: theme.border, borderRadius: "3px", overflow: "hidden" }}>
-                                <div style={{ width: `${Math.min(item.avg_aproveitamento, 100)}%`, height: "100%", background: item.avg_aproveitamento > 80 ? "#28a745" : "#ffc107" }} />
+                              <div
+                                style={{
+                                  width: "60px",
+                                  height: "6px",
+                                  background: theme.border,
+                                  borderRadius: "3px",
+                                  overflow: "hidden",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: `${Math.min(item.avg_aproveitamento, 100)}%`,
+                                    height: "100%",
+                                    background:
+                                      item.avg_aproveitamento > 80
+                                        ? "#28a745"
+                                        : "#ffc107",
+                                  }}
+                                />
                               </div>
                             </td>
                           </tr>
