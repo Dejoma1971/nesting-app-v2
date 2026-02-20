@@ -653,23 +653,14 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
 
   if (!pedido) return res.status(400).json({ error: "Falta pedido." });
 
-  // 1. Tratamento seguro dos Arrays
-  const pedidosArray = pedido
-    .split(",")
-    .map((p) => p.trim())
-    .filter(Boolean);
-
+  const pedidosArray = pedido.split(",").map((p) => p.trim()).filter(Boolean);
   let opsArray = [];
+  
   if (op) {
-    // decodeURIComponent: Resolve o problema da barra '/' virar '%2F'
     const opDecoded = decodeURIComponent(op);
-    opsArray = opDecoded
-      .split(",")
-      .map((o) => o.trim())
-      .filter(Boolean);
+    opsArray = opDecoded.split(",").map((o) => o.trim()).filter(Boolean);
   }
 
-  // Função auxiliar para evitar que JSON inválido derrube o servidor
   const safeJsonParse = (content, fallback = {}) => {
     if (!content) return fallback;
     if (typeof content !== "string") return content;
@@ -682,15 +673,14 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
   };
 
   try {
-    // 2. Construção da Query (SEM ORDER BY para economizar memória do banco)
+    // 1. SQL CORRIGIDO: Removemos o "AND status = 'AGUARDANDO'"
+    // Buscamos todo o histórico daquele pedido para a deduplicação não ser enganada.
     let sql = `
       SELECT * FROM pecas_engenharia 
-      WHERE empresa_id = ? 
-      AND status = 'AGUARDANDO'
+      WHERE empresa_id = ?
     `;
 
     const params = [empresaId];
-
     if (pedidosArray.length > 0) {
       sql += ` AND pedido IN (?)`;
       params.push(pedidosArray);
@@ -701,19 +691,15 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
       params.push(opsArray);
     }
 
-    // REMOVIDO: ORDER BY data_cadastro DESC (Causador do erro de memória)
-    // Deixamos o SQL leve e rápido.
-
     const [rows] = await db.query(sql, params);
 
     if (rows.length === 0)
       return res.status(404).json({ message: "Peças não encontradas." });
 
-    // 3. ORDENAÇÃO VIA JAVASCRIPT (Aqui usamos a memória do Node, que é abundante)
-    // Ordena do mais recente para o mais antigo para a deduplicação funcionar
+    // 2. ORDENAÇÃO
     rows.sort((a, b) => new Date(b.data_cadastro) - new Date(a.data_cadastro));
 
-    // 4. O Highlander (Deduplicação: Só pode haver um)
+    // 3. DEDUPLICAÇÃO (Acha a verdadeira última versão)
     const pecasUnicas = {};
     rows.forEach((row) => {
       const rawNome = row.nome_arquivo ? String(row.nome_arquivo) : "";
@@ -724,15 +710,17 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
       if (!nomeLimpo || !pedidoLimpo) return;
 
       const chave = `${pedidoLimpo}|${nomeLimpo}`;
-      // Como já ordenamos a lista, o primeiro que aparecer é o mais recente
       if (!pecasUnicas[chave]) {
         pecasUnicas[chave] = row;
       }
     });
 
-    const rowsFiltradas = Object.values(pecasUnicas);
+    // 4. O FILTRO SALVADOR: Agora filtramos o status *após* descobrir qual é a versão real
+    const rowsFiltradas = Object.values(pecasUnicas).filter(
+      (row) => row.status === 'AGUARDANDO'
+    );
 
-    // 5. Mapeamento e Retorno
+    // 5. MAPEAMENTO E RETORNO
     const formattedParts = rowsFiltradas.map((row) => ({
       id: row.id,
       name: row.nome_arquivo,
