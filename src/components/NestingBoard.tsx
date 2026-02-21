@@ -44,6 +44,14 @@ import { calculatePartNetArea } from "../utils/areaCalculator";
 import { rotatePartsGroup } from "../utils/transformUtils";
 import { calculateSmartLabel } from "../utils/labelUtils";
 
+// --- INSERÇÃO: CÁLCULO DE RETALHOS ---
+import { 
+  calculateOptimalRemnants, 
+  resolveCropLines, 
+  type RemnantRect 
+} from "../utils/remnantCalculator";
+// -------------------------------------
+
 import { useNfpNesting } from "../hooks/useNfpNesting";
 
 interface Size {
@@ -1365,6 +1373,63 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const handleDeleteSheetWrapper = useCallback(() => {
     handleDeleteCurrentBin(nestingResult, setNestingResult);
   }, [handleDeleteCurrentBin, nestingResult, setNestingResult]);
+
+  // =================================================================
+  // --- INSERÇÃO: ESTADO E CÁLCULO DOS RETALHOS (REMNANTS) ---
+  // =================================================================
+  const [calculatedRemnants, setCalculatedRemnants] = useState<RemnantRect[]>([]);
+
+  // Limpa os retalhos visuais se o usuário apagar todas as linhas de corte
+  useEffect(() => {
+    if (cropLines.length === 0 && calculatedRemnants.length > 0) {
+      setCalculatedRemnants([]);
+    }
+  }, [cropLines, calculatedRemnants]);
+
+  const handleCalculateRemnants = useCallback(() => {
+    if (cropLines.length === 0) {
+      alert("Adicione pelo menos uma linha de corte antes de definir os retalhos.");
+      setSheetMenu(null);
+      return;
+    }
+
+    // 1. Descobre os limites X e Y formados pelas linhas atuais
+    const { cutX, cutY } = resolveCropLines(binSize.width, binSize.height, cropLines);
+
+    // 2. Calcula os retângulos perfeitos usando a nossa regra de negócio
+    const optimalRemnants = calculateOptimalRemnants(binSize.width, binSize.height, cutX, cutY);
+
+    // 3. Salva no estado para a tela desenhar as cores
+    setCalculatedRemnants(optimalRemnants);
+    
+    // ===============================================================
+    // 4. --- AUTO-TRIM MÁGICO PARA O LASER ---
+    // ===============================================================
+    // Verificamos o ID do retalho gerado para saber quem ganhou o direito de passagem
+    const isHorizontalWinner = optimalRemnants.some(r => r.id === 'retalho-primario-horizontal');
+    const isVerticalWinner = optimalRemnants.some(r => r.id === 'retalho-primario-vertical');
+
+    if (isHorizontalWinner || isVerticalWinner) {
+      // Atualiza as linhas no Canvas automaticamente (Se houver a função setCropLines)
+      if (setCropLines) {
+        setCropLines(prev => prev.map(line => {
+          if (line.type === 'vertical') {
+            // Se a horizontal venceu, a vertical bate nela e para (max = cutY). Se não, vai até o topo.
+            return { ...line, max: isHorizontalWinner ? cutY : binSize.height, min: 0 };
+          }
+          if (line.type === 'horizontal') {
+            // Se a vertical venceu, a horizontal bate nela e para (max = cutX). Se não, vai até a lateral.
+            return { ...line, max: isVerticalWinner ? cutX : binSize.width, min: 0 };
+          }
+          return line;
+        }));
+      }
+    }
+    // ===============================================================
+
+    setSheetMenu(null); // Fecha o menu de contexto
+  }, [cropLines, binSize, setCropLines]); // <-- GARANTA QUE O setCropLines ESTÁ AQUI
+  // =================================================================
 
   useEffect(() => {
     if (selectedPartIds.length > 0) {
@@ -4277,6 +4342,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             selectedPartIds={selectedPartIds}
             collidingPartIds={collidingPartIds}
             cropLines={cropLines}
+            calculatedRemnants={calculatedRemnants}
             onCropLineMove={moveCropLine}
             onCropLineContextMenu={handleLineContextMenu}
             onBackgroundContextMenu={handleBackgroundContextMenu}
@@ -4964,33 +5030,50 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               </div>
             )}
 
-            {sheetMenu && (
-              <SheetContextMenu
-                x={sheetMenu.x}
-                y={sheetMenu.y}
-                targetLineId={sheetMenu.lineId}
-                // --- INSERÇÃO: Passando o comando de Trim ---
-                onTrim={() => {
-                  if (
-                    sheetMenu.lineId &&
-                    sheetMenu.binX !== undefined &&
-                    sheetMenu.binY !== undefined
-                  ) {
-                    trimCropLine(
-                      sheetMenu.lineId,
-                      sheetMenu.binX,
-                      sheetMenu.binY,
-                    );
-                    setSheetMenu(null); // Fecha o menu
-                  }
-                }}
-                // --------------------------------------------
-                onDeleteLine={removeCropLine}
-                onClose={() => setSheetMenu(null)}
-                onDeleteSheet={handleDeleteSheetWrapper}
-                onAddCropLine={handleAddCropLineWrapper}
-              />
-            )}
+            {sheetMenu && (() => {
+              // --- CORREÇÃO 1: Verificação correta baseada no tipo PlacedPart[] ---
+              let hasPartsInBin = false;
+              if (Array.isArray(nestingResult)) {
+                // Se for um array de arrays (múltiplas chapas), pega a atual. 
+                // Se for um array simples (uma chapa), usa ele mesmo.
+                const currentBinData = nestingResult[currentBinIndex] || nestingResult;
+                hasPartsInBin = Array.isArray(currentBinData) 
+                  ? currentBinData.length > 0 
+                  : nestingResult.length > 0;
+              }
+
+              return (
+                <SheetContextMenu
+                  x={sheetMenu.x}
+                  y={sheetMenu.y}
+                  targetLineId={sheetMenu.lineId}
+                  
+                  // --- CORREÇÃO 2: Restaurando o uso real da função trimCropLine ---
+                  onTrim={() => {
+                    if (
+                      sheetMenu.lineId &&
+                      sheetMenu.binX !== undefined &&
+                      sheetMenu.binY !== undefined
+                    ) {
+                      trimCropLine(
+                        sheetMenu.lineId,
+                        sheetMenu.binX,
+                        sheetMenu.binY,
+                      );
+                      setSheetMenu(null); // Fecha o menu
+                    }
+                  }}
+                  // -----------------------------------------------------------------
+
+                  onDeleteLine={removeCropLine}
+                  onClose={() => setSheetMenu(null)}
+                  onDeleteSheet={handleDeleteSheetWrapper}
+                  onAddCropLine={handleAddCropLineWrapper}
+                  onDefineRemnants={handleCalculateRemnants}
+                  hasPlacedParts={hasPartsInBin}
+                />
+              );
+            })()}
 
             {activeTab === "list" && (
               <div

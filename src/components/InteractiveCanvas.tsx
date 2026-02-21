@@ -11,6 +11,7 @@ import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
 import type { AppTheme } from "../styles/theme";
 import type { CropLine } from "../hooks/useSheetManager";
+import type { RemnantRect } from "../utils/remnantCalculator";
 import { getOBBCorners } from "../utils/obbUtil";
 import { useCanvasPan } from "../hooks/useCanvasPan";
 
@@ -84,6 +85,9 @@ interface InteractiveCanvasProps {
     x: number,
     y: number,
   ) => void;
+  // --- INSERÇÃO: AVISAR QUE VAI RECEBER OS RETALHOS ---
+  calculatedRemnants?: RemnantRect[];
+  // ----------------------------------------------------
 }
 
 interface BoundingBoxCache {
@@ -595,6 +599,9 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   // --- INSERÇÃO 2: RECEBENDO AS PROPS ---
   isTrimMode = false,
   onCropLineClick,
+  // --- INSERÇÃO: RECEBER A VARIÁVEL AQUI ---
+  calculatedRemnants = [],
+  // -----------------------------------------
   // --------------------------------------
 }) => {
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
@@ -1422,6 +1429,22 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                 vectorEffect="non-scaling-stroke"
                 style={{ pointerEvents: "all" }}
               />
+              {/* --- INSERÇÃO: PINTURA DOS RETALHOS DE ESTOQUE --- */}
+              {calculatedRemnants.map((remnant) => (
+                <rect
+                  key={remnant.id}
+                  x={remnant.x}
+                  y={remnant.y}
+                  width={remnant.width}
+                  height={remnant.height}
+                  fill={remnant.type === 'primary' ? 'rgba(40, 167, 69, 0.3)' : 'rgba(40, 167, 69, 0.15)'}
+                  stroke="rgba(40, 167, 69, 0.8)"
+                  strokeWidth={2}
+                  strokeDasharray="5,5"
+                  style={{ pointerEvents: 'none' }}
+                />
+              ))}
+              {/* ------------------------------------------------- */}
 
               {/* CORREÇÃO: Mostra a margem sempre que ela for maior que 0, independente do Debug */}
               {margin > 0 && (

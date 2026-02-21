@@ -12,6 +12,8 @@ interface SheetContextMenuProps {
   // --- INSERÇÃO: Propriedade para a função de corte ---
   onTrim?: () => void; 
   // ---------------------------------------------------
+  onDefineRemnants: () => void;
+  hasPlacedParts: boolean;
 }
 
 export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
@@ -23,7 +25,9 @@ export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
   onAddCropLine,
   onDeleteLine,
   // --- INSERÇÃO: Recebendo a função ---
-  onTrim 
+  onTrim,
+  onDefineRemnants,
+  hasPlacedParts
   // ------------------------------------
 }) => {
   
@@ -106,6 +110,20 @@ export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
                 >
                     <span style={{ color: '#007bff', fontWeight:'bold' }}>—</span> Add Linha Horizontal (Y)
                 </button>
+
+               {/* --- INSERÇÃO: BOTÃO DEFINIR RETALHOS (CONDICIONAL) --- */}
+                {hasPlacedParts && (
+                  <button 
+                      style={itemStyle} 
+                      onClick={() => { onDefineRemnants(); onClose(); }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(40, 167, 69, 0.2)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      title="Aplica a regra matemática para definir a área de retalho útil"
+                  >
+                      <span style={{ fontSize: '14px' }}>🟩</span> Definir Retalhos
+                  </button>
+                )}
+                {/* ------------------------------------------------------ */}
 
                 <div style={{ height: '1px', backgroundColor: '#444', margin: '5px 0' }} />
                 <button 
