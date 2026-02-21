@@ -30,6 +30,10 @@ import { useNestingSaveStatus } from "../hooks/useNestingSaveStatus";
 import { useSheetManager } from "../hooks/useSheetManager";
 import { SheetContextMenu } from "./SheetContextMenu";
 import { SheetGalleryModal } from "./SheetGalleryModal";
+// --- INSERÇÃO 1: IMPORTAÇÃO DO NOVO MODAL ---
+import { EngineeringStatsModal, type EngineeringStatsData } from "./EngineeringStatsModal";
+// --------------------------------------------
+
 import { useAuth } from "../context/AuthContext"; // <--- 1. IMPORTAÇÃO DE SEGURANÇA
 import { SubscriptionPanel } from "./SubscriptionPanel";
 import { SidebarMenu } from "../components/SidebarMenu";
@@ -391,6 +395,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // Estado para controlar o modal da equipe
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
 
+  // --- INSERÇÃO 2: ESTADOS DO NOVO MODAL ---
+  const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
+  const [materialsList, setMaterialsList] = useState<{nome: string, densidade: number}[]>([]);
+  // -----------------------------------------
+
   // =========================================================
   const [showOnlySelected, setShowOnlySelected] = useState(false);
   // =========================================================
@@ -406,6 +415,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+ // 1. CHECA STATUS DA ASSINATURA (TRIAL) - Restaurado
   useEffect(() => {
     if (user && user.token) {
       fetch("http://localhost:3001/api/subscription/status", {
@@ -419,6 +429,20 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           }
         })
         .catch((err) => console.error("Erro ao verificar status:", err));
+    }
+  }, [user]);
+
+  // 2. BUSCA DENSIDADES DE MATERIAIS PARA O MODAL
+  useEffect(() => {
+    if (user && user.token) {
+      fetch("http://localhost:3001/api/materials", {
+        headers: { Authorization: `Bearer ${user.token}` },
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) setMaterialsList(data);
+        })
+        .catch((err) => console.error("Erro ao carregar materiais:", err));
     }
   }, [user]);
 
@@ -1113,7 +1137,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         real: "0,0",
         effective: "0,0",
         consumption: "0,0",
-        // CORREÇÃO AQUI: Adicionado .toFixed(0) para converter number -> string
+        sucataPercent: "0,0", // <--- Adicionado para zerar a sucata
+        retalhoPercent: "100,0", // <--- Adicionado: Chapa vazia = 100% de retalho!
         remnantHeight: binSize.height.toFixed(0),
         remnantArea: ((binSize.width * binSize.height) / 1000000).toFixed(2),
         isManual: false,
@@ -1160,16 +1185,27 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     // 4. Cálculos Finais
     const realYield = (usedNetArea / totalBinArea) * 100;
     const effectiveYield = (usedNetArea / effectiveUsedArea) * 100;
-    const consumptionYield = (effectiveUsedArea / totalBinArea) * 100;
+    const consumptionYield = (effectiveUsedArea / totalBinArea) * 100;    
 
+    
+    const sucataAreaMM = Math.max(0, effectiveUsedArea - usedNetArea);
     const remnantAreaMM = totalBinArea - effectiveUsedArea;
     const remnantLinearY = binSize.height - effectiveHeight;
+
+    // 👇 1. ESTA LINHA PRECISA ESTAR AQUI PARA FAZER A CONTA
+    const sucataPercentBin = (sucataAreaMM / totalBinArea) * 100;
+    const retalhoPercentBin = (remnantAreaMM / totalBinArea) * 100; // 👇 1. ADICIONE ESTA LINHA
+
+
 
     return {
       real: realYield.toFixed(1).replace(".", ","),
       effective: Math.min(effectiveYield, 100).toFixed(1).replace(".", ","),
       consumption: Math.min(consumptionYield, 100).toFixed(1).replace(".", ","),
       remnantHeight: remnantLinearY.toFixed(0), // Aqui já estava retornando string
+      // 👇 ESTA É A LINHA QUE ESTÁ FALTANDO PRO TYPESCRIPT PARAR DE RECLAMAR:
+      sucataPercent: sucataPercentBin.toFixed(1).replace(".", ","),
+      retalhoPercent: retalhoPercentBin.toFixed(1).replace(".", ","), // 👇 2. EXPORTE A VARIÁVEL AQUI
       remnantArea: (remnantAreaMM / 1000000).toFixed(2),
       isManual: !!(hLine || vLine),
     };
@@ -2633,6 +2669,95 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // ⬇️ --- INSERIR AQUI --- ⬇️
   const buttonHeight = "30px";
   // ⬆️ -------------------- ⬆️
+
+  // =================================================================
+  // --- PREPARAÇÃO DOS DADOS PARA O MODAL DE ESTATÍSTICA ---
+  // =================================================================
+  const engineeringStats = useMemo<EngineeringStatsData | null>(() => {
+    if (currentPlacedParts.length === 0) return null;
+
+    // 1. Descobrir material base
+    const firstPart = parts.find(p => p.id === currentPlacedParts[0].partId);
+    if (!firstPart) return null;
+
+    const materialName = firstPart.material || "Desconhecido";
+    const espessura = Number(firstPart.espessura) || 0;
+
+    // 2. Buscar densidade na lista
+    const matDb = materialsList.find(m => m.nome.trim().toLowerCase() === materialName.trim().toLowerCase());
+    const densidade = matDb && matDb.densidade ? Number(matDb.densidade) : 7.85;
+
+    // 3. Agrupar dados de PCP
+    const pedidosSet = new Set<string>();
+    const opsSet = new Set<string>();
+    const tiposSet = new Set<string>();
+
+    currentPlacedParts.forEach(placed => {
+      const p = parts.find(orig => orig.id === placed.partId);
+      if (p) {
+        if (p.pedido) pedidosSet.add(p.pedido);
+        if (p.op) opsSet.add(p.op);
+        if (p.tipo_producao) tiposSet.add(p.tipo_producao);
+      }
+    });
+
+    // 4. Calcular Áreas e Dimensões Físicas
+    const usedNetArea = currentPlacedParts.reduce((acc, placed) => {
+      const original = parts.find((p) => p.id === placed.partId);
+      return acc + (original?.netArea || original?.grossArea || 0);
+    }, 0);
+
+    let maxUsedY = 0;
+    currentPlacedParts.forEach((placed) => {
+      const original = parts.find((p) => p.id === placed.partId);
+      if (original) {
+        const dims = calculateRotatedDimensions(original.width, original.height, placed.rotation);
+        const topY = placed.y + dims.height;
+        if (topY > maxUsedY) maxUsedY = topY;
+      }
+    });
+
+    const hLine = cropLines.find((l) => l.type === "horizontal");
+    const vLine = cropLines.find((l) => l.type === "vertical");
+    
+    // Dimensões da Área de Corte
+    const limitX = vLine ? vLine.position : binSize.width;
+    const limitY = hLine ? hLine.position : maxUsedY;
+    
+    const effectiveUsedArea = limitX * Math.max(limitY, 1);
+    const totalBinArea = binSize.width * binSize.height;
+    
+    const sucataAreaMM = Math.max(0, effectiveUsedArea - usedNetArea);
+    const remnantAreaMM = Math.max(0, totalBinArea - effectiveUsedArea);
+
+    return {
+      material: materialName,
+      espessura: espessura,
+      densidade: densidade,
+      totalBinArea: totalBinArea,
+      effectiveArea: effectiveUsedArea,
+      netPartsArea: usedNetArea,
+      sucataArea: sucataAreaMM,
+      retalhoArea: remnantAreaMM,
+      // --- NOVOS DADOS EXPORTADOS: DIMENSÕES EM MM ---
+      binWidth: binSize.width,
+      binHeight: binSize.height,
+      effectiveWidth: limitX,
+      effectiveHeight: Math.max(limitY, 1),
+      remnants: calculatedRemnants.map(r => ({
+        id: r.id,
+        width: r.width,
+        height: r.height,
+        type: r.type
+      })),
+      // -----------------------------------------------
+      pedidos: Array.from(pedidosSet),
+      ops: Array.from(opsSet),
+      tiposProducao: Array.from(tiposSet),
+      quantidadePecas: currentPlacedParts.length
+    };
+  }, [currentPlacedParts, parts, materialsList, binSize, cropLines, calculatedRemnants]); // <--- calculatedRemnants ADICIONADO AQUI
+  // =================================================================
 
   const containerStyle: React.CSSProperties = {
     display: "flex",
@@ -4381,8 +4506,24 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               </span>
             </div>
 
-            {/* CENTRO: MÉTRICAS DE EFICIÊNCIA */}
+           {/* CENTRO: MÉTRICAS DE EFICIÊNCIA */}
             <div
+              // --- INSERÇÃO 5: TRANSFORMANDO EM BOTÃO ---
+              onClick={() => {
+                if (currentPlacedParts.length > 0) setIsStatsModalOpen(true);
+              }}
+              title={currentPlacedParts.length > 0 ? "Clique para ver o relatório completo (M², KG e OPs)" : ""}
+              onMouseEnter={(e) => {
+                if (currentPlacedParts.length > 0) {
+                  e.currentTarget.style.transform = "scale(1.02)";
+                  e.currentTarget.style.borderColor = "#007bff";
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = "scale(1)";
+                e.currentTarget.style.borderColor = theme.border;
+              }}
+              // ------------------------------------------
               style={{
                 display: "flex",
                 gap: "15px",
@@ -4394,150 +4535,61 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 boxShadow: "inset 0 1px 3px rgba(0,0,0,0.1)",
               }}
             >
-              {/* 1. REAL (CUSTO) */}
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  lineHeight: 1,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: "10px",
-                    color: theme.label,
-                    textTransform: "uppercase",
-                  }}
-                >
-                  Aprov. Global
+              {/* 1. ÁREA DE CORTE */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1 }}>
+                <span style={{ fontSize: "10px", color: theme.label, textTransform: "uppercase" }}>
+                  Área de Corte
                 </span>
-                <span style={{ fontSize: "14px", fontWeight: "bold" }}>
-                  {currentEfficiencies.real}%
-                </span>
-              </div>
-
-              <div
-                style={{
-                  width: "1px",
-                  height: "20px",
-                  background: theme.border,
-                }}
-              ></div>
-
-              {/* 2. CONSUMO (NOVO) */}
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  lineHeight: 1,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: "10px",
-                    color: theme.label,
-                    textTransform: "uppercase",
-                  }}
-                >
-                  Consumo Chapa
-                </span>
-                <span
-                  title="Porcentagem da chapa que foi utilizada (inclui peças e sucata interna). Quanto mais próximo do Global, melhor."
-                  style={{
-                    fontSize: "14px",
-                    fontWeight: "bold",
-                    color: theme.text,
-                  }}
+                <span 
+                  title="Representa a porção da chapa destinada ao corte (inclui Peças + Sucata) em relação à chapa total." 
+                  style={{ fontSize: "16px", fontWeight: "bold", color: "#007bff" }}
                 >
                   {currentEfficiencies.consumption}%
                 </span>
               </div>
 
-              <div
-                style={{
-                  width: "1px",
-                  height: "20px",
-                  background: theme.border,
-                }}
-              ></div>
+              <div style={{ width: "1px", height: "20px", background: theme.border }}></div>
 
-              {/* 3. EFETIVO (DENSIDADE) */}
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  lineHeight: 1,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: "10px",
-                    color: theme.label,
-                    textTransform: "uppercase",
-                  }}
-                >
-                  Densidade {currentEfficiencies.isManual && "(Manual)"}
+              {/* 2. ÁREA LÍQ. PEÇAS */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1 }}>
+                <span style={{ fontSize: "10px", color: theme.label, textTransform: "uppercase" }}>
+                  Área Liq. Peças
                 </span>
-                <span
-                  title={
-                    currentEfficiencies.isManual
-                      ? "Calculado com base na Linha de Corte definida"
-                      : "Calculado pelo topo das peças"
-                  }
-                  style={{
-                    fontSize: "14px",
-                    fontWeight: "bold",
-                    color: currentEfficiencies.isManual ? "#6f42c1" : "#007bff",
-                  }}
+                <span 
+                  title="Representa o material útil (peso real faturado das peças) em relação à chapa total." 
+                  style={{ fontSize: "16px", fontWeight: "bold", color: "#28a745" }}
                 >
-                  {currentEfficiencies.effective}%
+                  {currentEfficiencies.real}%
                 </span>
               </div>
 
-              <div
-                style={{
-                  width: "1px",
-                  height: "20px",
-                  background: theme.border,
-                }}
-              ></div>
+              <div style={{ width: "1px", height: "20px", background: theme.border }}></div>
 
-              {/* 4. SOBRA (RETALHO) */}
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  lineHeight: 1,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: "10px",
-                    color: theme.label,
-                    textTransform: "uppercase",
-                  }}
-                >
-                  {/* CONDICIONAL AQUI: Se não tem peças, chama de "Mesa de Corte" ou "Área Livre" */}
-                  {currentPlacedParts.length === 0
-                    ? "Mesa de Corte"
-                    : "Retalho Útil"}
+              {/* 3. SUCATA */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1 }}>
+                <span style={{ fontSize: "10px", color: theme.label, textTransform: "uppercase" }}>
+                  Sucata
                 </span>
-                <span
-                  title={`Sobra linear de chapa: ${currentEfficiencies.remnantHeight}mm`}
-                  style={{
-                    fontSize: "14px",
-                    fontWeight: "bold",
-                    color: "#28a745",
-                  }}
+                <span 
+                  title="Representa o material perdido (esqueleto/retalho morto) na área de corte em relação à chapa total." 
+                  style={{ fontSize: "16px", fontWeight: "bold", color: "#dc3545" }}
                 >
-                  {currentEfficiencies.remnantHeight}mm{" "}
-                  <span style={{ fontSize: "10px", opacity: 0.7 }}>
-                    ({currentEfficiencies.remnantArea}m²)
-                  </span>
+                  {currentEfficiencies.sucataPercent}%
+                </span>
+              </div>
+
+              <div style={{ width: "1px", height: "30px", backgroundColor: theme.border }}></div>
+
+              {/* 4. RETALHO ÚTIL */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1 }}>
+                <span style={{ fontSize: "10px", color: theme.label, textTransform: "uppercase" }}>
+                  Retalho Útil
+                </span>
+                <span 
+                  title="Representa a sobra de chapa limpa que retornará ao estoque em relação à chapa total." 
+                  style={{ fontSize: "16px", fontWeight: "bold", color: "#17a2b8" }} 
+                >
+                  {currentEfficiencies.retalhoPercent}%
                 </span>
               </div>
             </div>
@@ -5286,6 +5338,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         nestingResult={nestingResult}
         theme={theme}
       />
+      {/* --- INSERÇÃO 6: RENDERIZAR O MODAL DE ESTATÍSTICAS --- */}
+      <EngineeringStatsModal
+        isOpen={isStatsModalOpen}
+        onClose={() => setIsStatsModalOpen(false)}
+        theme={theme}
+        stats={engineeringStats}
+      />
+      {/* ------------------------------------------------------ */}
     </div>
    </> 
   );
