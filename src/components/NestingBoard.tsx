@@ -398,6 +398,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // --- INSERÇÃO 2: ESTADOS DO NOVO MODAL ---
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
   const [materialsList, setMaterialsList] = useState<{nome: string, densidade: number}[]>([]);
+  const [thicknessesList, setThicknessesList] = useState<{valor: string, valor_mm: number}[]>([]); // <--- ADICIONE ESTA LINHA
   // -----------------------------------------
 
   // =========================================================
@@ -432,9 +433,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
   }, [user]);
 
-  // 2. BUSCA DENSIDADES DE MATERIAIS PARA O MODAL
+ // 2. BUSCA DENSIDADES E ESPESSURAS PARA O MODAL
   useEffect(() => {
     if (user && user.token) {
+      // Busca Materiais
       fetch("http://localhost:3001/api/materials", {
         headers: { Authorization: `Bearer ${user.token}` },
       })
@@ -443,6 +445,16 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           if (Array.isArray(data)) setMaterialsList(data);
         })
         .catch((err) => console.error("Erro ao carregar materiais:", err));
+
+      // Busca Espessuras (NOVO)
+      fetch("http://localhost:3001/api/thicknesses", {
+        headers: { Authorization: `Bearer ${user.token}` },
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) setThicknessesList(data);
+        })
+        .catch((err) => console.error("Erro ao carregar espessuras:", err));
     }
   }, [user]);
 
@@ -2681,11 +2693,19 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     if (!firstPart) return null;
 
     const materialName = firstPart.material || "Desconhecido";
-    const espessura = Number(firstPart.espessura) || 0;
+    const espessuraTexto = firstPart.espessura || "";
 
-    // 2. Buscar densidade na lista
+    // 2. Buscar densidade na lista (Materiais)
     const matDb = materialsList.find(m => m.nome.trim().toLowerCase() === materialName.trim().toLowerCase());
     const densidade = matDb && matDb.densidade ? Number(matDb.densidade) : 7.85;
+
+    // 2.5 Buscar milímetro real na lista (Espessuras)
+    const espDb = thicknessesList.find(t => t.valor.trim().toLowerCase() === espessuraTexto.trim().toLowerCase());
+    
+    // Se achou no banco, usa o valor_mm. Se não, tenta um fallback limpando a vírgula.
+    const espessuraMm = espDb && espDb.valor_mm 
+      ? Number(espDb.valor_mm) 
+      : (parseFloat(espessuraTexto.replace(',', '.')) || 0);
 
     // 3. Agrupar dados de PCP
     const pedidosSet = new Set<string>();
@@ -2732,7 +2752,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
     return {
       material: materialName,
-      espessura: espessura,
+      espessura: espessuraMm,
       densidade: densidade,
       totalBinArea: totalBinArea,
       effectiveArea: effectiveUsedArea,
@@ -2756,7 +2776,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       tiposProducao: Array.from(tiposSet),
       quantidadePecas: currentPlacedParts.length
     };
-  }, [currentPlacedParts, parts, materialsList, binSize, cropLines, calculatedRemnants]); // <--- calculatedRemnants ADICIONADO AQUI
+  }, [currentPlacedParts, parts, materialsList, thicknessesList, binSize, cropLines, calculatedRemnants]); // <--- thicknessesList adicionado!
   // =================================================================
 
   const containerStyle: React.CSSProperties = {

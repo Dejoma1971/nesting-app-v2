@@ -25,7 +25,7 @@ export const EngineeringService = {
   // Aceita (token: string, parts: Array) OU (parts: Array)
   saveParts: async (
     tokenOrParts?: string | ImportedPart[],
-    parts?: ImportedPart[]
+    parts?: ImportedPart[],
   ) => {
     const isToken = typeof tokenOrParts === "string";
     // Se for token, o data está no 2º argumento. Se não, está no 1º.
@@ -41,7 +41,7 @@ export const EngineeringService = {
   // Usamos 'unknown[]' ou 'Record<string, unknown>[]' para evitar 'any' genérico
   checkPartsExistence: async (
     tokenOrItems?: string | unknown[],
-    items?: unknown[]
+    items?: unknown[],
   ) => {
     const isToken = typeof tokenOrItems === "string";
     const data = isToken ? items : tokenOrItems;
@@ -50,7 +50,7 @@ export const EngineeringService = {
     const response = await api.post(
       "/pecas/verificar-existencia",
       { itens: data },
-      getConfig(token)
+      getConfig(token),
     );
     return response.data.duplicadas || [];
   },
@@ -58,7 +58,7 @@ export const EngineeringService = {
   // VERIFICAR PEDIDO
   checkOrderExists: async (
     tokenOrPedido?: string,
-    pedido?: string
+    pedido?: string,
   ): Promise<boolean> => {
     // Lógica: Tokens JWT são longos (>50 chars), Pedidos são curtos
     const isToken =
@@ -69,7 +69,7 @@ export const EngineeringService = {
     try {
       const response = await api.get(
         `/pedidos/verificar/${id}`,
-        getConfig(token)
+        getConfig(token),
       );
       return response.data.exists;
     } catch {
@@ -86,7 +86,7 @@ export const EngineeringService = {
   addCustomMaterial: async (
     tokenOrName?: string | { name?: string; density?: string },
     name?: string,
-    density?: string
+    density?: string,
   ) => {
     const isToken = typeof tokenOrName === "string" && tokenOrName.length > 50;
     const payload = isToken
@@ -103,7 +103,7 @@ export const EngineeringService = {
     tokenOrId?: string | number,
     idOrName?: number | string,
     nameOrDensity?: string,
-    density?: string
+    density?: string,
   ) => {
     let token: string | undefined;
     let id: number;
@@ -124,7 +124,7 @@ export const EngineeringService = {
     const response = await api.put(
       `/materials/${id}`,
       { name: payloadName, density: payloadDensity },
-      getConfig(token)
+      getConfig(token),
     );
     return response.data;
   },
@@ -144,14 +144,15 @@ export const EngineeringService = {
   },
 
   addCustomThickness: async (
-    tokenOrValue?: string | { value?: string },
-    value?: string
+    tokenOrValue?: string | { value?: string; value_mm?: string | number },
+    value?: string,
+    valueMm?: string | number, // <--- NOVO: Parâmetro para os milímetros
   ) => {
     const isToken =
       typeof tokenOrValue === "string" && tokenOrValue.length > 50;
     const payload = isToken
-      ? { value }
-      : (tokenOrValue as { value?: string });
+      ? { value, value_mm: valueMm } // <--- Mapeamos para o payload
+      : (tokenOrValue as { value?: string; value_mm?: string | number });
     const token = isToken ? (tokenOrValue as string) : undefined;
 
     const response = await api.post("/thicknesses", payload, getConfig(token));
@@ -161,25 +162,29 @@ export const EngineeringService = {
   updateCustomThickness: async (
     tokenOrId?: string | number,
     idOrValue?: number | string,
-    value?: string
+    value?: string,
+    valueMm?: string | number, // <--- NOVO: Parâmetro para os milímetros
   ) => {
     let token: string | undefined;
     let id: number;
     let payloadValue: string | undefined;
+    let payloadValueMm: string | number | undefined; // <--- NOVA VARIÁVEL
 
     if (typeof tokenOrId === "number") {
       id = tokenOrId;
       payloadValue = idOrValue as string;
+      payloadValueMm = value; // Se não tem token, o 3º arg é o valueMm
     } else {
       token = tokenOrId as string;
       id = idOrValue as number;
       payloadValue = value;
+      payloadValueMm = valueMm; // <--- Atribui o novo argumento
     }
 
     const response = await api.put(
       `/thicknesses/${id}`,
-      { value: payloadValue },
-      getConfig(token)
+      { value: payloadValue, value_mm: payloadValueMm }, // <--- Enviando no payload
+      getConfig(token),
     );
     return response.data;
   },

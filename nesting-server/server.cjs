@@ -504,38 +504,36 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
     // =================================================================
     // Filtramos tudo que não for NORMAL
     const pecasEspeciais = parts.filter(
-      (p) => p.tipo_producao && p.tipo_producao.toUpperCase() !== "NORMAL"
+      (p) => p.tipo_producao && p.tipo_producao.toUpperCase() !== "NORMAL",
     );
 
     for (const p of pecasEspeciais) {
       if (p.pedido && p.name) {
-        
         // Agora pegamos EXATAMENTE o value enviado pelo frontend
-        const tipoReq = p.tipo_producao.toUpperCase().trim(); 
-        
+        const tipoReq = p.tipo_producao.toUpperCase().trim();
+
         // --- TRAVA PARA EDIÇÃO DE CADASTRO (Lendo com Underline!) ---
         if (tipoReq === "EDITAR_CADASTRO") {
-          
           // 1. Verifica qual é o status atual da peça no banco de dados
           const [statusCheck] = await connection.query(
             `SELECT status FROM pecas_engenharia 
              WHERE empresa_id = ? AND pedido = ? AND nome_arquivo = ?
              ORDER BY data_cadastro DESC LIMIT 1`,
-            [empresaId, p.pedido, p.name]
+            [empresaId, p.pedido, p.name],
           );
 
           if (statusCheck.length > 0) {
-            const statusAtual = statusCheck[0].status.toUpperCase(); 
-            
+            const statusAtual = statusCheck[0].status.toUpperCase();
+
             // Se a peça já passou do estágio de planejamento, BLOQUEIA a edição!
             if (statusAtual === "EM PRODUÇÃO" || statusAtual === "CONCLUÍDO") {
               await connection.rollback();
               connection.release();
-              
+
               // Devolve um erro 409 que será lido pelo 'alert' do seu EngineeringScreen.tsx
               return res.status(409).json({
                 error: "Edição Bloqueada",
-                message: `A peça "${p.name}" já foi enviada para corte (Status: ${statusAtual}).\n\nA "Edição de Cadastro" é permitida apenas para peças que ainda estão aguardando.\nPara repor o material desta peça, altere o Tipo de Produção para "Erro de Processo", "Erro de Projeto", etc.`
+                message: `A peça "${p.name}" já foi enviada para corte (Status: ${statusAtual}).\n\nA "Edição de Cadastro" é permitida apenas para peças que ainda estão aguardando.\nPara repor o material desta peça, altere o Tipo de Produção para "Erro de Processo", "Erro de Projeto", etc.`,
               });
             }
           }
@@ -544,10 +542,10 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
           await connection.query(
             `DELETE FROM pecas_engenharia 
              WHERE empresa_id = ? AND pedido = ? AND nome_arquivo = ? AND status = 'AGUARDANDO'`,
-            [empresaId, p.pedido, p.name]
+            [empresaId, p.pedido, p.name],
           );
         }
-        
+
         // --- LÓGICA DO RETRABALHO ---
         // Se for RETRABALHO_PERDA, RETRABALHO_PROCESSO, ERRO_ENGENHARIA ou ERRO_COMERCIAL,
         // ele não entra no if acima. Não apaga a antiga e simplesmente insere a nova no Passo 4.
@@ -563,11 +561,11 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
     //   if (p.pedido && p.name) {
     //     // "Mata" a peça antiga específica daquele pedido que ainda não foi produzida
     //     await connection.query(
-    //       `UPDATE pecas_engenharia 
-    //        SET status = 'SUBSTITUIDO' 
-    //        WHERE empresa_id = ? 
-    //          AND pedido = ? 
-    //          AND nome_arquivo = ? 
+    //       `UPDATE pecas_engenharia
+    //        SET status = 'SUBSTITUIDO'
+    //        WHERE empresa_id = ?
+    //          AND pedido = ?
+    //          AND nome_arquivo = ?
     //          AND status = 'AGUARDANDO'`,
     //       [empresaId, p.pedido, p.name],
     //     );
@@ -703,12 +701,18 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
 
   if (!pedido) return res.status(400).json({ error: "Falta pedido." });
 
-  const pedidosArray = pedido.split(",").map((p) => p.trim()).filter(Boolean);
+  const pedidosArray = pedido
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
   let opsArray = [];
-  
+
   if (op) {
     const opDecoded = decodeURIComponent(op);
-    opsArray = opDecoded.split(",").map((o) => o.trim()).filter(Boolean);
+    opsArray = opDecoded
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean);
   }
 
   const safeJsonParse = (content, fallback = {}) => {
@@ -767,7 +771,7 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
 
     // 4. O FILTRO SALVADOR: Agora filtramos o status *após* descobrir qual é a versão real
     const rowsFiltradas = Object.values(pecasUnicas).filter(
-      (row) => row.status === 'AGUARDANDO'
+      (row) => row.status === "AGUARDANDO",
     );
 
     // 5. MAPEAMENTO E RETORNO
@@ -1207,7 +1211,7 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
   // Esta função garante que qualquer string ("85,5") vire um número real (85.5) para o banco
   const limpaNumero = (val) => {
     if (val === undefined || val === null) return 0;
-    return parseFloat(String(val).replace(',', '.')) || 0;
+    return parseFloat(String(val).replace(",", ".")) || 0;
   };
 
   const aproveitamentoReal = limpaNumero(aproveitamento);
@@ -1231,7 +1235,7 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
       materialReal = pecaRows[0].material;
       // --- 🛠️ CORREÇÃO 2: SANITIZAÇÃO DA ESPESSURA ---
       // Se a peça original vier com "0,60" do DXF, aqui ela vira o número 0.6 para o banco
-      espessuraReal = limpaNumero(pecaRows[0].espessura); 
+      espessuraReal = limpaNumero(pecaRows[0].espessura);
       // --- FIM DA CORREÇÃO 2 ---
     }
 
@@ -1246,7 +1250,7 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
            UNION ALL
            SELECT nome, densidade FROM materiais_personalizados WHERE empresa_id = ?
          ) AS m WHERE nome = ? LIMIT 1`,
-        [empresaId, materialReal]
+        [empresaId, materialReal],
       );
 
       if (materialRows.length > 0 && materialRows[0].densidade) {
@@ -1272,8 +1276,8 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
         motor || "Smart Nest",
         larguraChapa || 0,
         alturaChapa || 0,
-        consumoReal,        // <-- AQUI: Usando o valor limpo [cite: 149]
-        retalhoLinearReal,  // <-- AQUI: Usando o valor limpo [cite: 149]
+        consumoReal, // <-- AQUI: Usando o valor limpo [cite: 149]
+        retalhoLinearReal, // <-- AQUI: Usando o valor limpo [cite: 149]
         areaRetalhoReal,
       ],
     );
@@ -1407,56 +1411,80 @@ app.delete("/api/materials/:id", authenticateToken, async (req, res) => {
 // ROTAS DE ESPESSURAS (COMPARTILHADO NA EQUIPE)
 // ==========================================
 
+// ==========================================
+// ROTAS DE ESPESSURAS (COMPARTILHADO NA EQUIPE)
+// ==========================================
+
 app.get("/api/thicknesses", authenticateToken, async (req, res) => {
   try {
     const empresaId = req.user.empresa_id;
 
+    // --- LÓGICA DE ORDENAÇÃO INTELIGENTE ---
+    // 1º: valor_mm IS NULL -> Joga os que não têm milímetro (antigos) para o final da lista
+    // 2º: valor_mm ASC -> Ordena do menor para o maior (ex: 0.80, 0.90, 1.20, 3.17)
+    // 3º: valor ASC -> Se dois tiverem o mesmo milímetro, desempata pelo nome alfabético
     const query = `
-        SELECT id, valor, 'padrao' as origem FROM espessuras_padrao
+        SELECT id, valor, valor_mm, 'padrao' as origem FROM espessuras_padrao
         UNION ALL
-        SELECT id, valor, 'custom' as origem FROM espessuras_personalizadas 
-        WHERE empresa_id = ? ORDER BY valor ASC`; // Ordenar por valor fica melhor visualmente
+        SELECT id, valor, valor_mm, 'custom' as origem FROM espessuras_personalizadas 
+        WHERE empresa_id = ? 
+        ORDER BY (valor_mm IS NULL), valor_mm ASC, valor ASC`; 
 
     const [results] = await db.query(query, [empresaId]);
     res.json(results);
   } catch (err) {
+    console.error("❌ Erro no GET /api/thicknesses:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
 app.post("/api/thicknesses", authenticateToken, async (req, res) => {
-  const { value } = req.body;
+  console.log("📥 DADOS RECEBIDOS DO FRONTEND (CRIAR):", req.body);
+  const { value, value_mm } = req.body;
   const usuarioId = req.user.id;
   const empresaId = req.user.empresa_id;
 
   if (!value) return res.status(400).json({ error: "Valor obrigatório" });
 
   try {
+    // BLINDAGEM: Troca vírgula por ponto e converte para número
+    const mmLimpo = value_mm
+      ? parseFloat(String(value_mm).replace(",", "."))
+      : null;
+
     const [result] = await db.query(
-      "INSERT INTO espessuras_personalizadas (usuario_id, empresa_id, valor) VALUES (?, ?, ?)",
-      [usuarioId, empresaId, value],
+      "INSERT INTO espessuras_personalizadas (usuario_id, empresa_id, valor, valor_mm) VALUES (?, ?, ?, ?)",
+      [usuarioId, empresaId, value, mmLimpo],
     );
-    res.json({ id: result.insertId, valor: value });
+    res.json({ id: result.insertId, valor: value, valor_mm: mmLimpo });
   } catch (err) {
+    console.error("❌ Erro no POST /api/thicknesses:", err); // <--- LOG PARA DEBUG
     res.status(500).json({ error: "Erro ao salvar espessura" });
   }
 });
 
 app.put("/api/thicknesses/:id", authenticateToken, async (req, res) => {
-  const { value } = req.body;
+  console.log("📥 DADOS RECEBIDOS DO FRONTEND (EDITAR):", req.body);
+  const { value, value_mm } = req.body;
   const empresaId = req.user.empresa_id;
 
   try {
+    // BLINDAGEM: Troca vírgula por ponto e converte para número
+    const mmLimpo = value_mm
+      ? parseFloat(String(value_mm).replace(",", "."))
+      : null;
+
     const [result] = await db.query(
-      "UPDATE espessuras_personalizadas SET valor = ? WHERE id = ? AND empresa_id = ?",
-      [value, req.params.id, empresaId],
+      "UPDATE espessuras_personalizadas SET valor = ?, valor_mm = ? WHERE id = ? AND empresa_id = ?",
+      [value, mmLimpo, req.params.id, empresaId],
     );
 
     if (result.affectedRows === 0)
       return res.status(404).json({ error: "Não encontrado" });
 
-    res.json({ message: "Atualizado" });
+    res.json({ message: "Atualizado", valor_mm: mmLimpo });
   } catch (err) {
+    console.error("❌ Erro no PUT /api/thicknesses:", err); // <--- LOG PARA DEBUG
     res.status(500).json({ error: err.message });
   }
 });
@@ -1566,7 +1594,7 @@ app.delete("/api/pedidos/:pedido", authenticateToken, async (req, res) => {
     // 1. VERIFICA STATUS DAS PEÇAS DESSE PEDIDO
     const [rows] = await connection.query(
       `SELECT status FROM pecas_engenharia WHERE empresa_id = ? AND pedido = ?`,
-      [empresaId, pedido]
+      [empresaId, pedido],
     );
 
     if (rows.length === 0) {
@@ -1576,39 +1604,40 @@ app.delete("/api/pedidos/:pedido", authenticateToken, async (req, res) => {
 
     // Verifica se existe alguma peça que NÃO esteja 'AGUARDANDO'
     // (ex: 'EM PRODUÇÃO', 'CONCLUÍDO', 'SUBSTITUIDO')
-    const temPecasEmProducao = rows.some(r => r.status !== 'AGUARDANDO');
+    const temPecasEmProducao = rows.some((r) => r.status !== "AGUARDANDO");
 
     // 2. APLICA A REGRA DE NEGÓCIO
     // Se tiver peças em produção e o usuário NÃO for admin, bloqueia.
-    if (temPecasEmProducao && userCargo !== 'admin') {
+    if (temPecasEmProducao && userCargo !== "admin") {
       await connection.rollback();
       return res.status(403).json({
         error: "Permissão Negada",
-        message: "Este pedido possui itens em produção ou concluídos. Apenas Administradores podem excluí-lo."
+        message:
+          "Este pedido possui itens em produção ou concluídos. Apenas Administradores podem excluí-lo.",
       });
     }
 
     // 3. EXECUTA A EXCLUSÃO
-    // Nota: Dependendo das suas chaves estrangeiras (Foreign Keys), 
+    // Nota: Dependendo das suas chaves estrangeiras (Foreign Keys),
     // isso pode apagar o histórico de produção (cascade) ou dar erro.
     // Assumindo que queremos limpar o cadastro atual:
     await connection.query(
       "DELETE FROM pecas_engenharia WHERE empresa_id = ? AND pedido = ?",
-      [empresaId, pedido]
+      [empresaId, pedido],
     );
 
     await connection.commit();
     res.json({ message: `Pedido ${pedido} excluído com sucesso.` });
-
   } catch (error) {
     await connection.rollback();
     console.error("Erro ao excluir pedido:", error);
     // Tratamento para erro de Foreign Key (caso tenha histórico travado)
     if (error.code && error.code.includes("ROW_IS_REFERENCED")) {
-       return res.status(409).json({ 
-         error: "Não é possível excluir", 
-         message: "Este pedido já possui histórico de produção vinculado e não pode ser apagado totalmente." 
-       });
+      return res.status(409).json({
+        error: "Não é possível excluir",
+        message:
+          "Este pedido já possui histórico de produção vinculado e não pode ser apagado totalmente.",
+      });
     }
     res.status(500).json({ error: "Erro interno ao excluir pedido." });
   } finally {
