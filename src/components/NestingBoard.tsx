@@ -12,7 +12,6 @@ import {
   type PlacedPart, // <--- PlacedPart continua sendo um type
 } from "../utils/nestingCore";
 import { checkGuillotineCollisions } from "../utils/guillotineCollision";
-import { hasCropLineCollision } from "../utils/collisionCheck";
 import { ContextControl } from "./ContextControl";
 import { InteractiveCanvas } from "./InteractiveCanvas";
 import { useUndoRedo } from "../hooks/useUndoRedo";
@@ -563,6 +562,41 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     espessura: "",
   });
 
+  // 👇 === INSERÇÃO: AUTO-PREENCHIMENTO INTELIGENTE DE FILTROS === 👇
+  const prevPartsLength = useRef(0);
+
+  useEffect(() => {
+    // Regra 1: Se o banco de peças esvaziou (ex: Limpar Mesa), zera tudo.
+    if (parts.length === 0 && prevPartsLength.current > 0) {
+      setFilters({ pedido: [], op: [], material: "", espessura: "" });
+    } 
+    // Regra 2: Se temos peças, vamos checar se precisamos auto-preencher.
+    else if (parts.length > 0) {
+      // Só roda a lógica se houve adição de peças (primeira carga ou append)
+      if (prevPartsLength.current === 0 || parts.length !== prevPartsLength.current) {
+        setFilters((prev) => {
+          // Checa se o filtro atual está 100% vazio
+          const isFilterEmpty = prev.pedido.length === 0 && prev.op.length === 0 && !prev.material && !prev.espessura;
+          
+          if (isFilterEmpty) {
+            const firstPart = parts[0];
+            return {
+              pedido: firstPart.pedido ? [firstPart.pedido] : [],
+              op: firstPart.op ? [firstPart.op] : [],
+              material: String(firstPart.material || "").trim(),
+              espessura: String(firstPart.espessura || "").trim(),
+            };
+          }
+          return prev; // Se já tiver algo filtrado, não mexe
+        });
+      }
+    }
+    
+    // Atualiza a memória para a próxima checagem
+    prevPartsLength.current = parts.length;
+  }, [parts]);
+  // ⬆️ ============================================================== ⬆️
+
   // 👇 COLE AQUI 👇
   // =================================================================
   // --- FASE 3: BUSCA AUTOMÁTICA DE RETALHOS (ALERTA ECO-SMART) ---
@@ -638,6 +672,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   );
 
   const [collidingPartIds, setCollidingPartIds] = useState<string[]>([]);
+  // --- INSERÇÃO: Ref para silenciar o alerta do Worker ---
+  const isSilentCollisionCheck = useRef(false);
+  // -------------------------------------------------------
   const collisionWorkerRef = useRef<Worker | null>(null);
   const nestingWorkerRef = useRef<Worker | null>(null);
   const wiseNestingWorkerRef = useRef<Worker | null>(null);
@@ -651,15 +688,17 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
     collisionWorkerRef.current.onmessage = (e: MessageEvent) => {
       const collisions = e.data as string[];
-      setCollidingPartIds(collisions);
+      setCollidingPartIds(collisions); // <- Isso vai pintar a peça de vermelho na hora!
 
-      if (collisions.length > 0) {
-        alert(
-          `⚠️ ALERTA DE COLISÃO!\n\n${collisions.length} peças com problemas marcadas em VERMELHO.`,
-        );
-      } else {
-        alert("✅ Verificação Completa! Nenhuma colisão.");
+      // --- INSERÇÃO: Só exibe o alerta de tela se NÃO for uma checagem em 2º plano ---
+      if (!isSilentCollisionCheck.current) {
+        if (collisions.length > 0) {
+          alert(`⚠️ ALERTA DE COLISÃO!\n\n${collisions.length} peças com problemas marcadas em VERMELHO.`);
+        } else {
+          alert("✅ Verificação Completa! Nenhuma colisão.");
+        }
       }
+      // ---------------------------------------------------------------------------------
     };
 
     return () => {
@@ -828,6 +867,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     handleProductionDownload,
     getPartStatus,
     resetProduction,
+    removeAndShiftLockedBins,
   } = useProductionManager(binSize);
 
   // --- NOVO HOOK DE REGISTRO ---
@@ -977,8 +1017,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     // para não causar confusão visual, mas o usuário pode desmarcar o pai se quiser.
   };
 
-  const { isBinSaved, markBinAsSaved, resetAllSaveStatus } =
-    useNestingSaveStatus(nestingResult);
+  const { isBinSaved, markBinAsSaved, resetAllSaveStatus, removeAndShiftSavedBins } =
+    useNestingSaveStatus(nestingResult); // <--- ADICIONE A FUNÇÃO AQUI
 
   // --- INTEGRAÇÃO: GERENCIADOR DE ARQUIVO LOCAL ---
   const { handleSaveProject, handleLoadProject, fileInputRef } =
@@ -1816,9 +1856,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           }
         }
         // =================================================================
-
-      // 👇 COLE A FASE 3 AQUI (Dar baixa no retalho usado) 👇
-        // =================================================================
         // ♻️ FASE 3: DAR BAIXA (USAR) O RETALHO ESCOLHIDO NO BANCO
         // =================================================================
         if (selectedDBRemnant) {
@@ -1828,12 +1865,17 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               headers: { Authorization: `Bearer ${user.token}` }
             });
             console.log(`Baixa efetuada no retalho: ${selectedDBRemnant.codigo}`);
+            
+            // --- INSERÇÃO DA CORREÇÃO AQUI ---
+            // Remove o retalho usado da lista visual imediatamente para ele não aparecer de novo
+            setAvailableRemnants((prev) => prev.filter(r => r.id !== selectedDBRemnant.id));
+            // ---------------------------------
+            
           } catch (err) {
             console.error("Erro ao dar baixa no retalho:", err);
           }
         }
         // =================================================================
-
       } else {
         console.warn("Aviso do banco:", registro.message);
       }
@@ -1849,6 +1891,60 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       densidadeNumerica, // Agora passando o 7.85 corretamente!
       bancoSalvoComSucesso, 
     );
+
+    // ⬇️ === INSERÇÃO FASE 5: CLEANUP E RESET DA MESA === ⬇️
+    if (bancoSalvoComSucesso) {
+      // 1. Abatimento de Quantidades (PCP)
+      const newQuantities = { ...quantities };
+      partsInBin.forEach((placed) => {
+        if (newQuantities[placed.partId]) {
+          newQuantities[placed.partId] -= 1;
+        }
+      });
+      setQuantities(newQuantities);
+
+      // 2. Remove as peças que zeraram do Banco de Peças (Barra Lateral)
+      setParts((prevParts) => prevParts.filter((p) => (newQuantities[p.id] || 0) > 0));
+
+      // 3. Exclui a chapa salva da mesa e reorganiza a galeria (Shift)
+      setNestingResult((prevResult) => {
+        // Tira as peças desta chapa que acabou de ser salva
+        const remainingParts = prevResult.filter((p) => p.binId !== currentBinIndex);
+        // Rebaixa o índice das chapas seguintes (Ex: Chapa 2 vira Chapa 1)
+        return remainingParts.map((p) => 
+          p.binId > currentBinIndex ? { ...p, binId: p.binId - 1 } : p
+        );
+      });
+
+      // 4. Ajuste da Paginação (Galeria)
+      if (totalBins <= 1) {
+        setTotalBins(1);
+        setCurrentBinIndex(0);
+      } else {
+        setTotalBins(totalBins - 1);
+        // Se excluímos a última chapa da fila, volta a visão para a anterior
+        if (currentBinIndex >= totalBins - 1) {
+          setCurrentBinIndex(Math.max(0, currentBinIndex - 1));
+        }
+      }
+
+      // 5. Hard Reset da Mesa (Volta ao padrão, limpa guilhotina e desativa retalhos)
+      if (setCropLines) setCropLines([]);
+      setSelectedDBRemnant(null);
+      setBinSize({ width: 1200, height: 3000 }); // Dimensão Padrão
+      // --- CORREÇÃO: REMOVE O RESET GLOBAL E DESLOCA OS STATUS INDIVIDUAIS ---
+      removeAndShiftSavedBins(currentBinIndex);
+      removeAndShiftLockedBins(currentBinIndex);
+      // ---------------------------------------------------------------------
+
+      // --- INSERÇÃO: RECENTRALIZAR A CÂMERA ---
+      setViewKey((prev) => prev + 1);
+      // ----------------------------------------
+      
+      
+      alert("✅ Chapa enviada para produção! A mesa foi limpa e reconfigurada.");
+    }
+    // ⬆️ ======================================================= ⬆️
   };
 
   const handleCalculate = useCallback(() => {
@@ -2150,9 +2246,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       resetProduction();
       resetAllSaveStatus();
       if (setCropLines) setCropLines([]);
-
       // Limpa seleções do modal também, por garantia
       setSelectedOps([]);
+      // --- INSERÇÃO: RECENTRALIZAR A CÂMERA ---
+      setViewKey((prev) => prev + 1);
+      // ----------------------------------------
     }
   }, [
     resetNestingResult,
@@ -2498,11 +2596,40 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     [handlePartsMove, collidingPartIds],
   );
 
+  // --- INSERÇÃO: EFEITO DE COLISÃO EM SEGUNDO PLANO (SILENCIOSO E OTIMIZADO) ---
+  useEffect(() => {
+    // Só roda se tivermos peças e linhas na mesa
+    if (cropLines.length === 0 || currentPlacedParts.length === 0) return;
+
+    // Timer de 300ms: Garante que o Worker só rola depois que o usuário parar de arrastar a linha
+    const timer = setTimeout(() => {
+      isSilentCollisionCheck.current = true; // Avisa o Worker para não disparar Alert
+      
+      if (collisionWorkerRef.current) {
+        collisionWorkerRef.current.postMessage({
+          placedParts: currentPlacedParts,
+          partsData: parts,
+          binWidth: binSize.width,
+          binHeight: binSize.height,
+          margin: margin,
+          cropLines: cropLines,
+        });
+      }
+    }, 300); 
+
+    return () => clearTimeout(timer);
+  }, [cropLines, currentPlacedParts, parts, binSize, margin]);
+  // -----------------------------------------------------------------------------
+
   const handleCheckCollisions = useCallback(() => {
     if (currentPlacedParts.length < 1) {
       alert("A mesa está vazia.");
       return;
     }
+
+    // --- INSERÇÃO: Botão foi clicado, garantimos que o Worker VAI emitir o alerta ---
+    isSilentCollisionCheck.current = false;
+    // --------------------------------------------------------------------------------
 
     if (collisionWorkerRef.current) {
       collisionWorkerRef.current.postMessage({
@@ -5457,34 +5584,26 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               {sheetMenu &&
                 (() => {
                   let hasPartsInBin = false;
-                  let currentBinData: PlacedPart[] = [];
-                  
                   if (Array.isArray(nestingResult)) {
-                    currentBinData = nestingResult.filter((p) => p.binId === currentBinIndex);
-                    hasPartsInBin = currentBinData.length > 0;
+                    const currentBinData =
+                      nestingResult[currentBinIndex] || nestingResult;
+                    hasPartsInBin = Array.isArray(currentBinData)
+                      ? currentBinData.length > 0
+                      : nestingResult.length > 0;
                   }
 
-                  // === LÓGICA DE TRAVA DO RETALHO ===
-                  let lineCollision = false;
-                  if (cropLines.length > 0 && hasPartsInBin) {
-                      lineCollision = hasCropLineCollision(
-                          currentBinData,
-                          parts,
-                          binSize.width,
-                          binSize.height,
-                          cropLines
-                      );
-                  }
-
+                  // === INSERÇÃO: LÓGICA DE TRAVA DO RETALHO (USANDO WORKER REAL-TIME) ===
+                  // Como o worker já roda em segundo plano, basta olharmos se há peças no array de colisão
+                  const lineCollision = collidingPartIds.length > 0;
                   const canDefineRemnants = cropLines.length > 0 && !lineCollision;
                   
                   let remnantTooltip = "Aplica a regra matemática para definir a área de retalho útil";
                   if (cropLines.length === 0) {
                       remnantTooltip = "Adicione pelo menos uma linha de corte primeiro.";
                   } else if (lineCollision) {
-                      remnantTooltip = "⚠️ Bloqueado: Linha de corte cruzando sobre peça(s)!";
+                      remnantTooltip = "⚠️ Bloqueado: Colisão detectada na chapa!";
                   }
-                  // ==================================
+                  // ==========================================================
 
                   return (
                     <SheetContextMenu
@@ -5492,9 +5611,17 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                       y={sheetMenu.y}
                       targetLineId={sheetMenu.lineId}
                       onTrim={() => {
-                        if (sheetMenu.lineId && sheetMenu.binX !== undefined && sheetMenu.binY !== undefined) {
-                          trimCropLine(sheetMenu.lineId, sheetMenu.binX, sheetMenu.binY);
-                          setSheetMenu(null); 
+                        if (
+                          sheetMenu.lineId &&
+                          sheetMenu.binX !== undefined &&
+                          sheetMenu.binY !== undefined
+                        ) {
+                          trimCropLine(
+                            sheetMenu.lineId,
+                            sheetMenu.binX,
+                            sheetMenu.binY,
+                          );
+                          setSheetMenu(null);
                         }
                       }}
                       onDeleteLine={removeCropLine}
@@ -5503,8 +5630,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                       onAddCropLine={handleAddCropLineWrapper}
                       onDefineRemnants={handleCalculateRemnants}
                       hasPlacedParts={hasPartsInBin}
-                      canDefineRemnants={canDefineRemnants} // <-- PASSA PRA CÁ
-                      remnantTooltip={remnantTooltip}       // <-- PASSA PRA CÁ
+                      // --- INSERÇÃO DAS NOVAS PROPS AQUI ---
+                      canDefineRemnants={canDefineRemnants}
+                      remnantTooltip={remnantTooltip}
+                      // -------------------------------------
                     />
                   );
                 })()}

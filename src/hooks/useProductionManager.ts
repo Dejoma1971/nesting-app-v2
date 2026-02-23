@@ -223,6 +223,18 @@ export const useProductionManager = (binSize: {
     setState({ producedQuantities: {}, lockedBins: [], isSaving: false });
   }, []);
 
+  // --- INSERÇÃO: FUNÇÃO PARA DESLOCAR OS BLOQUEIOS QUANDO UMA CHAPA É APAGADA ---
+  const removeAndShiftLockedBins = useCallback((deletedIndex: number) => {
+    setState((prev) => {
+      const newLockedBins = prev.lockedBins
+        .filter((index) => index !== deletedIndex) // 1. Remove a chapa salva da trava
+        .map((index) => (index > deletedIndex ? index - 1 : index)); // 2. Puxa as seguintes para trás
+
+      return { ...prev, lockedBins: newLockedBins };
+    });
+  }, []);
+  // ----------------------------------------------------------------------------
+
   return {
     producedQuantities: state.producedQuantities,
     lockedBins: state.lockedBins,
@@ -230,5 +242,6 @@ export const useProductionManager = (binSize: {
     handleProductionDownload,
     getPartStatus,
     resetProduction,
+    removeAndShiftLockedBins, // <--- EXPORTE A NOVA FUNÇÃO AQUI
   };
 };
