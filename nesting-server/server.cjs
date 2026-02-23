@@ -1187,104 +1187,58 @@ app.get("/api/dashboard/stats", authenticateToken, async (req, res) => {
 
 // [server.cjs] - Atualização da rota /api/producao/registrar
 
-app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
-  // RECEBENDO OS NOVOS DADOS DO FRONTEND
-  const {
-    chapaIndex,
-    aproveitamento, // Este será o Global (Real)
-    consumo, // NOVO: Consumo %
-    retalhoLinear, // NOVO: mm
-    areaRetalho, // NOVO: m²
-    itens,
-    motor,
-    larguraChapa,
-    alturaChapa,
-  } = req.body;
+// [server.cjs] - Atualização da rota /api/producao/registrar
 
+app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
+  // RECEBENDO O PACOTE RICO DO FRONTEND
+  const { chapaIndex, motor, stats, itens, nestingSignature } = req.body;
   const usuarioId = req.user.id;
   const empresaId = req.user.empresa_id;
 
   if (!itens || itens.length === 0)
     return res.status(400).json({ error: "Nenhum item informado." });
-
-  // --- 🛠️ INÍCIO DA CORREÇÃO 1: SANITIZAÇÃO DE NÚMEROS COM VÍRGULA ---
-  // Esta função garante que qualquer string ("85,5") vire um número real (85.5) para o banco
-  const limpaNumero = (val) => {
-    if (val === undefined || val === null) return 0;
-    return parseFloat(String(val).replace(",", ".")) || 0;
-  };
-
-  const aproveitamentoReal = limpaNumero(aproveitamento);
-  const consumoReal = limpaNumero(consumo);
-  const retalhoLinearReal = limpaNumero(retalhoLinear);
-  const areaRetalhoReal = limpaNumero(areaRetalho);
-  // --- FIM DA CORREÇÃO 1 ---
+  
+  if (!stats) 
+    return res.status(400).json({ error: "Métricas de engenharia ausentes." });
 
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
 
-    let materialReal = "Desconhecido";
-    let espessuraReal = 0;
+    // 1. CÁLCULO DAS PORCENTAGENS BASEADAS NO PACOTE DA ENGENHARIA
+    const aproveitamento = stats.totalBinArea > 0 ? (stats.netPartsArea / stats.totalBinArea) * 100 : 0;
+    const consumo = stats.totalBinArea > 0 ? (stats.effectiveArea / stats.totalBinArea) * 100 : 0;
+    
+    // 2. CONVERSÕES DIMENSIONAIS
+    const areaRetalhoM2 = stats.retalhoArea / 1000000; // Transformando mm² em m²
+    const retalhoLinearY = Math.max(0, stats.binHeight - stats.effectiveHeight);
 
-    const [pecaRows] = await connection.query(
-      "SELECT material, espessura FROM pecas_engenharia WHERE id = ? AND empresa_id = ?",
-      [itens[0].id, empresaId],
-    );
-    if (pecaRows.length > 0) {
-      materialReal = pecaRows[0].material;
-      // --- 🛠️ CORREÇÃO 2: SANITIZAÇÃO DA ESPESSURA ---
-      // Se a peça original vier com "0,60" do DXF, aqui ela vira o número 0.6 para o banco
-      espessuraReal = limpaNumero(pecaRows[0].espessura);
-      // --- FIM DA CORREÇÃO 2 ---
-    }
-
-    // --- 🛠️ CORREÇÃO 3: BUSCA DA DENSIDADE DINÂMICA DO MATERIAL ---
-    let densidadeReal = 7.85; // Fallback: Valor padrão (Aço Carbono) caso algo dê errado
-
-    if (materialReal && materialReal !== "Desconhecido") {
-      // Busca nas duas tabelas (Padrão e Personalizados da Empresa)
-      const [materialRows] = await connection.query(
-        `SELECT densidade FROM (
-           SELECT nome, densidade FROM materiais_padrao
-           UNION ALL
-           SELECT nome, densidade FROM materiais_personalizados WHERE empresa_id = ?
-         ) AS m WHERE nome = ? LIMIT 1`,
-        [empresaId, materialReal],
-      );
-
-      if (materialRows.length > 0 && materialRows[0].densidade) {
-        // Aproveitamos a mesma função de limpar número para garantir que a densidade não venha com vírgula do banco!
-        densidadeReal = limpaNumero(materialRows[0].densidade);
-      }
-    }
-    // --- FIM DA CORREÇÃO 3 ---
-
-    // INSERT ATUALIZADO COM OS NOVOS CAMPOS
+    // 3. INSERT MESTRE (Sem selects lentos, salva os dados diretos da Engenharia)
     const [result] = await connection.query(
       `INSERT INTO producao_historico 
-       (empresa_id, usuario_id, data_producao, chapa_index, aproveitamento, densidade, material, espessura, motor, largura_chapa, altura_chapa, consumo_chapa, retalho_linear, area_retalho) 
-       VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (empresa_id, usuario_id, data_producao, chapa_index, aproveitamento, densidade, material, espessura, motor, nesting_signature, largura_chapa, altura_chapa, consumo_chapa, retalho_linear, area_retalho) 
+       VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         empresaId,
         usuarioId,
         chapaIndex,
-        aproveitamentoReal, // Global
-        7.85, // Densidade do MATERIAL (Aço), não do arranjo
-        materialReal,
-        espessuraReal,
+        aproveitamento,
+        stats.densidade,    // Veio limpo do banco via frontend
+        stats.material,     // Nome real do material
+        stats.espessura,    // Valor em milímetros exato (já formatado com ponto!)
         motor || "Smart Nest",
-        larguraChapa || 0,
-        alturaChapa || 0,
-        consumoReal, // <-- AQUI: Usando o valor limpo [cite: 149]
-        retalhoLinearReal, // <-- AQUI: Usando o valor limpo [cite: 149]
-        areaRetalhoReal,
+        nestingSignature || null,
+        stats.binWidth,
+        stats.binHeight,
+        consumo,
+        retalhoLinearY,
+        areaRetalhoM2,
       ],
     );
 
-    // ... O restante do código (INSERT producao_itens, UPDATE status, commit) permanece igual ...
     const producaoId = result.insertId;
 
+    // 4. INSERT DOS ITENS (Filhos)
     const values = itens.map((item) => [
       producaoId,
       item.id,
@@ -1297,6 +1251,7 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
       [values],
     );
 
+    // 5. ATUALIZAR STATUS DAS PEÇAS ORIGINAIS
     const idsParaAtualizar = itens.map((i) => i.id);
     if (idsParaAtualizar.length > 0) {
       await connection.query(
@@ -1306,17 +1261,20 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
     }
 
     await connection.commit();
+    
+    // 6. SUCESSO! DEVOLVENDO O ID PARA VINCULAR O RETALHO
     res.json({
       message: "Produção registrada!",
-      detalhes: { material: materialReal, espessura: espessuraReal, motor },
+      producaoId: producaoId, 
+      detalhes: { material: stats.material, espessura: stats.espessura, motor },
     });
+
   } catch (error) {
-    // ... (Bloco catch permanece igual) ...
     await connection.rollback();
-    console.error(error);
+    console.error("Erro ao registrar produção:", error);
     if (error.code === "ER_DUP_ENTRY")
-      return res.status(409).json({ error: "Duplicate entry" });
-    res.status(500).json({ error: "Erro ao salvar." });
+      return res.status(409).json({ error: "Duplicate entry", producaoId: null });
+    res.status(500).json({ error: "Erro ao salvar histórico." });
   } finally {
     connection.release();
   }
@@ -1552,6 +1510,125 @@ app.get("/api/fix-database", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// ROTAS DE RETALHOS (ESTOQUE INTELIGENTE)
+// ==========================================
+
+// 1. LISTAR RETALHOS DISPONÍVEIS (Alerta "Eco-Smart")
+app.get("/api/retalhos/disponiveis", authenticateToken, async (req, res) => {
+  const empresaId = req.user.empresa_id;
+  const { material, espessura_mm } = req.query;
+
+  try {
+    let sql = `SELECT * FROM retalhos_estoque WHERE empresa_id = ? AND status = 'DISPONIVEL'`;
+    const params = [empresaId];
+
+    // Se o frontend enviar o material e espessura da mesa atual, o banco já filtra!
+    if (material) {
+      sql += ` AND material = ?`;
+      params.push(material);
+    }
+
+    if (espessura_mm) {
+      // Blindagem contra vírgulas
+      const espLimpa = parseFloat(String(espessura_mm).replace(',', '.'));
+      sql += ` AND espessura_mm = ?`;
+      params.push(espLimpa);
+    }
+
+    // ORDENAÇÃO DE OURO: Traz o menor retalho que sirva primeiro (Economia máxima)
+    sql += ` ORDER BY area_m2 ASC`; 
+
+    const [rows] = await db.query(sql, params);
+    res.json(rows);
+  } catch (error) {
+    console.error("❌ Erro ao buscar retalhos:", error);
+    res.status(500).json({ error: "Erro ao buscar estoque de retalhos." });
+  }
+});
+
+// 2. SALVAR NOVOS RETALHOS (Gatilho: Salvar DXF)
+app.post("/api/retalhos", authenticateToken, async (req, res) => {
+  const { retalhos } = req.body;
+  const empresaId = req.user.empresa_id;
+  const usuarioId = req.user.id;
+
+  if (!retalhos || !Array.isArray(retalhos) || retalhos.length === 0) {
+    return res.status(400).json({ error: "Nenhum retalho enviado." });
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const sql = `
+      INSERT INTO retalhos_estoque 
+      (id, empresa_id, usuario_id, codigo, material, espessura_mm, largura, altura, origem_producao_id, status)
+      VALUES ?
+    `;
+
+    const values = retalhos.map((r) => {
+      // Blindagem matemática: garante que todos os números venham com ponto
+      const espLimpa = parseFloat(String(r.espessura_mm).replace(',', '.')) || 0;
+      const largLimpa = parseFloat(String(r.largura).replace(',', '.')) || 0;
+      const altLimpa = parseFloat(String(r.altura).replace(',', '.')) || 0;
+
+      // ATENÇÃO: O colchete de abertura e as vírgulas devem estar exatos aqui
+      return [
+        crypto.randomUUID(),
+        empresaId,
+        usuarioId,
+        r.codigo || `RET-${Math.floor(Math.random() * 10000)}`,
+        r.material || 'Desconhecido',
+        espLimpa,
+        largLimpa,
+        altLimpa,
+        r.origem_producao_id || null,
+        'DISPONIVEL'
+      ];
+    });
+
+    const [result] = await connection.query(sql, [values]);
+    await connection.commit();
+
+    res.status(201).json({
+      message: "Retalhos salvos no estoque com sucesso!",
+      count: result.affectedRows
+    });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error("❌ Erro ao salvar retalhos:", error);
+    res.status(500).json({ error: "Erro interno ao guardar retalhos." });
+  } finally {
+    connection.release();
+  }
+});
+
+// 3. MARCAR RETALHO COMO USADO (Baixa no Estoque)
+app.put("/api/retalhos/:id/usar", authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const empresaId = req.user.empresa_id;
+
+  try {
+    const [result] = await db.query(
+      `UPDATE retalhos_estoque 
+       SET status = 'USADO', used_at = NOW() 
+       WHERE id = ? AND empresa_id = ? AND status = 'DISPONIVEL'`,
+      [id, empresaId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Retalho não encontrado ou já utilizado." });
+    }
+
+    res.json({ message: "Retalho baixado do estoque com sucesso!" });
+  } catch (error) {
+    console.error("❌ Erro ao usar retalho:", error);
+    res.status(500).json({ error: "Erro técnico ao atualizar retalho." });
   }
 });
 

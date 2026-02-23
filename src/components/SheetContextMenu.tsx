@@ -14,6 +14,9 @@ interface SheetContextMenuProps {
   // ---------------------------------------------------
   onDefineRemnants: () => void;
   hasPlacedParts: boolean;
+  // --- NOVAS PROPS DA TRAVA DE RETALHO ---
+  canDefineRemnants: boolean;
+  remnantTooltip: string;
 }
 
 export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
@@ -27,7 +30,9 @@ export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
   // --- INSERÇÃO: Recebendo a função ---
   onTrim,
   onDefineRemnants,
-  hasPlacedParts
+  hasPlacedParts,
+  canDefineRemnants, 
+  remnantTooltip
   // ------------------------------------
 }) => {
   
@@ -111,14 +116,25 @@ export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
                     <span style={{ color: '#007bff', fontWeight:'bold' }}>—</span> Add Linha Horizontal (Y)
                 </button>
 
-               {/* --- INSERÇÃO: BOTÃO DEFINIR RETALHOS (CONDICIONAL) --- */}
+               {/* --- INSERÇÃO: BOTÃO DEFINIR RETALHOS (BLINDADO) --- */}
                 {hasPlacedParts && (
                   <button 
-                      style={itemStyle} 
-                      onClick={() => { onDefineRemnants(); onClose(); }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(40, 167, 69, 0.2)'}
+                      style={{
+                          ...itemStyle,
+                          opacity: canDefineRemnants ? 1 : 0.4,
+                          cursor: canDefineRemnants ? 'pointer' : 'not-allowed'
+                      }} 
+                      onClick={() => { 
+                          if (canDefineRemnants) {
+                              onDefineRemnants(); 
+                              onClose(); 
+                          }
+                      }}
+                      onMouseEnter={(e) => {
+                          if (canDefineRemnants) e.currentTarget.style.background = 'rgba(40, 167, 69, 0.2)';
+                      }}
                       onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                      title="Aplica a regra matemática para definir a área de retalho útil"
+                      title={remnantTooltip}
                   >
                       <span style={{ fontSize: '14px' }}>🟩</span> Definir Retalhos
                   </button>

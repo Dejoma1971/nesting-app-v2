@@ -12,6 +12,7 @@ import {
   type PlacedPart, // <--- PlacedPart continua sendo um type
 } from "../utils/nestingCore";
 import { checkGuillotineCollisions } from "../utils/guillotineCollision";
+import { hasCropLineCollision } from "../utils/collisionCheck";
 import { ContextControl } from "./ContextControl";
 import { InteractiveCanvas } from "./InteractiveCanvas";
 import { useUndoRedo } from "../hooks/useUndoRedo";
@@ -31,7 +32,10 @@ import { useSheetManager } from "../hooks/useSheetManager";
 import { SheetContextMenu } from "./SheetContextMenu";
 import { SheetGalleryModal } from "./SheetGalleryModal";
 // --- INSERÇÃO 1: IMPORTAÇÃO DO NOVO MODAL ---
-import { EngineeringStatsModal, type EngineeringStatsData } from "./EngineeringStatsModal";
+import {
+  EngineeringStatsModal,
+  type EngineeringStatsData,
+} from "./EngineeringStatsModal";
 // --------------------------------------------
 
 import { useAuth } from "../context/AuthContext"; // <--- 1. IMPORTAÇÃO DE SEGURANÇA
@@ -48,15 +52,28 @@ import { calculatePartNetArea } from "../utils/areaCalculator";
 import { rotatePartsGroup } from "../utils/transformUtils";
 import { calculateSmartLabel } from "../utils/labelUtils";
 
+import { RemnantModal } from "./RemnantModal";
+
 // --- INSERÇÃO: CÁLCULO DE RETALHOS ---
-import { 
-  calculateOptimalRemnants, 
-  resolveCropLines, 
-  type RemnantRect 
+import {
+  calculateOptimalRemnants,
+  resolveCropLines,
+  type RemnantRect,
 } from "../utils/remnantCalculator";
 // -------------------------------------
 
 import { useNfpNesting } from "../hooks/useNfpNesting";
+
+// 👇 COLE A INTERFACE AQUI 👇
+// --- INSERÇÃO FASE 3: INTERFACE DO RETALHO ---
+interface DBRemnant {
+  id: string;
+  codigo: string;
+  largura: number;
+  altura: number;
+  area_m2: number;
+}
+// ---------------------------------------------
 
 interface Size {
   width: number;
@@ -391,15 +408,42 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   // --- NOVO: Estado para bloquear recursos do Trial ---
   const [isTrial, setIsTrial] = useState(false);
-  
+
   // Estado para controlar o modal da equipe
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
 
   // --- INSERÇÃO 2: ESTADOS DO NOVO MODAL ---
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
-  const [materialsList, setMaterialsList] = useState<{nome: string, densidade: number}[]>([]);
-  const [thicknessesList, setThicknessesList] = useState<{valor: string, valor_mm: number}[]>([]); // <--- ADICIONE ESTA LINHA
+  const [materialsList, setMaterialsList] = useState<
+    { nome: string; densidade: number }[]
+  >([]);
+  const [thicknessesList, setThicknessesList] = useState<
+    { valor: string; valor_mm: number }[]
+  >([]); // <--- ADICIONE ESTA LINHA
   // -----------------------------------------
+  // 👇 COLE OS ESTADOS AQUI 👇
+  // --- INSERÇÃO FASE 3: ESTADOS DO ECO-SMART ---
+  const [availableRemnants, setAvailableRemnants] = useState<DBRemnant[]>([]);
+  const [selectedDBRemnant, setSelectedDBRemnant] = useState<DBRemnant | null>(null);
+
+  // --- NOVOS ESTADOS: CONTROLE DO MODAL E ANIMAÇÃO ---
+  const [isRemnantModalOpen, setIsRemnantModalOpen] = useState(false);
+  const [isRemnantPulsing, setIsRemnantPulsing] = useState(false);
+
+  
+  // --- FUNÇÕES DO MODAL DE RETALHOS ---
+  const handleSelectRemnant = useCallback((remnant: DBRemnant) => {
+    setSelectedDBRemnant(remnant);
+    setBinSize({ width: Number(remnant.largura), height: Number(remnant.altura) });
+    setIsRemnantModalOpen(false); // Fecha o modal ao selecionar
+  }, []);
+
+  const handleRemoveRemnant = useCallback(() => {
+    setSelectedDBRemnant(null);
+    setBinSize({ width: 1200, height: 3000 }); // Volta a chapa padrão
+    setIsRemnantModalOpen(false); // Fecha o modal
+  }, []);
+  // ---------------------------------------------
 
   // =========================================================
   const [showOnlySelected, setShowOnlySelected] = useState(false);
@@ -416,7 +460,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
- // 1. CHECA STATUS DA ASSINATURA (TRIAL) - Restaurado
+  // 1. CHECA STATUS DA ASSINATURA (TRIAL) - Restaurado
   useEffect(() => {
     if (user && user.token) {
       fetch("http://localhost:3001/api/subscription/status", {
@@ -433,7 +477,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
   }, [user]);
 
- // 2. BUSCA DENSIDADES E ESPESSURAS PARA O MODAL
+  // 2. BUSCA DENSIDADES E ESPESSURAS PARA O MODAL
   useEffect(() => {
     if (user && user.token) {
       // Busca Materiais
@@ -457,6 +501,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         .catch((err) => console.error("Erro ao carregar espessuras:", err));
     }
   }, [user]);
+
+  
 
   // --- DEFINIÇÃO DE ESTADOS ---
   const [parts, setParts] = useState<ImportedPart[]>(initialParts);
@@ -516,6 +562,32 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     material: "",
     espessura: "",
   });
+
+  // 👇 COLE AQUI 👇
+  // =================================================================
+  // --- FASE 3: BUSCA AUTOMÁTICA DE RETALHOS (ALERTA ECO-SMART) ---
+  // =================================================================
+  useEffect(() => {
+    if (!user?.token || !filters.material || !filters.espessura) {
+      setAvailableRemnants([]);
+      return;
+    }
+
+    const espDb = thicknessesList.find(t => t.valor.trim().toLowerCase() === filters.espessura.trim().toLowerCase());
+    const espessuraMm = espDb?.valor_mm || parseFloat(filters.espessura.replace(',', '.'));
+
+    if (!espessuraMm) return;
+
+    fetch(`http://localhost:3001/api/retalhos/disponiveis?material=${encodeURIComponent(filters.material)}&espessura_mm=${espessuraMm}`, {
+      headers: { Authorization: `Bearer ${user.token}` }
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (Array.isArray(data)) setAvailableRemnants(data);
+    })
+    .catch(err => console.error("Erro ao buscar retalhos:", err));
+  }, [filters.material, filters.espessura, thicknessesList, user]);
+  // =================================================================
 
   const { isDarkMode, theme } = useTheme();
   // const [isDarkMode, setIsDarkMode] = useState(true);
@@ -714,7 +786,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       if (savedData && !isTrial) {
         if (savedData.parts.length > 0 || savedData.nestingResult.length > 0) {
           console.log("Restaurando sessão...");
-          
+
           // Carrega todos os dados
           setParts(savedData.parts);
           setQuantities(savedData.quantities);
@@ -724,21 +796,30 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           setCurrentBinIndex(savedData.currentBinIndex);
           if (setCropLines) setCropLines(savedData.cropLines);
           if (savedData.labelStates) setLabelStates(savedData.labelStates);
-          if (savedData.calculationTime !== undefined) setCalculationTime(savedData.calculationTime);
+          if (savedData.calculationTime !== undefined)
+            setCalculationTime(savedData.calculationTime);
         }
       }
-      
+
       // FINALMENTE: Desliga o loader (mesmo se não tiver dados)
       setIsRestoring(false);
     };
 
     // Pequeno timeout (0ms ou 50ms) ajuda a garantir que o navegador renderize o loader antes de travar processando o JSON
     setTimeout(restoreSession, 50);
-
   }, [
-    initialParts, isTrial, loadSavedState, setParts, setQuantities, 
-    setNestingResult, setBinSize, setTotalBins, setCurrentBinIndex, 
-    setCropLines, setCalculationTime, setLabelStates
+    initialParts,
+    isTrial,
+    loadSavedState,
+    setParts,
+    setQuantities,
+    setNestingResult,
+    setBinSize,
+    setTotalBins,
+    setCurrentBinIndex,
+    setCropLines,
+    setCalculationTime,
+    setLabelStates,
   ]);
 
   const {
@@ -1197,9 +1278,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     // 4. Cálculos Finais
     const realYield = (usedNetArea / totalBinArea) * 100;
     const effectiveYield = (usedNetArea / effectiveUsedArea) * 100;
-    const consumptionYield = (effectiveUsedArea / totalBinArea) * 100;    
+    const consumptionYield = (effectiveUsedArea / totalBinArea) * 100;
 
-    
     const sucataAreaMM = Math.max(0, effectiveUsedArea - usedNetArea);
     const remnantAreaMM = totalBinArea - effectiveUsedArea;
     const remnantLinearY = binSize.height - effectiveHeight;
@@ -1207,8 +1287,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     // 👇 1. ESTA LINHA PRECISA ESTAR AQUI PARA FAZER A CONTA
     const sucataPercentBin = (sucataAreaMM / totalBinArea) * 100;
     const retalhoPercentBin = (remnantAreaMM / totalBinArea) * 100; // 👇 1. ADICIONE ESTA LINHA
-
-
 
     return {
       real: realYield.toFixed(1).replace(".", ","),
@@ -1425,7 +1503,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // =================================================================
   // --- INSERÇÃO: ESTADO E CÁLCULO DOS RETALHOS (REMNANTS) ---
   // =================================================================
-  const [calculatedRemnants, setCalculatedRemnants] = useState<RemnantRect[]>([]);
+  const [calculatedRemnants, setCalculatedRemnants] = useState<RemnantRect[]>(
+    [],
+  );
 
   // Limpa os retalhos visuais se o usuário apagar todas as linhas de corte
   useEffect(() => {
@@ -1436,41 +1516,66 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const handleCalculateRemnants = useCallback(() => {
     if (cropLines.length === 0) {
-      alert("Adicione pelo menos uma linha de corte antes de definir os retalhos.");
+      alert(
+        "Adicione pelo menos uma linha de corte antes de definir os retalhos.",
+      );
       setSheetMenu(null);
       return;
     }
 
     // 1. Descobre os limites X e Y formados pelas linhas atuais
-    const { cutX, cutY } = resolveCropLines(binSize.width, binSize.height, cropLines);
+    const { cutX, cutY } = resolveCropLines(
+      binSize.width,
+      binSize.height,
+      cropLines,
+    );
 
     // 2. Calcula os retângulos perfeitos usando a nossa regra de negócio
-    const optimalRemnants = calculateOptimalRemnants(binSize.width, binSize.height, cutX, cutY);
+    const optimalRemnants = calculateOptimalRemnants(
+      binSize.width,
+      binSize.height,
+      cutX,
+      cutY,
+    );
 
     // 3. Salva no estado para a tela desenhar as cores
     setCalculatedRemnants(optimalRemnants);
-    
+
     // ===============================================================
     // 4. --- AUTO-TRIM MÁGICO PARA O LASER ---
     // ===============================================================
     // Verificamos o ID do retalho gerado para saber quem ganhou o direito de passagem
-    const isHorizontalWinner = optimalRemnants.some(r => r.id === 'retalho-primario-horizontal');
-    const isVerticalWinner = optimalRemnants.some(r => r.id === 'retalho-primario-vertical');
+    const isHorizontalWinner = optimalRemnants.some(
+      (r) => r.id === "retalho-primario-horizontal",
+    );
+    const isVerticalWinner = optimalRemnants.some(
+      (r) => r.id === "retalho-primario-vertical",
+    );
 
     if (isHorizontalWinner || isVerticalWinner) {
       // Atualiza as linhas no Canvas automaticamente (Se houver a função setCropLines)
       if (setCropLines) {
-        setCropLines(prev => prev.map(line => {
-          if (line.type === 'vertical') {
-            // Se a horizontal venceu, a vertical bate nela e para (max = cutY). Se não, vai até o topo.
-            return { ...line, max: isHorizontalWinner ? cutY : binSize.height, min: 0 };
-          }
-          if (line.type === 'horizontal') {
-            // Se a vertical venceu, a horizontal bate nela e para (max = cutX). Se não, vai até a lateral.
-            return { ...line, max: isVerticalWinner ? cutX : binSize.width, min: 0 };
-          }
-          return line;
-        }));
+        setCropLines((prev) =>
+          prev.map((line) => {
+            if (line.type === "vertical") {
+              // Se a horizontal venceu, a vertical bate nela e para (max = cutY). Se não, vai até o topo.
+              return {
+                ...line,
+                max: isHorizontalWinner ? cutY : binSize.height,
+                min: 0,
+              };
+            }
+            if (line.type === "horizontal") {
+              // Se a vertical venceu, a horizontal bate nela e para (max = cutX). Se não, vai até a lateral.
+              return {
+                ...line,
+                max: isVerticalWinner ? cutX : binSize.width,
+                min: 0,
+              };
+            }
+            return line;
+          }),
+        );
       }
     }
     // ===============================================================
@@ -1634,56 +1739,115 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     const partsInBin = nestingResult.filter((p) => p.binId === currentBinIndex);
     if (partsInBin.length === 0 && cropLines.length === 0) return;
 
-    // 1. Prepara a densidade numérica
-    let densidadeNumerica = 0;
-    if (currentEfficiencies && currentEfficiencies.effective) {
-      densidadeNumerica = Number(
-        currentEfficiencies.effective.replace(",", "."),
-      );
+    // ⬇️ TRAVA DE SEGURANÇA (Garante que os dados matemáticos já carregaram)
+    if (!engineeringStats) {
+      alert("Aguarde o cálculo das estatísticas antes de salvar.");
+      return;
     }
 
-    // 2. ETAPA BANCO DE DADOS (Usa o registerProduction)
-    // ETAPA BANCO DE DADOS
+    // ⬇️ === INSERÇÃO DA FASE 4: TRAVA DE RETALHO (0.3m²) === ⬇️
+    const sobraM2 = ((engineeringStats.binHeight - engineeringStats.effectiveHeight) * engineeringStats.binWidth) / 1000000;
+
+    // Se a sobra detectada for maior ou igual a 0.3m², a trava entra em ação
+    if (sobraM2 >= 0.3) {
+      // Cenário A: O usuário nem sequer colocou a linha de guilhotina
+      if (cropLines.length === 0) {
+        alert(`♻️ ECO-SMART: RETALHO OBRIGATÓRIO!\n\nA sobra linear desta chapa possui ${sobraM2.toFixed(2)}m².\n\nVocê PRECISA CRIAR O RETALHO (adicionar a linha de corte) para poder salvar o nesting.`);
+        return; // Bloqueia o salvamento
+      }
+      
+      // Cenário B: O usuário colocou a linha, mas esqueceu de mandar calcular o retalho
+      if (calculatedRemnants.length === 0) {
+        alert(`♻️ ECO-SMART: RETALHO NÃO GERADO!\n\nVocê inseriu a linha de corte, mas esqueceu de registrar o retalho.\n\nClique com o botão direito na chapa e selecione "Definir Retalhos" antes de prosseguir.`);
+        return; // Bloqueia o salvamento
+      }
+    }
+    // ⬆️ ======================================================= ⬆️
+
+    // ⬇️ CORREÇÃO E MELHORIA: Pegando a densidade REAL (ex: 7.85) direto do objeto
+    const densidadeNumerica = engineeringStats.densidade || 7.85;
+
     let bancoSalvoComSucesso = false;
 
     if (user && user.token) {
+      // MANDANDO O PACOTE LIMPO E RICO PARA O BANCO!
       const registro = await registerProduction({
         nestingResult,
         currentBinIndex,
         parts: displayedParts,
         user,
-        cropLines,
-        motor:
-          strategy === "true-shape-v2" ||
-          strategy === "true-shape-v3" ||
-          strategy === "nfp"
-            ? "true-shape"
-            : strategy,
-
-        // NOVOS PARÂMETROS
-        binWidth: binSize.width,
-        binHeight: binSize.height,
-        metricas: currentEfficiencies, // <--- Passamos o objeto inteiro calculado no useMemo
+        motor: strategy === "true-shape-v2" || strategy === "true-shape-v3" || strategy === "nfp" ? "true-shape" : strategy,
+        stats: engineeringStats // O objeto que contém toda a inteligência!
       });
 
       if (registro.success) {
         bancoSalvoComSucesso = true;
         markBinAsSaved(currentBinIndex);
+
+        // =================================================================
+        // ♻️ FASE 2: CAPTURAR E SALVAR OS RETALHOS NO ESTOQUE
+        // =================================================================
+        if (engineeringStats.remnants && engineeringStats.remnants.length > 0) {
+          const pacoteRetalhos = engineeringStats.remnants.map((retalho) => ({
+            material: engineeringStats.material,
+            espessura_mm: engineeringStats.espessura,
+            largura: retalho.width,
+            altura: retalho.height,
+            origem_producao_id: registro.producaoId || null // Vinculando ao Histórico
+          }));
+
+          try {
+            const respostaRetalho = await fetch("http://localhost:3001/api/retalhos", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${user.token}`,
+              },
+              body: JSON.stringify({ retalhos: pacoteRetalhos }),
+            });
+
+            if (respostaRetalho.ok) {
+              console.log("♻️ Retalhos salvos no estoque com sucesso!");
+            } else {
+              console.error("Aviso: A produção foi salva, mas o retalho não foi pro estoque.");
+            }
+          } catch (err) {
+            console.error("Erro na requisição de retalhos:", err);
+          }
+        }
+        // =================================================================
+
+      // 👇 COLE A FASE 3 AQUI (Dar baixa no retalho usado) 👇
+        // =================================================================
+        // ♻️ FASE 3: DAR BAIXA (USAR) O RETALHO ESCOLHIDO NO BANCO
+        // =================================================================
+        if (selectedDBRemnant) {
+          try {
+            await fetch(`http://localhost:3001/api/retalhos/${selectedDBRemnant.id}/usar`, {
+              method: 'PUT',
+              headers: { Authorization: `Bearer ${user.token}` }
+            });
+            console.log(`Baixa efetuada no retalho: ${selectedDBRemnant.codigo}`);
+          } catch (err) {
+            console.error("Erro ao dar baixa no retalho:", err);
+          }
+        }
+        // =================================================================
+
       } else {
         console.warn("Aviso do banco:", registro.message);
       }
     }
 
     // 3. ETAPA ARQUIVO DXF (Usa o handleProductionDownload)
-    // Passamos 'bancoSalvoComSucesso' para que ele saiba que não precisa tentar salvar de novo
     await handleProductionDownload(
       nestingResult,
       currentBinIndex,
       displayedParts,
       cropLines,
-      null, // User null para garantir que o manager antigo não tente salvar no banco
-      densidadeNumerica,
-      bancoSalvoComSucesso, // <--- O PARÂMETRO MAIS IMPORTANTE
+      null, 
+      densidadeNumerica, // Agora passando o 7.85 corretamente!
+      bancoSalvoComSucesso, 
     );
   };
 
@@ -2382,76 +2546,85 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // [NestingBoard.tsx] - Adicione esta função junto com os outros handlers
 
   // --- FUNÇÃO PARA DELETAR PEDIDO (COM TRAVA DE SEGURANÇA) ---
-  const handleDeleteOrder = useCallback(async (pedidoToDelete: string) => {
-    // 1. VALIDAÇÃO DE SEGURANÇA (IGUAL À EDIÇÃO)
-    
-    // A. Verifica se tem peças deste pedido na MESA DE CORTE
-    const hasOnTable = nestingResult.some(placed => {
-      // Busca a peça original na memória para conferir o número do pedido
-      const original = parts.find(p => p.id === placed.partId);
-      return original?.pedido === pedidoToDelete;
-    });
+  const handleDeleteOrder = useCallback(
+    async (pedidoToDelete: string) => {
+      // 1. VALIDAÇÃO DE SEGURANÇA (IGUAL À EDIÇÃO)
 
-    // B. Verifica se tem peças deste pedido na LISTA LATERAL
-    const hasInList = parts.some(p => p.pedido === pedidoToDelete);
-
-    // Se estiver em uso, BLOQUEIA e avisa
-    if (hasOnTable || hasInList) {
-      alert(
-        `⛔ AÇÃO BLOQUEADA\n\n` +
-        `O pedido "${pedidoToDelete}" está carregado na sua área de trabalho (na Mesa ou na Lista).\n\n` +
-        `Para evitar erros graves de sistema, você deve limpar essas peças da tela antes de excluir o pedido do banco de dados.\n` + 
-        `Dica: Use o botão "Reset" ou remova as peças manualmente.`
-      );
-      return; // <--- O CÓDIGO PARA AQUI
-    }
-
-    // 2. CONFIRMAÇÃO DO USUÁRIO (FLUXO NORMAL)
-    if (!window.confirm(
-      `TEM CERTEZA?\n\n` +
-      `Isso excluirá PERMANENTEMENTE o pedido "${pedidoToDelete}" e todas as suas peças do banco de dados.\n\n` +
-      `Essa ação não pode ser desfeita. Continuar?`
-    )) {
-      return;
-    }
-
-    if (!user || !user.token) return;
-
-    try {
-      const encodedPedido = encodeURIComponent(pedidoToDelete);
-      const response = await fetch(`http://localhost:3001/api/pedidos/${encodedPedido}`, {
-        method: "DELETE",
-        headers: {
-          "Authorization": `Bearer ${user.token}`,
-        },
+      // A. Verifica se tem peças deste pedido na MESA DE CORTE
+      const hasOnTable = nestingResult.some((placed) => {
+        // Busca a peça original na memória para conferir o número do pedido
+        const original = parts.find((p) => p.id === placed.partId);
+        return original?.pedido === pedidoToDelete;
       });
 
-      const data = await response.json();
+      // B. Verifica se tem peças deste pedido na LISTA LATERAL
+      const hasInList = parts.some((p) => p.pedido === pedidoToDelete);
 
-      if (!response.ok) {
-        alert(`❌ ERRO: ${data.message || data.error}`);
+      // Se estiver em uso, BLOQUEIA e avisa
+      if (hasOnTable || hasInList) {
+        alert(
+          `⛔ AÇÃO BLOQUEADA\n\n` +
+            `O pedido "${pedidoToDelete}" está carregado na sua área de trabalho (na Mesa ou na Lista).\n\n` +
+            `Para evitar erros graves de sistema, você deve limpar essas peças da tela antes de excluir o pedido do banco de dados.\n` +
+            `Dica: Use o botão "Reset" ou remova as peças manualmente.`,
+        );
+        return; // <--- O CÓDIGO PARA AQUI
+      }
+
+      // 2. CONFIRMAÇÃO DO USUÁRIO (FLUXO NORMAL)
+      if (
+        !window.confirm(
+          `TEM CERTEZA?\n\n` +
+            `Isso excluirá PERMANENTEMENTE o pedido "${pedidoToDelete}" e todas as suas peças do banco de dados.\n\n` +
+            `Essa ação não pode ser desfeita. Continuar?`,
+        )
+      ) {
         return;
       }
 
-      // Sucesso: Removemos o pedido da lista visualmente
-      setAvailableOrders((prev) => prev.filter((o) => o.pedido !== pedidoToDelete));
-      
-      // Se o pedido estava selecionado no input de busca, removemos ele do texto
-      setSearchQuery((prev) => {
-        const parts = prev.split(",").map(s => s.trim());
-        return parts.filter(p => p !== pedidoToDelete).join(", ");
-      });
+      if (!user || !user.token) return;
 
-      // Se esse pedido estava expandido na árvore, remove da lista de expandidos
-      setExpandedOrders(prev => prev.filter(p => p !== pedidoToDelete));
+      try {
+        const encodedPedido = encodeURIComponent(pedidoToDelete);
+        const response = await fetch(
+          `http://localhost:3001/api/pedidos/${encodedPedido}`,
+          {
+            method: "DELETE",
+            headers: {
+              Authorization: `Bearer ${user.token}`,
+            },
+          },
+        );
 
-      alert("✅ Pedido excluído com sucesso!");
+        const data = await response.json();
 
-    } catch (error) {
-      console.error(error);
-      alert("Erro de conexão ao tentar excluir.");
-    }
-  }, [user, setAvailableOrders, setSearchQuery, nestingResult, parts]); 
+        if (!response.ok) {
+          alert(`❌ ERRO: ${data.message || data.error}`);
+          return;
+        }
+
+        // Sucesso: Removemos o pedido da lista visualmente
+        setAvailableOrders((prev) =>
+          prev.filter((o) => o.pedido !== pedidoToDelete),
+        );
+
+        // Se o pedido estava selecionado no input de busca, removemos ele do texto
+        setSearchQuery((prev) => {
+          const parts = prev.split(",").map((s) => s.trim());
+          return parts.filter((p) => p !== pedidoToDelete).join(", ");
+        });
+
+        // Se esse pedido estava expandido na árvore, remove da lista de expandidos
+        setExpandedOrders((prev) => prev.filter((p) => p !== pedidoToDelete));
+
+        alert("✅ Pedido excluído com sucesso!");
+      } catch (error) {
+        console.error(error);
+        alert("Erro de conexão ao tentar excluir.");
+      }
+    },
+    [user, setAvailableOrders, setSearchQuery, nestingResult, parts],
+  );
   // ⬆️ Adicionamos nestingResult e parts nas dependências do useCallback
 
   // [NestingBoard.tsx] - Função de Edição com Travas de Segurança
@@ -2689,31 +2862,37 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     if (currentPlacedParts.length === 0) return null;
 
     // 1. Descobrir material base
-    const firstPart = parts.find(p => p.id === currentPlacedParts[0].partId);
+    const firstPart = parts.find((p) => p.id === currentPlacedParts[0].partId);
     if (!firstPart) return null;
 
     const materialName = firstPart.material || "Desconhecido";
     const espessuraTexto = firstPart.espessura || "";
 
     // 2. Buscar densidade na lista (Materiais)
-    const matDb = materialsList.find(m => m.nome.trim().toLowerCase() === materialName.trim().toLowerCase());
+    const matDb = materialsList.find(
+      (m) => m.nome.trim().toLowerCase() === materialName.trim().toLowerCase(),
+    );
     const densidade = matDb && matDb.densidade ? Number(matDb.densidade) : 7.85;
 
     // 2.5 Buscar milímetro real na lista (Espessuras)
-    const espDb = thicknessesList.find(t => t.valor.trim().toLowerCase() === espessuraTexto.trim().toLowerCase());
-    
+    const espDb = thicknessesList.find(
+      (t) =>
+        t.valor.trim().toLowerCase() === espessuraTexto.trim().toLowerCase(),
+    );
+
     // Se achou no banco, usa o valor_mm. Se não, tenta um fallback limpando a vírgula.
-    const espessuraMm = espDb && espDb.valor_mm 
-      ? Number(espDb.valor_mm) 
-      : (parseFloat(espessuraTexto.replace(',', '.')) || 0);
+    const espessuraMm =
+      espDb && espDb.valor_mm
+        ? Number(espDb.valor_mm)
+        : parseFloat(espessuraTexto.replace(",", ".")) || 0;
 
     // 3. Agrupar dados de PCP
     const pedidosSet = new Set<string>();
     const opsSet = new Set<string>();
     const tiposSet = new Set<string>();
 
-    currentPlacedParts.forEach(placed => {
-      const p = parts.find(orig => orig.id === placed.partId);
+    currentPlacedParts.forEach((placed) => {
+      const p = parts.find((orig) => orig.id === placed.partId);
       if (p) {
         if (p.pedido) pedidosSet.add(p.pedido);
         if (p.op) opsSet.add(p.op);
@@ -2731,7 +2910,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     currentPlacedParts.forEach((placed) => {
       const original = parts.find((p) => p.id === placed.partId);
       if (original) {
-        const dims = calculateRotatedDimensions(original.width, original.height, placed.rotation);
+        const dims = calculateRotatedDimensions(
+          original.width,
+          original.height,
+          placed.rotation,
+        );
         const topY = placed.y + dims.height;
         if (topY > maxUsedY) maxUsedY = topY;
       }
@@ -2739,14 +2922,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
     const hLine = cropLines.find((l) => l.type === "horizontal");
     const vLine = cropLines.find((l) => l.type === "vertical");
-    
+
     // Dimensões da Área de Corte
     const limitX = vLine ? vLine.position : binSize.width;
     const limitY = hLine ? hLine.position : maxUsedY;
-    
+
     const effectiveUsedArea = limitX * Math.max(limitY, 1);
     const totalBinArea = binSize.width * binSize.height;
-    
+
     const sucataAreaMM = Math.max(0, effectiveUsedArea - usedNetArea);
     const remnantAreaMM = Math.max(0, totalBinArea - effectiveUsedArea);
 
@@ -2764,20 +2947,46 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       binHeight: binSize.height,
       effectiveWidth: limitX,
       effectiveHeight: Math.max(limitY, 1),
-      remnants: calculatedRemnants.map(r => ({
+      remnants: calculatedRemnants.map((r) => ({
         id: r.id,
         width: r.width,
         height: r.height,
-        type: r.type
+        type: r.type,
       })),
       // -----------------------------------------------
       pedidos: Array.from(pedidosSet),
       ops: Array.from(opsSet),
       tiposProducao: Array.from(tiposSet),
-      quantidadePecas: currentPlacedParts.length
+      quantidadePecas: currentPlacedParts.length,
     };
-  }, [currentPlacedParts, parts, materialsList, thicknessesList, binSize, cropLines, calculatedRemnants]); // <--- thicknessesList adicionado!
+  }, [
+    currentPlacedParts,
+    parts,
+    materialsList,
+    thicknessesList,
+    binSize,
+    cropLines,
+    calculatedRemnants,
+  ]); // <--- thicknessesList adicionado!
   // =================================================================
+
+  // --- EFEITO: Pulsa e abre o modal (COM TRAVA DE PEÇAS VAZIAS) ---
+  useEffect(() => {
+    // 1. Só pulsa e abre se houver retalhos, se não houver retalho em uso, E SE HOUVER PEÇAS NA TELA
+    if (availableRemnants.length > 0 && !selectedDBRemnant && displayedParts.length > 0) {
+      setIsRemnantPulsing(true);
+      const timer = setTimeout(() => {
+        setIsRemnantPulsing(false);
+        setIsRemnantModalOpen(true);
+      }, 2000);
+      return () => clearTimeout(timer);
+    } 
+    // 2. Se a tela ficou vazia (limpou a mesa ou filtrou algo vazio), desativa tudo
+    else if (displayedParts.length === 0) {
+      setIsRemnantPulsing(false);
+      setIsRemnantModalOpen(false);
+    }
+  }, [availableRemnants, selectedDBRemnant, displayedParts.length]);
 
   const containerStyle: React.CSSProperties = {
     display: "flex",
@@ -2977,894 +3186,926 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // }, [nestingResult, parts, binSize, user]);
 
   return (
-  <>
-    {/* 3. BLOQUEIO DE TELA (LOADING LARANJA) */}
-    {isRestoring && (
-      <div
-        style={{
-          height: "100vh",
-          width: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexDirection: "column",
-          background: "#1e1e1e", // Mesmo fundo escuro do AppLoader
-          color: "#e0e0e0",
-          position: "fixed",
-          top: 0,
-          left: 0,
-          zIndex: 99999, // Garante que fique acima de tudo
-        }}
-      >
-        <style>{`
-          @keyframes rotate { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-          .app-loader-ring { animation: rotate 1s linear infinite; transform-origin: center; }
-        `}</style>
-        <svg width="60" height="60" viewBox="0 0 512 512" fill="none">
-          <path d="M256 32L210 160H302L256 32Z" fill="#fd7e14" />
-          <circle
-            cx="256"
-            cy="256"
-            r="80"
-            stroke="#fd7e14"
-            strokeWidth="20"
-            strokeDasharray="300"
-            className="app-loader-ring"
-          />
-          <path d="M256 480L302 352H210L256 480Z" fill="#fd7e14" />
-        </svg>
-        <p style={{ marginTop: 20, fontSize: "0.9rem", opacity: 0.7 }}>
-          Restaurando sessão...
-        </p>
-      </div>
-    )}   
-    <div style={containerStyle}>    
-
-      {/* ========================================================= */}
-      {/* INÍCIO DO MODAL DE BUSCA (ATUALIZADO E CORRIGIDO)         */}
-      {/* ========================================================= */}
-      {isSearchModalOpen && (
+    <>
+      {/* 3. BLOQUEIO DE TELA (LOADING LARANJA) */}
+      {isRestoring && (
         <div
           style={{
+            height: "100vh",
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexDirection: "column",
+            background: "#1e1e1e", // Mesmo fundo escuro do AppLoader
+            color: "#e0e0e0",
             position: "fixed",
             top: 0,
             left: 0,
-            width: "100%",
-            height: "100%",
-            backgroundColor: "rgba(0,0,0,0.6)",
-            zIndex: 9999,
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
+            zIndex: 99999, // Garante que fique acima de tudo
           }}
-          onClick={handleCloseSearchModal}
         >
+          <style>{`
+          @keyframes rotate { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+          .app-loader-ring { animation: rotate 1s linear infinite; transform-origin: center; }
+        `}</style>
+          <svg width="60" height="60" viewBox="0 0 512 512" fill="none">
+            <path d="M256 32L210 160H302L256 32Z" fill="#fd7e14" />
+            <circle
+              cx="256"
+              cy="256"
+              r="80"
+              stroke="#fd7e14"
+              strokeWidth="20"
+              strokeDasharray="300"
+              className="app-loader-ring"
+            />
+            <path d="M256 480L302 352H210L256 480Z" fill="#fd7e14" />
+          </svg>
+          <p style={{ marginTop: 20, fontSize: "0.9rem", opacity: 0.7 }}>
+            Restaurando sessão...
+          </p>
+        </div>
+      )}
+      <div style={containerStyle}>
+        {/* ========================================================= */}
+        {/* INÍCIO DO MODAL DE BUSCA (ATUALIZADO E CORRIGIDO)         */}
+        {/* ========================================================= */}
+        {isSearchModalOpen && (
           <div
             style={{
-              backgroundColor: theme.panelBg,
-              padding: "25px",
-              borderRadius: "8px",
-              width: "450px", // Levemente mais largo para acomodar a árvore
-              height: "85vh",
+              position: "fixed",
+              top: 0,
+              left: 0,
+              width: "100%",
+              height: "100%",
+              backgroundColor: "rgba(0,0,0,0.6)",
+              zIndex: 9999,
               display: "flex",
-              flexDirection: "column",
-              border: `1px solid ${theme.border}`,
-              boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
+              justifyContent: "center",
+              alignItems: "center",
             }}
-            onClick={(e) => e.stopPropagation()}
+            onClick={handleCloseSearchModal}
           >
-            {/* ANIMAÇÃO CSS INJETADA */}
-            <style>
-              {`
+            <div
+              style={{
+                backgroundColor: theme.panelBg,
+                padding: "25px",
+                borderRadius: "8px",
+                width: "450px", // Levemente mais largo para acomodar a árvore
+                height: "85vh",
+                display: "flex",
+                flexDirection: "column",
+                border: `1px solid ${theme.border}`,
+                boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* ANIMAÇÃO CSS INJETADA */}
+              <style>
+                {`
                 @keyframes smoothFadeIn {
                   from { opacity: 0; transform: translateY(10px); }
                   to { opacity: 1; transform: translateY(0); }
                 }
               `}
-            </style>
+              </style>
 
-            {/* CABEÇALHO DO MODAL */}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 15,
-              }}
-            >
-              <h3 style={{ margin: 0, color: theme.text }}>
-                🔍 Buscar Pedido(s)
-              </h3>
-              <button
-                onClick={handleCloseSearchModal}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: theme.text,
-                  fontSize: 20,
-                  cursor: "pointer",
-                }}
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* ÁREA DA LISTA (SCROLLÁVEL) */}
-            <div
-              style={{
-                marginBottom: "15px",
-                flex: 1,
-                minHeight: 0,
-                display: "flex",
-                flexDirection: "column",
-              }}
-            >
-              {/* --- [3.1] BARRA DE CONTROLE (SUBSTITUA O TÍTULO SIMPLES POR ISTO) --- */}
+              {/* CABEÇALHO DO MODAL */}
               <div
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
-                  marginBottom: "5px",
+                  marginBottom: 15,
+                }}
+              >
+                <h3 style={{ margin: 0, color: theme.text }}>
+                  🔍 Buscar Pedido(s)
+                </h3>
+                <button
+                  onClick={handleCloseSearchModal}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: theme.text,
+                    fontSize: 20,
+                    cursor: "pointer",
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* ÁREA DA LISTA (SCROLLÁVEL) */}
+              <div
+                style={{
+                  marginBottom: "15px",
+                  flex: 1,
+                  minHeight: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                {/* --- [3.1] BARRA DE CONTROLE (SUBSTITUA O TÍTULO SIMPLES POR ISTO) --- */}
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "5px",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: "bold",
+                      color: theme.label,
+                      marginBottom: "5px",
+                    }}
+                  >
+                    SELECIONE OS PEDIDOS DISPONÍVEIS:
+                  </span>
+
+                  {/* TOGGLE: VER APENAS SELECIONADOS */}
+                  <label
+                    style={{
+                      fontSize: "12px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "5px",
+                      cursor: "pointer",
+                      color: showOnlySelected ? "#007bff" : theme.text,
+                      fontWeight: showOnlySelected ? "bold" : "normal",
+                      userSelect: "none",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={showOnlySelected}
+                      onChange={(e) => setShowOnlySelected(e.target.checked)}
+                      style={{ cursor: "pointer" }}
+                    />
+                    Ver Selecionados ({selectedCount})
+                  </label>
+                </div>
+                {/* ------------------------------------------------------------------ */}
+
+                <div
+                  style={{
+                    flex: 1,
+                    overflowY: "auto",
+                    background: theme.inputBg,
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: "4px",
+                    padding: "5px",
+                    minHeight: "200px",
+                  }}
+                >
+                  {/* --- LÓGICA DE RENDERIZAÇÃO DA ÁRVORE --- */}
+                  {loadingOrders ? (
+                    <div
+                      style={{
+                        height: "100%",
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        fontSize: "12px",
+                        color: theme.label,
+                      }}
+                    >
+                      Carregando estrutura de pedidos...
+                    </div>
+                  ) : displayedOrdersList.length === 0 ? (
+                    <div
+                      style={{
+                        height: "100%",
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        fontSize: "12px",
+                        color: theme.label,
+                        textAlign: "center",
+                        padding: "20px",
+                      }}
+                    >
+                      {showOnlySelected
+                        ? "Nenhum pedido selecionado encontrado."
+                        : "Nenhum pedido encontrado no banco."}
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        animation: "smoothFadeIn 0.4s ease-out forwards",
+                      }}
+                    >
+                      {displayedOrdersList.map((orderData) => {
+                        const isOrderChecked = searchQuery
+                          .split(",")
+                          .map((s) => s.trim())
+                          .includes(orderData.pedido);
+
+                        const isExpanded = expandedOrders.includes(
+                          orderData.pedido,
+                        );
+                        const hasOps =
+                          orderData.ops && orderData.ops.length > 0;
+
+                        return (
+                          <div
+                            key={orderData.pedido}
+                            style={{
+                              borderBottom: `1px solid ${theme.hoverRow}`,
+                              userSelect: "none",
+                            }}
+                          >
+                            {/* LINHA DO PEDIDO (PAI) */}
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                padding: "8px",
+                                background: isOrderChecked
+                                  ? "rgba(0,123,255,0.05)"
+                                  : "transparent",
+                                justifyContent: "space-between", // Garante espaçamento para o botão da direita
+                                cursor: "pointer", // O cursor agora indica que a linha toda é clicável
+                                userSelect: "none", // Evita seleção de texto acidental ao clicar rápido
+                              }}
+                              onClick={() =>
+                                toggleOrderSelection(orderData.pedido)
+                              }
+                            >
+                              {/* ESQUERDA: Toggle + Checkbox + Nome */}
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  flex: 1,
+                                }}
+                              >
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleExpandOrder(orderData.pedido);
+                                  }}
+                                  style={{
+                                    marginRight: "8px",
+                                    border: "none",
+                                    background: "transparent",
+                                    cursor: "pointer",
+                                    fontWeight: "bold",
+                                    color: theme.label,
+                                    visibility: hasOps ? "visible" : "hidden",
+                                    width: "20px",
+                                    fontSize: "10px",
+                                    padding: "4px", // Aumenta um pouco a área de clique da seta
+                                  }}
+                                >
+                                  {isExpanded ? "▼" : "▶"}
+                                </button>
+
+                                <input
+                                  type="checkbox"
+                                  checked={isOrderChecked}
+                                  onChange={() => {}} // O onClick da div pai já resolve isso
+                                  style={{
+                                    marginRight: "8px",
+                                    cursor: "pointer",
+                                    pointerEvents: "none", // O clique passa direto para a div pai (opcional, mas bom para UX)
+                                  }}
+                                />
+
+                                <span
+                                  style={{
+                                    fontWeight: "bold",
+                                    fontSize: "13px",
+                                    color: theme.text,
+                                  }}
+                                >
+                                  Pedido {orderData.pedido}
+                                  <span
+                                    style={{
+                                      fontSize: "11px",
+                                      fontWeight: "normal",
+                                      marginLeft: "6px",
+                                      opacity: 0.7,
+                                    }}
+                                  >
+                                    ({orderData.ops.length} OPs)
+                                  </span>
+                                </span>
+                              </div>
+
+                              {/* LADO DIREITO: Botões de Ação (Editar e Excluir) */}
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "5px",
+                                }}
+                              >
+                                {/* BOTÃO EDITAR (Lápis) */}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleEditOrder(orderData.pedido);
+                                  }}
+                                  title="Editar pedido na Engenharia"
+                                  style={{
+                                    background: "transparent",
+                                    border: "none",
+                                    cursor: "pointer",
+                                    color: "#007bff",
+                                    padding: "4px 6px",
+                                    opacity: 0.7,
+                                    display: "flex", // Garante alinhamento do ícone
+                                    alignItems: "center",
+                                  }}
+                                >
+                                  <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                  </svg>
+                                </button>
+
+                                {/* BOTÃO EXCLUIR (Lixeira) */}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    // handleDeleteOrder(orderData.pedido); // Descomente se tiver a função
+                                    handleDeleteOrder(orderData.pedido); // Placeholder se não tiver a função ainda
+                                  }}
+                                  title="Excluir pedido"
+                                  style={{
+                                    background: "transparent",
+                                    border: "none",
+                                    cursor: "pointer",
+                                    color: "#dc3545",
+                                    padding: "4px 6px",
+                                    opacity: 0.7,
+                                    display: "flex", // Garante alinhamento do ícone
+                                    alignItems: "center",
+                                  }}
+                                >
+                                  <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* LISTA DE OPs (FILHOS) */}
+                            {isExpanded && hasOps && (
+                              <div
+                                style={{
+                                  paddingLeft: "45px",
+                                  paddingBottom: "5px",
+                                  background: theme.inputBg,
+                                }}
+                              >
+                                {orderData.ops.map((opObj) => {
+                                  const opName = opObj.name;
+                                  const isLocked = opObj.isLocked;
+                                  const lockerName = opObj.lockedBy;
+                                  const isOpChecked =
+                                    selectedOps.includes(opName);
+
+                                  return (
+                                    <div
+                                      key={opName}
+                                      title={
+                                        isLocked
+                                          ? `Bloqueado por ${lockerName}`
+                                          : "Disponível"
+                                      }
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        padding: "4px 0",
+                                        opacity: isLocked ? 0.6 : 1,
+                                      }}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isOpChecked}
+                                        disabled={isLocked}
+                                        onChange={() =>
+                                          toggleOpSelection(
+                                            opName,
+                                            orderData.pedido,
+                                          )
+                                        }
+                                        style={{
+                                          marginRight: "8px",
+                                          cursor: isLocked
+                                            ? "not-allowed"
+                                            : "pointer",
+                                        }}
+                                      />
+                                      <span
+                                        style={{
+                                          fontSize: "12px",
+                                          color: isLocked
+                                            ? "#dc3545"
+                                            : theme.text,
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "5px",
+                                        }}
+                                      >
+                                        {isLocked && <span>🔒</span>}
+                                        OP: {opName}{" "}
+                                        {isLocked && (
+                                          <span style={{ fontSize: "10px" }}>
+                                            ({lockerName})
+                                          </span>
+                                        )}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* INPUT MANUAL (READONLY PARA FEEDBACK VISUAL) */}
+              <div style={{ marginBottom: 15 }}>
+                <span
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: "bold",
+                    opacity: 0.7,
+                    color: theme.label,
+                  }}
+                >
+                  PEDIDOS SELECIONADOS:
+                </span>
+                <input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Ex: PED-100, PED-101..."
+                  style={{
+                    width: "100%",
+                    padding: "10px",
+                    marginTop: "5px",
+                    background: theme.inputBg,
+                    color: theme.text,
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: "4px",
+                    boxSizing: "border-box",
+                    fontWeight: "bold",
+                  }}
+                />
+              </div>
+
+              {/* OPÇÕES DE MODO (LIMPAR / ADICIONAR) */}
+              <div
+                style={{
+                  marginBottom: "20px",
+                  padding: "10px",
+                  background: theme.inputBg,
+                  borderRadius: "4px",
+                  display: "flex",
+                  gap: "15px",
+                  alignItems: "center",
                 }}
               >
                 <span
                   style={{
-                    fontSize: "12px",
+                    fontSize: "11px",
                     fontWeight: "bold",
+                    opacity: 0.7,
                     color: theme.label,
-                    marginBottom: "5px",
                   }}
                 >
-                  SELECIONE OS PEDIDOS DISPONÍVEIS:
+                  MODO:
                 </span>
-
-                {/* TOGGLE: VER APENAS SELECIONADOS */}
                 <label
                   style={{
-                    fontSize: "12px",
                     display: "flex",
                     alignItems: "center",
-                    gap: "5px",
                     cursor: "pointer",
-                    color: showOnlySelected ? "#007bff" : theme.text,
-                    fontWeight: showOnlySelected ? "bold" : "normal",
-                    userSelect: "none",
+                    fontSize: "12px",
+                    color: theme.text,
                   }}
                 >
                   <input
-                    type="checkbox"
-                    checked={showOnlySelected}
-                    onChange={(e) => setShowOnlySelected(e.target.checked)}
-                    style={{ cursor: "pointer" }}
+                    type="radio"
+                    name="searchMode"
+                    checked={searchMode === "replace"}
+                    onChange={() => setSearchMode("replace")}
+                    style={{ marginRight: "5px" }}
                   />
-                  Ver Selecionados ({selectedCount})
+                  Limpar Mesa
+                </label>
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    cursor: "pointer",
+                    fontSize: "12px",
+                    fontWeight: "bold",
+                    color: "#28a745",
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="searchMode"
+                    checked={searchMode === "append"}
+                    onChange={() => setSearchMode("append")}
+                    style={{ marginRight: "5px" }}
+                  />
+                  Adicionar (Mix)
                 </label>
               </div>
-              {/* ------------------------------------------------------------------ */}
 
+              {/* BOTÃO DE AÇÃO */}
               <div
                 style={{
-                  flex: 1,
-                  overflowY: "auto",
-                  background: theme.inputBg,
-                  border: `1px solid ${theme.border}`,
-                  borderRadius: "4px",
-                  padding: "5px",
-                  minHeight: "200px",
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: "10px",
                 }}
               >
-                {/* --- LÓGICA DE RENDERIZAÇÃO DA ÁRVORE --- */}
-                {loadingOrders ? (
-                  <div
-                    style={{
-                      height: "100%",
-                      display: "flex",
-                      justifyContent: "center",
-                      alignItems: "center",
-                      fontSize: "12px",
-                      color: theme.label,
-                    }}
-                  >
-                    Carregando estrutura de pedidos...
-                  </div>
-                ) : displayedOrdersList.length === 0 ? (
-                  <div
-                    style={{
-                      height: "100%",
-                      display: "flex",
-                      justifyContent: "center",
-                      alignItems: "center",
-                      fontSize: "12px",
-                      color: theme.label,
-                      textAlign: "center",
-                      padding: "20px",
-                    }}
-                  >
-                    {showOnlySelected
-                      ? "Nenhum pedido selecionado encontrado."
-                      : "Nenhum pedido encontrado no banco."}
-                  </div>
-                ) : (
-                  <div
-                    style={{
-                      animation: "smoothFadeIn 0.4s ease-out forwards",
-                    }}
-                  >
-                    {displayedOrdersList.map((orderData) => {
-                      const isOrderChecked = searchQuery
-                        .split(",")
-                        .map((s) => s.trim())
-                        .includes(orderData.pedido);
-
-                      const isExpanded = expandedOrders.includes(
-                        orderData.pedido,
-                      );
-                      const hasOps = orderData.ops && orderData.ops.length > 0;
-
-                      return (
-                        <div
-                          key={orderData.pedido}
-                          style={{
-                            borderBottom: `1px solid ${theme.hoverRow}`,
-                            userSelect: "none",
-                          }}
-                        >
-                          {/* LINHA DO PEDIDO (PAI) */}
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              padding: "8px",
-                              background: isOrderChecked
-                                ? "rgba(0,123,255,0.05)"
-                                : "transparent",
-                              justifyContent: "space-between", // Garante espaçamento para o botão da direita
-                              cursor: "pointer", // O cursor agora indica que a linha toda é clicável
-                              userSelect: "none", // Evita seleção de texto acidental ao clicar rápido
-                            }}
-                            onClick={() =>
-                              toggleOrderSelection(orderData.pedido)
-                            }
-                          >
-                            {/* ESQUERDA: Toggle + Checkbox + Nome */}
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                flex: 1,
-                              }}
-                            >
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleExpandOrder(orderData.pedido);
-                                }}
-                                style={{
-                                  marginRight: "8px",
-                                  border: "none",
-                                  background: "transparent",
-                                  cursor: "pointer",
-                                  fontWeight: "bold",
-                                  color: theme.label,
-                                  visibility: hasOps ? "visible" : "hidden",
-                                  width: "20px",
-                                  fontSize: "10px",
-                                  padding: "4px", // Aumenta um pouco a área de clique da seta
-                                }}
-                              >
-                                {isExpanded ? "▼" : "▶"}
-                              </button>
-
-                              <input
-                                type="checkbox"
-                                checked={isOrderChecked}
-                                onChange={() => {}} // O onClick da div pai já resolve isso
-                                style={{
-                                  marginRight: "8px",
-                                  cursor: "pointer",
-                                  pointerEvents: "none", // O clique passa direto para a div pai (opcional, mas bom para UX)
-                                }}
-                              />
-
-                              <span
-                                style={{
-                                  fontWeight: "bold",
-                                  fontSize: "13px",
-                                  color: theme.text,
-                                }}
-                              >
-                                Pedido {orderData.pedido}
-                                <span
-                                  style={{
-                                    fontSize: "11px",
-                                    fontWeight: "normal",
-                                    marginLeft: "6px",
-                                    opacity: 0.7,
-                                  }}
-                                >
-                                  ({orderData.ops.length} OPs)
-                                </span>
-                              </span>
-                            </div>
-
-                            {/* LADO DIREITO: Botões de Ação (Editar e Excluir) */}
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "5px",
-                              }}
-                            >
-                              {/* BOTÃO EDITAR (Lápis) */}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleEditOrder(orderData.pedido);
-                                }}
-                                title="Editar pedido na Engenharia"
-                                style={{
-                                  background: "transparent",
-                                  border: "none",
-                                  cursor: "pointer",
-                                  color: "#007bff",
-                                  padding: "4px 6px",
-                                  opacity: 0.7,
-                                  display: "flex", // Garante alinhamento do ícone
-                                  alignItems: "center",
-                                }}
-                              >
-                                <svg
-                                  width="14"
-                                  height="14"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                >
-                                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                </svg>
-                              </button>
-
-                              {/* BOTÃO EXCLUIR (Lixeira) */}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  // handleDeleteOrder(orderData.pedido); // Descomente se tiver a função
-                                  handleDeleteOrder(orderData.pedido); // Placeholder se não tiver a função ainda
-                                }}
-                                title="Excluir pedido"
-                                style={{
-                                  background: "transparent",
-                                  border: "none",
-                                  cursor: "pointer",
-                                  color: "#dc3545",
-                                  padding: "4px 6px",
-                                  opacity: 0.7,
-                                  display: "flex", // Garante alinhamento do ícone
-                                  alignItems: "center",
-                                }}
-                              >
-                                <svg
-                                  width="14"
-                                  height="14"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                >
-                                  <polyline points="3 6 5 6 21 6"></polyline>
-                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                </svg>
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* LISTA DE OPs (FILHOS) */}
-                          {isExpanded && hasOps && (
-                            <div
-                              style={{
-                                paddingLeft: "45px",
-                                paddingBottom: "5px",
-                                background: theme.inputBg,
-                              }}
-                            >
-                              {orderData.ops.map((opObj) => {
-                                const opName = opObj.name;
-                                const isLocked = opObj.isLocked;
-                                const lockerName = opObj.lockedBy;
-                                const isOpChecked =
-                                  selectedOps.includes(opName);
-
-                                return (
-                                  <div
-                                    key={opName}
-                                    title={
-                                      isLocked
-                                        ? `Bloqueado por ${lockerName}`
-                                        : "Disponível"
-                                    }
-                                    style={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      padding: "4px 0",
-                                      opacity: isLocked ? 0.6 : 1,
-                                    }}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={isOpChecked}
-                                      disabled={isLocked}
-                                      onChange={() =>
-                                        toggleOpSelection(
-                                          opName,
-                                          orderData.pedido,
-                                        )
-                                      }
-                                      style={{
-                                        marginRight: "8px",
-                                        cursor: isLocked
-                                          ? "not-allowed"
-                                          : "pointer",
-                                      }}
-                                    />
-                                    <span
-                                      style={{
-                                        fontSize: "12px",
-                                        color: isLocked
-                                          ? "#dc3545"
-                                          : theme.text,
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: "5px",
-                                      }}
-                                    >
-                                      {isLocked && <span>🔒</span>}
-                                      OP: {opName}{" "}
-                                      {isLocked && (
-                                        <span style={{ fontSize: "10px" }}>
-                                          ({lockerName})
-                                        </span>
-                                      )}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                <button
+                  onClick={handleDBSearch}
+                  disabled={isSearching || !searchQuery}
+                  style={{
+                    padding: "10px 20px",
+                    background: "#6f42c1",
+                    border: "none",
+                    color: "white",
+                    borderRadius: "4px",
+                    cursor:
+                      isSearching || !searchQuery ? "not-allowed" : "pointer",
+                    fontWeight: "bold",
+                    width: "100%",
+                    opacity: isSearching || !searchQuery ? 0.6 : 1,
+                  }}
+                >
+                  {isSearching
+                    ? "Buscando Peças..."
+                    : "📥 Importar Selecionados"}
+                </button>
               </div>
             </div>
-
-            {/* INPUT MANUAL (READONLY PARA FEEDBACK VISUAL) */}
-            <div style={{ marginBottom: 15 }}>
-              <span
-                style={{
-                  fontSize: "11px",
-                  fontWeight: "bold",
-                  opacity: 0.7,
-                  color: theme.label,
-                }}
-              >
-                PEDIDOS SELECIONADOS:
-              </span>
-              <input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Ex: PED-100, PED-101..."
-                style={{
-                  width: "100%",
-                  padding: "10px",
-                  marginTop: "5px",
-                  background: theme.inputBg,
-                  color: theme.text,
-                  border: `1px solid ${theme.border}`,
-                  borderRadius: "4px",
-                  boxSizing: "border-box",
-                  fontWeight: "bold",
-                }}
-              />
-            </div>
-
-            {/* OPÇÕES DE MODO (LIMPAR / ADICIONAR) */}
-            <div
-              style={{
-                marginBottom: "20px",
-                padding: "10px",
-                background: theme.inputBg,
-                borderRadius: "4px",
-                display: "flex",
-                gap: "15px",
-                alignItems: "center",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "11px",
-                  fontWeight: "bold",
-                  opacity: 0.7,
-                  color: theme.label,
-                }}
-              >
-                MODO:
-              </span>
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  cursor: "pointer",
-                  fontSize: "12px",
-                  color: theme.text,
-                }}
-              >
-                <input
-                  type="radio"
-                  name="searchMode"
-                  checked={searchMode === "replace"}
-                  onChange={() => setSearchMode("replace")}
-                  style={{ marginRight: "5px" }}
-                />
-                Limpar Mesa
-              </label>
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  cursor: "pointer",
-                  fontSize: "12px",
-                  fontWeight: "bold",
-                  color: "#28a745",
-                }}
-              >
-                <input
-                  type="radio"
-                  name="searchMode"
-                  checked={searchMode === "append"}
-                  onChange={() => setSearchMode("append")}
-                  style={{ marginRight: "5px" }}
-                />
-                Adicionar (Mix)
-              </label>
-            </div>
-
-            {/* BOTÃO DE AÇÃO */}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: "10px",
-              }}
-            >
-              <button
-                onClick={handleDBSearch}
-                disabled={isSearching || !searchQuery}
-                style={{
-                  padding: "10px 20px",
-                  background: "#6f42c1",
-                  border: "none",
-                  color: "white",
-                  borderRadius: "4px",
-                  cursor:
-                    isSearching || !searchQuery ? "not-allowed" : "pointer",
-                  fontWeight: "bold",
-                  width: "100%",
-                  opacity: isSearching || !searchQuery ? 0.6 : 1,
-                }}
-              >
-                {isSearching ? "Buscando Peças..." : "📥 Importar Selecionados"}
-              </button>
-            </div>
           </div>
-        </div>
-      )}
-      {/* ========================================================= */}
-      {/* FIM DO MODAL DE BUSCA                                     */}
-      {/* ========================================================= */}
+        )}
+        {/* ========================================================= */}
+        {/* FIM DO MODAL DE BUSCA                                     */}
+        {/* ========================================================= */}
 
-      {contextMenu && contextMenu.visible && selectedPartIds.length > 0 && (
-        <ContextControl
-          key={`${contextMenu.x}-${contextMenu.y}`}
-          x={contextMenu.x}
-          y={contextMenu.y}
-          onClose={() => setContextMenu(null)}
-          onMove={handleContextMove}
-          onRotate={handleContextRotate}
-          onDelete={handleContextDelete}
-          isLocked={isSelectionLocked}
-        />
-      )}
+        {contextMenu && contextMenu.visible && selectedPartIds.length > 0 && (
+          <ContextControl
+            key={`${contextMenu.x}-${contextMenu.y}`}
+            x={contextMenu.x}
+            y={contextMenu.y}
+            onClose={() => setContextMenu(null)}
+            onMove={handleContextMove}
+            onRotate={handleContextRotate}
+            onDelete={handleContextDelete}
+            isLocked={isSelectionLocked}
+          />
+        )}
 
-      <div style={topBarStyle}>
-        <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
-          {onBack && (
+        <div style={topBarStyle}>
+          <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
+            {onBack && (
+              <button
+                onClick={handleSafeHomeExit}
+                title="Home"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: theme.text,
+                  cursor: "pointer",
+                  fontSize: "24px",
+                  display: "flex",
+                  alignItems: "center",
+                  padding: 0,
+                }}
+              >
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                  <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                </svg>
+              </button>
+            )}
+            {/* BOTÃO 2: IR PARA ENGENHARIA (LISTA DE PEÇAS) */}
             <button
-              onClick={handleSafeHomeExit}
-              title="Home"
+              onClick={() =>
+                onNavigate ? onNavigate("engineering") : onBack?.()
+              }
+              title="Ir para a Engenharia"
               style={{
                 background: "transparent",
                 border: "none",
                 color: theme.text,
                 cursor: "pointer",
-                fontSize: "24px",
+                fontSize: "20px",
+                padding: "4px",
                 display: "flex",
                 alignItems: "center",
-                padding: 0,
+                borderRadius: "4px",
+                transition: "background 0.2s",
+                opacity: isTrial ? 0.5 : 1,
+                marginLeft: "10px",
+              }}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.background = theme.hoverRow)
+              }
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.background = "transparent")
+              }
+            >
+              🛠️
+            </button>
+
+            <h2
+              style={{
+                margin: 0,
+                fontSize: "20px",
+                color: "#007bff",
+                whiteSpace: "nowrap",
               }}
             >
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-                <polyline points="9 22 9 12 15 12 15 22"></polyline>
-              </svg>
-            </button>
-          )}
-          {/* BOTÃO 2: IR PARA ENGENHARIA (LISTA DE PEÇAS) */}
-          <button
-            onClick={() =>
-              onNavigate ? onNavigate("engineering") : onBack?.()
-            }
-            title="Ir para a Engenharia"
-            style={{
-              background: "transparent",
-              border: "none",
-              color: theme.text,
-              cursor: "pointer",
-              fontSize: "20px",
-              padding: "4px",
-              display: "flex",
-              alignItems: "center",
-              borderRadius: "4px",
-              transition: "background 0.2s",
-              opacity: isTrial ? 0.5 : 1,
-              marginLeft: "10px",
-            }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.background = theme.hoverRow)
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.background = "transparent")
-            }
-          >
-            🛠️
-          </button>
-
-          <h2
-            style={{
-              margin: 0,
-              fontSize: "20px",
-              color: "#007bff",
-              whiteSpace: "nowrap",
-            }}
-          >
-            Planejamento de Corte
-          </h2>
-        </div>
-        {/* --- NOVO: PAINEL DE ASSINATURA CENTRALIZADO --- */}
-        <div
-          style={{
-            flex: 1,
-            margin: "0 40px",
-            maxWidth: "400px",
-            fontSize: "12px",
-          }}
-        >
-          <SubscriptionPanel isDarkMode={isDarkMode} />
-        </div>
-        {/* ----------------------------------------------- */}
-        <div
-          style={{
-            marginLeft: "auto",
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-          }}
-        >
-          {/* --- NOVOS BOTÕES: ARQUIVO LOCAL --- */}
+              Planejamento de Corte
+            </h2>
+          </div>
+          {/* --- NOVO: PAINEL DE ASSINATURA CENTRALIZADO --- */}
           <div
             style={{
-              display: "flex",
-              gap: "5px",
-              marginRight: "10px",
-              // borderRight: `1px solid ${theme.border}`,
-              // paddingRight: "15px",
+              flex: 1,
+              margin: "0 40px",
+              maxWidth: "400px",
+              fontSize: "12px",
             }}
           >
-            {/* Input Oculto para Carregar */}
-            <input
-              type="file"
-              ref={fileInputRef}
-              style={{ display: "none" }}
-              accept=".json"
-              onChange={handleLoadProject}
-            />
-
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              title="Abrir projeto salvo no computador"
-              style={{
-                background: "transparent",
-                border: `1px solid ${theme.border}`,
-                color: theme.text,
-                padding: "6px 12px",
-                borderRadius: "4px",
-                cursor: "pointer",
-                fontSize: "13px",
-                display: "flex",
-                alignItems: "center",
-                gap: "5px",
-              }}
-            >
-              📂 Abrir
-            </button>
-
-            <button
-              onClick={handleSaveProject}
-              title="Salvar projeto atual no computador"
-              style={{
-                background: "transparent",
-                border: `1px solid ${theme.border}`,
-                color: theme.text,
-                padding: "6px 12px",
-                borderRadius: "4px",
-                cursor: "pointer",
-                fontSize: "13px",
-                display: "flex",
-                alignItems: "center",
-                gap: "5px",
-              }}
-            >
-              💾 Salvar
-            </button>
+            <SubscriptionPanel isDarkMode={isDarkMode} />
           </div>
-          {/* ----------------------------------- */}
-          {/* BOTÃO BUSCAR PEDIDO (ALTERADO) */}
-          <button
-            onClick={() => {
-              if (isTrial) return; // Bloqueio funcional
-              // --- [NOVO] GARANTIA DE LIMPEZA AO ABRIR ---
-              setSearchQuery(""); // Limpa o texto
-              setShowOnlySelected(false); // <--- FORÇA O CHECKBOX A ABRIR DESMARCADO
-              setSelectedOps([]); // Limpa OPs
-              setExpandedOrders([]); // Fecha accordions
-              // -------------------------------------------
-              setIsSearchModalOpen(true);
-            }}
-            title={
-              isTrial
-                ? "Recurso indisponível no modo Trial"
-                : "Buscar peças salvas no banco"
-            }
-            style={{
-              background: isTrial ? "#6c757d" : "#6f42c1", // Cinza se Trial, Roxo se Premium
-              color: "white",
-              border: "none",
-              padding: "6px 12px",
-              borderRadius: "4px",
-              cursor: isTrial ? "not-allowed" : "pointer", // Cursor de proibido
-              opacity: isTrial ? 0.6 : 1, // Visual "desabilitado"
-              fontWeight: "bold",
-              display: "flex",
-              alignItems: "center",
-              gap: "5px",
-              fontSize: "13px",
-              transition: "all 0.3s ease",
-            }}
-          >
-            🔍 Buscar Pedido {isTrial && "🔒"}
-          </button>
-
-          <button
-            onClick={handleSaveClick}
-            disabled={
-              nestingResult.length === 0 || isSaving || isCurrentSheetSaved
-            }
-            style={{
-              background: isCurrentSheetSaved
-                ? "#28a745"
-                : lockedBins.includes(currentBinIndex)
-                  ? "#17a2b8"
-                  : "#007bff",
-              color: "white",
-              border: "none",
-              padding: "6px 12px",
-              cursor:
-                nestingResult.length === 0 || isSaving || isCurrentSheetSaved
-                  ? "not-allowed"
-                  : "pointer",
-              borderRadius: "4px",
-              opacity:
-                nestingResult.length === 0 || isSaving || isCurrentSheetSaved
-                  ? 0.6
-                  : 1,
-              fontSize: "13px",
-              display: "flex",
-              alignItems: "center",
-              gap: "5px",
-              transition: "all 0.3s ease",
-            }}
-          >
-            {isSaving
-              ? "⏳ Salvando..."
-              : isCurrentSheetSaved
-                ? "✅ Chapa Salva"
-                : "💾 Salvar DXF"}
-          </button>
-          {/* <button
-            onClick={handleExportPDF}
-            title="Gerar Relatório de Produção (PDF)"
-            style={{
-              background: "#6610f2", // Cor roxa/indigo para diferenciar
-              color: "white",
-              border: "none",
-              padding: "6px 12px",
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontWeight: "bold",
-              fontSize: "13px",
-              display: "flex",
-              alignItems: "center",
-              gap: "5px",
-              marginLeft: "5px",
-            }}
-          >
-            📄 PDF
-          </button> */}
-
-          <button
-            onClick={handleClearTable}
-            title="Reiniciar Página (Limpar Mesa e Cache)"
-            // ⬇️ --- NOVO ESTILO PADRONIZADO (VERMELHO SÓLIDO) --- ⬇️
-            style={{
-              background: "#dc3545", // Vermelho "Danger" (Igual Engenharia)
-              color: "white",
-              border: "none", // Remove borda para ficar sólido
-              padding: "6px 12px", // Mesmo tamanho dos botões vizinhos
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontWeight: "bold",
-              fontSize: "13px",
-              display: "flex",
-              alignItems: "center",
-              gap: "5px",
-              transition: "all 0.3s ease",
-            }}
-            // ⬆️ ------------------------------------------------ ⬆️
-          >
-            🗑️ Reset
-          </button>
-
-          <SidebarMenu
-            onNavigate={(screen) => {
-              // 1. Lógica para Home
-              if (screen === "home" && onBack) {
-                onBack();
+          {/* ----------------------------------------------- */}
+          {/* --- ANIMAÇÃO E ÍCONE ECO-SMART --- */}
+            <style>
+              {`
+                @keyframes pulseGreen {
+                  0% { transform: scale(1); filter: drop-shadow(0 0 0px #28a745); }
+                  50% { transform: scale(1.3); filter: drop-shadow(0 0 10px #28a745); }
+                  100% { transform: scale(1); filter: drop-shadow(0 0 0px #28a745); }
+                }
+                .eco-smart-pulse {
+                  animation: pulseGreen 1s ease-in-out infinite;
+                }
+              `}
+            </style>
+            
+            <button
+              onClick={() => {
+                // Só abre se houver peças válidas E (tiver retalho na lista ou um já selecionado)
+                if (displayedParts.length > 0 && (availableRemnants.length > 0 || selectedDBRemnant)) {
+                  setIsRemnantModalOpen(true);
+                }
+              }}
+              title={
+                displayedParts.length === 0 
+                  ? "Adicione ou filtre peças para usar retalhos" 
+                  : selectedDBRemnant 
+                    ? "Retalho Ativo - Clique para gerenciar" 
+                    : availableRemnants.length > 0 
+                      ? "Retalhos disponíveis!" 
+                      : "Sem retalhos para esta combinação"
               }
-              // 2. Lógica para Dashboard e outros
-              else if (onNavigate) {
-                onNavigate(screen);
-              }
+              className={isRemnantPulsing && displayedParts.length > 0 ? "eco-smart-pulse" : ""}
+              style={{
+                background: "transparent",
+                border: "none",
+                fontSize: "24px",
+                // Cursor bloqueado se não tiver peças
+                cursor: (displayedParts.length > 0 && (availableRemnants.length > 0 || selectedDBRemnant)) ? "pointer" : "default",
+                // Fica opaco (0.3) se a mesa estiver vazia OU se não tiver retalhos
+                opacity: (displayedParts.length > 0 && (selectedDBRemnant || availableRemnants.length > 0)) ? 1 : 0.3,
+                filter: (displayedParts.length > 0 && (selectedDBRemnant || (!isRemnantPulsing && availableRemnants.length > 0))) ? "drop-shadow(0 0 3px #28a745)" : "none",
+                transition: "all 0.3s ease",
+                padding: "0 10px",
+                marginRight: "5px"
+              }}
+            >
+              ♻️
+            </button>
+            {/* ---------------------------------- */}
+          <div
+            style={{
+              marginLeft: "auto",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
             }}
-            onOpenProfile={() => alert("Perfil em breve")}
-            onOpenTeam={onOpenTeam}
-          />
-          {/* <button
+          >
+            {/* --- NOVOS BOTÕES: ARQUIVO LOCAL --- */}
+            <div
+              style={{
+                display: "flex",
+                gap: "5px",
+                marginRight: "10px",
+                // borderRight: `1px solid ${theme.border}`,
+                // paddingRight: "15px",
+              }}
+            >
+              {/* Input Oculto para Carregar */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                style={{ display: "none" }}
+                accept=".json"
+                onChange={handleLoadProject}
+              />
+
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                title="Abrir projeto salvo no computador"
+                style={{
+                  background: "transparent",
+                  border: `1px solid ${theme.border}`,
+                  color: theme.text,
+                  padding: "6px 12px",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                }}
+              >
+                📂 Abrir
+              </button>             
+
+              <button
+                onClick={handleSaveProject}
+                title="Salvar projeto atual no computador"
+                style={{
+                  background: "transparent",
+                  border: `1px solid ${theme.border}`,
+                  color: theme.text,
+                  padding: "6px 12px",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                }}
+              >
+                💾 Salvar
+              </button>
+            
+            </div>
+            {/* ----------------------------------- */}
+            {/* BOTÃO BUSCAR PEDIDO (ALTERADO) */}
+            <button
+              onClick={() => {
+                if (isTrial) return; // Bloqueio funcional
+                // --- [NOVO] GARANTIA DE LIMPEZA AO ABRIR ---
+                setSearchQuery(""); // Limpa o texto
+                setShowOnlySelected(false); // <--- FORÇA O CHECKBOX A ABRIR DESMARCADO
+                setSelectedOps([]); // Limpa OPs
+                setExpandedOrders([]); // Fecha accordions
+                // -------------------------------------------
+                setIsSearchModalOpen(true);
+              }}
+              title={
+                isTrial
+                  ? "Recurso indisponível no modo Trial"
+                  : "Buscar peças salvas no banco"
+              }
+              style={{
+                background: isTrial ? "#6c757d" : "#6f42c1", // Cinza se Trial, Roxo se Premium
+                color: "white",
+                border: "none",
+                padding: "6px 12px",
+                borderRadius: "4px",
+                cursor: isTrial ? "not-allowed" : "pointer", // Cursor de proibido
+                opacity: isTrial ? 0.6 : 1, // Visual "desabilitado"
+                fontWeight: "bold",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                fontSize: "13px",
+                transition: "all 0.3s ease",
+              }}
+            >
+              🔍 Buscar Pedido {isTrial && "🔒"}
+            </button>
+
+            <button
+              onClick={handleSaveClick}
+              disabled={
+                nestingResult.length === 0 || isSaving || isCurrentSheetSaved
+              }
+              style={{
+                background: isCurrentSheetSaved
+                  ? "#28a745"
+                  : lockedBins.includes(currentBinIndex)
+                    ? "#17a2b8"
+                    : "#007bff",
+                color: "white",
+                border: "none",
+                padding: "6px 12px",
+                cursor:
+                  nestingResult.length === 0 || isSaving || isCurrentSheetSaved
+                    ? "not-allowed"
+                    : "pointer",
+                borderRadius: "4px",
+                opacity:
+                  nestingResult.length === 0 || isSaving || isCurrentSheetSaved
+                    ? 0.6
+                    : 1,
+                fontSize: "13px",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                transition: "all 0.3s ease",
+              }}
+            >
+              {isSaving
+                ? "⏳ Salvando..."
+                : isCurrentSheetSaved
+                  ? "✅ Chapa Salva"
+                  : "💾 Salvar DXF"}
+            </button>
+            
+
+            <button
+              onClick={handleClearTable}
+              title="Reiniciar Página (Limpar Mesa e Cache)"
+              // ⬇️ --- NOVO ESTILO PADRONIZADO (VERMELHO SÓLIDO) --- ⬇️
+              style={{
+                background: "#dc3545", // Vermelho "Danger" (Igual Engenharia)
+                color: "white",
+                border: "none", // Remove borda para ficar sólido
+                padding: "6px 12px", // Mesmo tamanho dos botões vizinhos
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontWeight: "bold",
+                fontSize: "13px",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                transition: "all 0.3s ease",
+              }}
+              // ⬆️ ------------------------------------------------ ⬆️
+            >
+              🗑️ Reset
+            </button>
+
+            <SidebarMenu
+              onNavigate={(screen) => {
+                // 1. Lógica para Home
+                if (screen === "home" && onBack) {
+                  onBack();
+                }
+                // 2. Lógica para Dashboard e outros
+                else if (onNavigate) {
+                  onNavigate(screen);
+                }
+              }}
+              onOpenProfile={() => alert("Perfil em breve")}
+              onOpenTeam={onOpenTeam}
+            />
+            {/* <button
             onClick={toggleTheme}
             title="Alternar Tema"
             style={{
@@ -3882,189 +4123,201 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           >
             {isDarkMode ? "☀️" : "🌙"}
           </button> */}
+          </div>
         </div>
-      </div>
 
-      <div style={toolbarStyle}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            borderRight: `1px solid ${theme.border}`,
-            paddingRight: "15px",
-          }}
-        >
-          <span
-            style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}
+        <div style={toolbarStyle}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              borderRight: `1px solid ${theme.border}`,
+              paddingRight: "15px",
+            }}
           >
-            Motor:
-          </span>
-          <select
-            value={strategy}
-            onChange={(e) => setStrategy(e.target.value as any)}
-            style={{ ...inputStyle, width: "180px" }}
-          >
-            <option value="guillotine">✂️ Guilhotina</option>{" "}
-            {/* Mudou de "rect" */}
-            <option value="true-shape">🧩 Smart Nest</option>
-            <option value="true-shape-v2">⚡ Smart Nest V2</option>
-            {/* ADICIONE ESTA OPÇÃO: */}
-            {/* <option
+            <span
+              style={{
+                fontSize: "12px",
+                marginRight: "5px",
+                fontWeight: "bold",
+              }}
+            >
+              Motor:
+            </span>
+            <select
+              value={strategy}
+              onChange={(e) => setStrategy(e.target.value as any)}
+              style={{ ...inputStyle, width: "180px" }}
+            >
+              <option value="guillotine">✂️ Guilhotina</option>{" "}
+              {/* Mudou de "rect" */}
+              <option value="true-shape">🧩 Smart Nest</option>
+              <option value="true-shape-v2">⚡ Smart Nest V2</option>
+              {/* ADICIONE ESTA OPÇÃO: */}
+              {/* <option
               value="true-shape-v3"
               style={{ fontWeight: "bold", color: "#007bff" }}
             >
               🚀 Smart Nest V3 (Furos)
             </option> */}
-            {/* ALTERAÇÃO AQUI: Adicionado disabled e estilo de cor/opacidade */}
-            {/* <option
+              {/* ALTERAÇÃO AQUI: Adicionado disabled e estilo de cor/opacidade */}
+              {/* <option
               value="wise"
               style={{ fontWeight: "bold", color: "#6f42c1" }}
             >
               🧠 Wise Nest (Clipper Engine)
             </option> */}
-            {/* --- NOVA OPÇÃO --- */}
-            {/* <option
+              {/* --- NOVA OPÇÃO --- */}
+              {/* <option
               value="nfp"
               style={{ fontWeight: "bold", color: "#e83e8c" }}
             >
               🧬 NFP Nest (Geometria Real)
             </option> */}
-            {/* ------------------ */}
-            {/* <--- INSERIR ESTA LINHA */}
-          </select>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            borderRight: `1px solid ${theme.border}`,
-            paddingRight: "15px",
-          }}
-        >
-          <span
-            style={{ fontSize: "12px", marginRight: "5px", fontWeight: "bold" }}
-          >
-            Dir:
-          </span>
+              {/* ------------------ */}
+              {/* <--- INSERIR ESTA LINHA */}
+            </select>
+          </div>
           <div
             style={{
               display: "flex",
-              gap: "2px",
-              background: theme.inputBg,
-              borderRadius: "4px",
-              padding: "2px",
+              alignItems: "center",
+              borderRight: `1px solid ${theme.border}`,
+              paddingRight: "15px",
             }}
           >
-            <button
-              title="Auto"
-              onClick={() => setDirection("auto")}
-              style={btnStyle(direction === "auto")}
+            <span
+              style={{
+                fontSize: "12px",
+                marginRight: "5px",
+                fontWeight: "bold",
+              }}
             >
-              Auto
-            </button>
-            <button
-              title="Vertical"
-              onClick={() => setDirection("vertical")}
-              style={btnStyle(direction === "vertical")}
+              Dir:
+            </span>
+            <div
+              style={{
+                display: "flex",
+                gap: "2px",
+                background: theme.inputBg,
+                borderRadius: "4px",
+                padding: "2px",
+              }}
             >
-              ⬇️
-            </button>
-            <button
-              title="Horizontal"
-              onClick={() => setDirection("horizontal")}
-              style={btnStyle(direction === "horizontal")}
-            >
-              ➡️
-            </button>
+              <button
+                title="Auto"
+                onClick={() => setDirection("auto")}
+                style={btnStyle(direction === "auto")}
+              >
+                Auto
+              </button>
+              <button
+                title="Vertical"
+                onClick={() => setDirection("vertical")}
+                style={btnStyle(direction === "vertical")}
+              >
+                ⬇️
+              </button>
+              <button
+                title="Horizontal"
+                onClick={() => setDirection("horizontal")}
+                style={btnStyle(direction === "horizontal")}
+              >
+                ➡️
+              </button>
+            </div>
           </div>
-        </div>
 
-        {/* INPUTS DE DIMENSÃO */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            background: theme.hoverRow,
-            padding: "5px",
-            borderRadius: "4px",
-            gap: "5px",
-          }}
-        >
-          <label style={{ fontSize: 12 }}>L:</label>
-          <input
-            type="number"
-            value={binSize.width}
-            onChange={(e) =>
-              setBinSize((p) => ({ ...p, width: Number(e.target.value) }))
-            }
-            style={{ ...inputStyle, width: 50 }}
-          />
-          <label style={{ fontSize: 12 }}>A:</label>
-          <input
-            type="number"
-            value={binSize.height}
-            onChange={(e) =>
-              setBinSize((p) => ({ ...p, height: Number(e.target.value) }))
-            }
-            style={{ ...inputStyle, width: 50 }}
-          />
-        </div>
-
-        {/* INPUTS GAP/MARGEM (COM LÓGICA DE DESABILITAR) */}
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <label
+          {/* INPUTS DE DIMENSÃO */}
+          <div
             style={{
-              fontSize: 12,
-              opacity: strategy === "guillotine" ? 0.5 : 1,
+              display: "flex",
+              alignItems: "center",
+              background: theme.hoverRow,
+              padding: "5px",
+              borderRadius: "4px",
+              gap: "5px",
             }}
           >
-            Gap:
-          </label>
-          <input
-            type="number"
-            value={gap}
-            onChange={(e) => setGap(Number(e.target.value))}
-            disabled={strategy === "guillotine"}
-            style={{
-              ...inputStyle,
-              width: 40,
-              opacity: strategy === "guillotine" ? 0.5 : 1,
-              cursor: strategy === "guillotine" ? "not-allowed" : "text",
-            }}
-            title={
-              strategy === "guillotine"
-                ? "Não utilizado no modo Guilhotina"
-                : ""
-            }
-          />
-          <label
-            style={{
-              fontSize: 12,
-              opacity: strategy === "guillotine" ? 0.5 : 1,
-            }}
-          >
-            Margem:
-          </label>
-          <input
-            type="number"
-            value={margin}
-            onChange={(e) => setMargin(Number(e.target.value))}
-            disabled={strategy === "guillotine"}
-            style={{
-              ...inputStyle,
-              width: 40,
-              opacity: strategy === "guillotine" ? 0.5 : 1,
-              cursor: strategy === "guillotine" ? "not-allowed" : "text",
-            }}
-            title={
-              strategy === "guillotine"
-                ? "Não utilizado no modo Guilhotina"
-                : ""
-            }
-          />
-        </div>
+            <label style={{ fontSize: 12 }}>L:</label>
+            <input
+              type="number"
+              value={binSize.width}
+              onChange={(e) => {
+                setBinSize((p) => ({ ...p, width: Number(e.target.value) }));
+                // 👇 ADICIONE ESTA LINHA 👇
+                setSelectedDBRemnant(null); 
+              }}
+              style={{ ...inputStyle, width: 50 }}
+            />
+            <label style={{ fontSize: 12 }}>A:</label>
+            <input
+              type="number"
+              value={binSize.height}
+              onChange={(e) => {
+                setBinSize((p) => ({ ...p, height: Number(e.target.value) }));
+                // 👇 ADICIONE ESTA LINHA 👇
+                setSelectedDBRemnant(null); 
+              }}
+              style={{ ...inputStyle, width: 50 }}
+            />
+          </div>
 
-        {/* {strategy === "true-shape" && (
+          {/* INPUTS GAP/MARGEM (COM LÓGICA DE DESABILITAR) */}
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <label
+              style={{
+                fontSize: 12,
+                opacity: strategy === "guillotine" ? 0.5 : 1,
+              }}
+            >
+              Gap:
+            </label>
+            <input
+              type="number"
+              value={gap}
+              onChange={(e) => setGap(Number(e.target.value))}
+              disabled={strategy === "guillotine"}
+              style={{
+                ...inputStyle,
+                width: 40,
+                opacity: strategy === "guillotine" ? 0.5 : 1,
+                cursor: strategy === "guillotine" ? "not-allowed" : "text",
+              }}
+              title={
+                strategy === "guillotine"
+                  ? "Não utilizado no modo Guilhotina"
+                  : ""
+              }
+            />
+            <label
+              style={{
+                fontSize: 12,
+                opacity: strategy === "guillotine" ? 0.5 : 1,
+              }}
+            >
+              Margem:
+            </label>
+            <input
+              type="number"
+              value={margin}
+              onChange={(e) => setMargin(Number(e.target.value))}
+              disabled={strategy === "guillotine"}
+              style={{
+                ...inputStyle,
+                width: 40,
+                opacity: strategy === "guillotine" ? 0.5 : 1,
+                cursor: strategy === "guillotine" ? "not-allowed" : "text",
+              }}
+              title={
+                strategy === "guillotine"
+                  ? "Não utilizado no modo Guilhotina"
+                  : ""
+              }
+            />
+          </div>
+
+          {/* {strategy === "true-shape" && (
           <div style={{ display: "flex", alignItems: "center" }}>
             <label style={{ fontSize: 12, marginRight: 5 }}>Rot:</label>
             <select
@@ -4079,114 +4332,140 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           </div>
         )} */}
 
-        {/* CHECKBOX DEBUG */}
-        <label
-          style={{
-            fontSize: "12px",
-            display: "flex",
-            alignItems: "center",
-            cursor: "pointer",
-            userSelect: "none",
-            marginLeft: "15px",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={showDebug}
-            onChange={(e) => setShowDebug(e.target.checked)}
-            style={{ marginRight: "5px", backgroundColor: theme.checkboxBg }}
-          />{" "}
-          Box
-        </label>
-        {/* ⬇️ --- BOTÃO DE REFRESH COM ÍCONE PADRÃO --- ⬇️ */}
-        <button
-          onClick={handleRefreshView}
-          disabled={isRefreshing}
-          title="Recarregar visualização (Destravar interface)"
-          style={{
-            background: "transparent",
-            border: `1px solid ${theme.border}`,
-            color: theme.text,
-            // --- ALTERAÇÃO: TAMANHO FIXO ---
-            height: buttonHeight,
-            width: buttonHeight,
-            padding: 0, // Remove padding para centrar o ícone
-            gap: 0,
-            // -------------------------------
-            borderRadius: "4px",
-            cursor: isRefreshing ? "wait" : "pointer", // Cursor de espera
-            fontSize: "12px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            marginLeft: "10px",
-            transition: "background 0.2s",
-          }}
-          onMouseEnter={(e) =>
-            (e.currentTarget.style.background = theme.hoverRow)
-          }
-          onMouseLeave={(e) =>
-            (e.currentTarget.style.background = "transparent")
-          }
-        >
-          {/* Ícone SVG com Rotação */}
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+          {/* CHECKBOX DEBUG */}
+          <label
             style={{
-              // A Mágica da Rotação:
-              transformOrigin: "center",
-              transformBox: "view-box",
-              transition: "transform 0.7s ease",
-              transform: isRefreshing ? "rotate(360deg)" : "rotate(0deg)",
-            }}
-          >
-            <path d="M23 4v6h-6"></path>
-            <path d="M1 20v-6h6"></path>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-          </svg>
-        </button>
-        {/* ⬆️ ------------------------------------------ ⬆️ */}
-
-        {/* LÓGICA DOS BOTÕES DE COLISÃO (CORRIGIDA) */}
-        {strategy === "guillotine" ? (
-          <button
-            onClick={handleCheckGuillotineCollisions}
-            title="Validação rápida para cortes retos"
-            style={{
-              background: "#dc3545",
-              border: `1px solid ${theme.border}`,
-              color: "#fff",
-              // --- ALTERAÇÃO: ALTURA FIXA ---
-              height: buttonHeight,
-              padding: "0 10px", // Padding lateral apenas
-              // ------------------------------
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontWeight: "bold",
               fontSize: "12px",
               display: "flex",
               alignItems: "center",
-              gap: "5px",
-              marginLeft: "10px",
+              cursor: "pointer",
+              userSelect: "none",
+              marginLeft: "15px",
             }}
           >
-            Guilhotina
-          </button>
-        ) : (
+            <input
+              type="checkbox"
+              checked={showDebug}
+              onChange={(e) => setShowDebug(e.target.checked)}
+              style={{ marginRight: "5px", backgroundColor: theme.checkboxBg }}
+            />{" "}
+            Box
+          </label>
+          {/* ⬇️ --- BOTÃO DE REFRESH COM ÍCONE PADRÃO --- ⬇️ */}
           <button
-            onClick={handleCheckCollisions}
-            title="Verificar se há peças sobrepostas (Pixel Perfect)"
+            onClick={handleRefreshView}
+            disabled={isRefreshing}
+            title="Recarregar visualização (Destravar interface)"
             style={{
-              background: "#dc3545",
+              background: "transparent",
               border: `1px solid ${theme.border}`,
-              color: "#fff",
+              color: theme.text,
+              // --- ALTERAÇÃO: TAMANHO FIXO ---
+              height: buttonHeight,
+              width: buttonHeight,
+              padding: 0, // Remove padding para centrar o ícone
+              gap: 0,
+              // -------------------------------
+              borderRadius: "4px",
+              cursor: isRefreshing ? "wait" : "pointer", // Cursor de espera
+              fontSize: "12px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginLeft: "10px",
+              transition: "background 0.2s",
+            }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.background = theme.hoverRow)
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.background = "transparent")
+            }
+          >
+            {/* Ícone SVG com Rotação */}
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                // A Mágica da Rotação:
+                transformOrigin: "center",
+                transformBox: "view-box",
+                transition: "transform 0.7s ease",
+                transform: isRefreshing ? "rotate(360deg)" : "rotate(0deg)",
+              }}
+            >
+              <path d="M23 4v6h-6"></path>
+              <path d="M1 20v-6h6"></path>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+          </button>
+          {/* ⬆️ ------------------------------------------ ⬆️ */}
+
+          {/* LÓGICA DOS BOTÕES DE COLISÃO (CORRIGIDA) */}
+          {strategy === "guillotine" ? (
+            <button
+              onClick={handleCheckGuillotineCollisions}
+              title="Validação rápida para cortes retos"
+              style={{
+                background: "#dc3545",
+                border: `1px solid ${theme.border}`,
+                color: "#fff",
+                // --- ALTERAÇÃO: ALTURA FIXA ---
+                height: buttonHeight,
+                padding: "0 10px", // Padding lateral apenas
+                // ------------------------------
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontWeight: "bold",
+                fontSize: "12px",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                marginLeft: "10px",
+              }}
+            >
+              Guilhotina
+            </button>
+          ) : (
+            <button
+              onClick={handleCheckCollisions}
+              title="Verificar se há peças sobrepostas (Pixel Perfect)"
+              style={{
+                background: "#dc3545",
+                border: `1px solid ${theme.border}`,
+                color: "#fff",
+                // --- ALTERAÇÃO: ALTURA FIXA ---
+                height: buttonHeight,
+                padding: "0 10px",
+                // ------------------------------
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontWeight: "bold",
+                fontSize: "12px",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                marginLeft: "10px",
+              }}
+            >
+              💥 Colisão
+            </button>
+          )}
+
+          {/* BOTÃO NOVA CHAPA */}
+          <button
+            onClick={handleAddBin}
+            title="Criar uma nova chapa vazia para nesting manual"
+            style={{
+              background: " #0056b3",
+              border: `1px solid ${theme.border}`,
+              color: "white",
               // --- ALTERAÇÃO: ALTURA FIXA ---
               height: buttonHeight,
               padding: "0 10px",
@@ -4201,1172 +4480,1270 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               marginLeft: "10px",
             }}
           >
-            💥 Colisão
+            Nova Chapa
           </button>
-        )}
 
-        {/* BOTÃO NOVA CHAPA */}
-        <button
-          onClick={handleAddBin}
-          title="Criar uma nova chapa vazia para nesting manual"
-          style={{
-            background: " #0056b3",
-            border: `1px solid ${theme.border}`,
-            color: "white",
-            // --- ALTERAÇÃO: ALTURA FIXA ---
-            height: buttonHeight,
-            padding: "0 10px",
-            // ------------------------------
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontWeight: "bold",
-            fontSize: "12px",
-            display: "flex",
-            alignItems: "center",
-            gap: "5px",
-            marginLeft: "10px",
-          }}
-        >
-          Nova Chapa
-        </button>
-
-        {/* Adicionamos um estilo inline para a animação de rotação */}
-        <style>
-          {`
+          {/* Adicionamos um estilo inline para a animação de rotação */}
+          <style>
+            {`
             @keyframes spin {
               0% { transform: rotate(0deg); }
               100% { transform: rotate(360deg); }
             }
           `}
-        </style>
+          </style>
 
-        <button
-          onClick={handleCalculate}
-          // 👇 ATUALIZADO: Adicionamos isNfpRunning para travar o botão
-          disabled={isComputing || isNfpRunning}
-          style={{
-            marginLeft: "auto",
-            // 👇 ATUALIZADO: Muda a cor se estiver rodando
-            background: isComputing || isNfpRunning ? theme.panelBg : "#28a745",
-            color: isComputing || isNfpRunning ? theme.text : "white",
-            border:
-              isComputing || isNfpRunning
-                ? `1px solid ${theme.border}`
-                : "none",
-            // --- ALTERAÇÃO: ALTURA FIXA ---
-            height: buttonHeight,
-            padding: "0 15px", // Um pouco mais largo pois é o principal
-            // ------------------------------
-            cursor: isComputing || isNfpRunning ? "wait" : "pointer",
-            borderRadius: "4px",
-            fontWeight: "bold",
-            fontSize: "16px",
-            whiteSpace: "nowrap",
-            boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            minWidth: "120px",
-            justifyContent: "center",
-          }}
-        >
-          {isComputing || isNfpRunning ? ( // 👇 ATUALIZADO: Verifica ambos os estados
-            <>
-              {/* Animação CSS inline mantida */}
-              <style>
-                {`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}
-              </style>
-              <div
-                style={{
-                  animation: "spin 1s linear infinite",
-                  display: "flex",
-                }}
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+          <button
+            onClick={handleCalculate}
+            // 👇 ATUALIZADO: Adicionamos isNfpRunning para travar o botão
+            disabled={isComputing || isNfpRunning}
+            style={{
+              marginLeft: "auto",
+              // 👇 ATUALIZADO: Muda a cor se estiver rodando
+              background:
+                isComputing || isNfpRunning ? theme.panelBg : "#28a745",
+              color: isComputing || isNfpRunning ? theme.text : "white",
+              border:
+                isComputing || isNfpRunning
+                  ? `1px solid ${theme.border}`
+                  : "none",
+              // --- ALTERAÇÃO: ALTURA FIXA ---
+              height: buttonHeight,
+              padding: "0 15px", // Um pouco mais largo pois é o principal
+              // ------------------------------
+              cursor: isComputing || isNfpRunning ? "wait" : "pointer",
+              borderRadius: "4px",
+              fontWeight: "bold",
+              fontSize: "16px",
+              whiteSpace: "nowrap",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              minWidth: "120px",
+              justifyContent: "center",
+            }}
+          >
+            {isComputing || isNfpRunning ? ( // 👇 ATUALIZADO: Verifica ambos os estados
+              <>
+                {/* Animação CSS inline mantida */}
+                <style>
+                  {`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}
+                </style>
+                <div
+                  style={{
+                    animation: "spin 1s linear infinite",
+                    display: "flex",
+                  }}
                 >
-                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                </svg>
-              </div>
-              {/* 👇 ATUALIZADO: Mostra a porcentagem se for NFP, senão "Processando..." */}
-              <span>
-                {strategy === "nfp" ? `NFP: ${nfpProgress}%` : "Processando..."}
-              </span>
-            </>
-          ) : (
-            <>Nesting</>
-          )}
-        </button>
-      </div>
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                  </svg>
+                </div>
+                {/* 👇 ATUALIZADO: Mostra a porcentagem se for NFP, senão "Processando..." */}
+                <span>
+                  {strategy === "nfp"
+                    ? `NFP: ${nfpProgress}%`
+                    : "Processando..."}
+                </span>
+              </>
+            ) : (
+              <>Nesting</>
+            )}
+          </button>
+        </div>      
 
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        <div
-          style={{
-            flex: 2,
-            position: "relative",
-            background: theme.canvasBg,
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-          }}
-          onMouseDown={() => setContextMenu(null)}
-        >
-          {totalBins > 1 && (
-            <div
-              style={{
-                position: "absolute",
-                top: 110,
-                left: 20,
-                zIndex: 20,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: "5px",
-                background: theme.buttonBg,
-                color: theme.text,
-                border: isCurrentSheetSaved
-                  ? "1px solid #28a745"
-                  : `1px solid ${theme.border}`,
-                padding: "8px 4px",
-                borderRadius: "20px",
-                boxShadow: "0 4px 6px rgba(0,0,0,0.3)",
-                width: "32px",
-                transition: "all 0.3s ease",
-              }}
-            >
-              <button
-                onClick={() =>
-                  setCurrentBinIndex(Math.max(0, currentBinIndex - 1))
-                }
-                disabled={currentBinIndex === 0}
-                title="Voltar para a chapa anterior"
-                style={{
-                  cursor: currentBinIndex === 0 ? "default" : "pointer",
-                  border: "none",
-                  background: "transparent",
-                  fontWeight: "bold",
-                  color: currentBinIndex === 0 ? "#555" : theme.text,
-                  fontSize: "20px",
-                  padding: 2,
-                  display: "flex",
-                  justifyContent: "center",
-                  width: "100%",
-                }}
-              >
-                ▴
-              </button>
-
+        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+          <div
+            style={{
+              flex: 2,
+              position: "relative",
+              background: theme.canvasBg,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }}
+            onMouseDown={() => setContextMenu(null)}
+          >
+            {totalBins > 1 && (
               <div
-                title={`Chapa ${currentBinIndex + 1} de ${totalBins} ${
-                  isCurrentSheetSaved ? "(Salva)" : "(Não salva)"
-                }`}
                 style={{
+                  position: "absolute",
+                  top: 110,
+                  left: 20,
+                  zIndex: 20,
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
-                  fontSize: "12px",
-                  fontWeight: "bold",
-                  lineHeight: 2,
-                  gap: "2px",
-                  cursor: "help",
+                  gap: "5px",
+                  background: theme.buttonBg,
+                  color: theme.text,
+                  border: isCurrentSheetSaved
+                    ? "1px solid #28a745"
+                    : `1px solid ${theme.border}`,
+                  padding: "8px 4px",
+                  borderRadius: "20px",
+                  boxShadow: "0 4px 6px rgba(0,0,0,0.3)",
+                  width: "32px",
+                  transition: "all 0.3s ease",
                 }}
               >
-                <span
+                <button
+                  onClick={() =>
+                    setCurrentBinIndex(Math.max(0, currentBinIndex - 1))
+                  }
+                  disabled={currentBinIndex === 0}
+                  title="Voltar para a chapa anterior"
                   style={{
-                    color: isCurrentSheetSaved ? "#28a745" : theme.text,
+                    cursor: currentBinIndex === 0 ? "default" : "pointer",
+                    border: "none",
+                    background: "transparent",
+                    fontWeight: "bold",
+                    color: currentBinIndex === 0 ? "#555" : theme.text,
+                    fontSize: "20px",
+                    padding: 2,
+                    display: "flex",
+                    justifyContent: "center",
+                    width: "100%",
                   }}
                 >
-                  {currentBinIndex + 1}
-                </span>
+                  ▴
+                </button>
+
+                <div
+                  title={`Chapa ${currentBinIndex + 1} de ${totalBins} ${
+                    isCurrentSheetSaved ? "(Salva)" : "(Não salva)"
+                  }`}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    fontSize: "12px",
+                    fontWeight: "bold",
+                    lineHeight: 2,
+                    gap: "2px",
+                    cursor: "help",
+                  }}
+                >
+                  <span
+                    style={{
+                      color: isCurrentSheetSaved ? "#28a745" : theme.text,
+                    }}
+                  >
+                    {currentBinIndex + 1}
+                  </span>
+                  <div
+                    style={{
+                      width: "12px",
+                      height: "1px",
+                      background: theme.border,
+                    }}
+                  ></div>
+                  <span style={{ opacity: 0.6 }}>{totalBins}</span>
+                </div>
+
+                <button
+                  onClick={() =>
+                    setCurrentBinIndex(
+                      Math.min(totalBins - 1, currentBinIndex + 1),
+                    )
+                  }
+                  disabled={currentBinIndex === totalBins - 1}
+                  title="Avançar para a próxima chapa"
+                  style={{
+                    cursor:
+                      currentBinIndex === totalBins - 1 ? "default" : "pointer",
+                    border: "none",
+                    background: "transparent",
+                    fontWeight: "bold",
+                    color:
+                      currentBinIndex === totalBins - 1 ? "#555" : theme.text,
+                    fontSize: "18px",
+                    padding: 0,
+                    display: "flex",
+                    justifyContent: "center",
+                    width: "100%",
+                  }}
+                >
+                  ▾
+                </button>
+                {/* --- NOVO ÍCONE DE GALERIA (INSERIDO AQUI) --- */}
                 <div
                   style={{
-                    width: "12px",
+                    width: "20px",
                     height: "1px",
+                    background: "rgba(255,255,255,0.2)",
+                    margin: "2px 0",
+                  }}
+                />
+                <button
+                  onClick={() => setIsGalleryOpen(true)}
+                  title="Abrir Galeria de Chapas (Visão Geral)"
+                  style={{
+                    cursor: "pointer",
+                    border: "none",
+                    background: "transparent",
+                    color: theme.text,
+                    padding: "4px 0",
+                    display: "flex",
+                    justifyContent: "center",
+                    width: "100%",
+                    opacity: 0.9,
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.9")}
+                >
+                  {/* Ícone de Grid/Carrossel SVG */}
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="3" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="14" width="7" height="7"></rect>
+                    <rect x="3" y="14" width="7" height="7"></rect>
+                  </svg>
+                </button>
+                {/* ------------------------------------------- */}
+              </div>
+            )}
+
+            <InteractiveCanvas
+              key={viewKey}
+              parts={displayedParts}
+              placedParts={currentPlacedParts}
+              binWidth={binSize.width}
+              binHeight={binSize.height}
+              margin={margin}
+              showDebug={showDebug}
+              strategy={
+                // Adicione a verificação para 'nfp' aqui
+                strategy === "true-shape-v2" ||
+                strategy === "true-shape-v3" ||
+                strategy === "nfp"
+                  ? "true-shape"
+                  : strategy
+              }
+              theme={theme}
+              selectedPartIds={selectedPartIds}
+              collidingPartIds={collidingPartIds}
+              cropLines={cropLines}
+              calculatedRemnants={calculatedRemnants}
+              onCropLineMove={moveCropLine}
+              onCropLineContextMenu={handleLineContextMenu}
+              onBackgroundContextMenu={handleBackgroundContextMenu}
+              onPartsMove={handlePartsMoveWithClear}
+              onPartSelect={handlePartSelect}
+              onContextMenu={handlePartContextMenu}
+              onPartReturn={handleReturnToBank}
+              onUndo={undo}
+              onRedo={redo}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              onCanvasDrop={handleExternalDrop}
+            />
+
+            {/* --- BARRA DE RODAPÉ (FOOTER) APRIMORADA COM CONSUMO --- */}
+            <div
+              style={{
+                padding: "0 15px",
+                display: "grid",
+                gridTemplateColumns: "1fr auto 1fr",
+                alignItems: "center",
+                borderTop: `1px solid ${theme.border}`,
+                background: theme.panelBg,
+                zIndex: 5,
+                color: theme.text,
+                height: "50px",
+              }}
+            >
+              {/* ESQUERDA: Contagem */}
+              <div
+                style={{ display: "flex", gap: "15px", alignItems: "center" }}
+              >
+                <span
+                  style={{ opacity: 0.9, fontSize: "12px", fontWeight: "bold" }}
+                >
+                  Total: {currentPlacedParts.length} / {displayedParts.length}{" "}
+                  Peças
+                </span>
+              </div>
+
+              {/* CENTRO: MÉTRICAS DE EFICIÊNCIA */}
+              <div
+                // --- INSERÇÃO 5: TRANSFORMANDO EM BOTÃO ---
+                onClick={() => {
+                  if (currentPlacedParts.length > 0) setIsStatsModalOpen(true);
+                }}
+                title={
+                  currentPlacedParts.length > 0
+                    ? "Clique para ver o relatório completo (M², KG e OPs)"
+                    : ""
+                }
+                onMouseEnter={(e) => {
+                  if (currentPlacedParts.length > 0) {
+                    e.currentTarget.style.transform = "scale(1.02)";
+                    e.currentTarget.style.borderColor = "#007bff";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "scale(1)";
+                  e.currentTarget.style.borderColor = theme.border;
+                }}
+                // ------------------------------------------
+                style={{
+                  display: "flex",
+                  gap: "15px",
+                  alignItems: "center",
+                  background: theme.canvasBg,
+                  padding: "4px 15px",
+                  borderRadius: "20px",
+                  border: `1px solid ${theme.border}`,
+                  boxShadow: "inset 0 1px 3px rgba(0,0,0,0.1)",
+                }}
+              >
+                {/* 1. ÁREA DE CORTE */}
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    lineHeight: 1,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      color: theme.label,
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    Área de Corte
+                  </span>
+                  <span
+                    title="Representa a porção da chapa destinada ao corte (inclui Peças + Sucata) em relação à chapa total."
+                    style={{
+                      fontSize: "16px",
+                      fontWeight: "bold",
+                      color: "#007bff",
+                    }}
+                  >
+                    {currentEfficiencies.consumption}%
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    width: "1px",
+                    height: "20px",
                     background: theme.border,
                   }}
                 ></div>
-                <span style={{ opacity: 0.6 }}>{totalBins}</span>
+
+                {/* 2. ÁREA LÍQ. PEÇAS */}
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    lineHeight: 1,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      color: theme.label,
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    Área Liq. Peças
+                  </span>
+                  <span
+                    title="Representa o material útil (peso real faturado das peças) em relação à chapa total."
+                    style={{
+                      fontSize: "16px",
+                      fontWeight: "bold",
+                      color: "#28a745",
+                    }}
+                  >
+                    {currentEfficiencies.real}%
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    width: "1px",
+                    height: "20px",
+                    background: theme.border,
+                  }}
+                ></div>
+
+                {/* 3. SUCATA */}
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    lineHeight: 1,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      color: theme.label,
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    Sucata
+                  </span>
+                  <span
+                    title="Representa o material perdido (esqueleto/retalho morto) na área de corte em relação à chapa total."
+                    style={{
+                      fontSize: "16px",
+                      fontWeight: "bold",
+                      color: "#dc3545",
+                    }}
+                  >
+                    {currentEfficiencies.sucataPercent}%
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    width: "1px",
+                    height: "30px",
+                    backgroundColor: theme.border,
+                  }}
+                ></div>
+
+                {/* 4. RETALHO ÚTIL */}
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    lineHeight: 1,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      color: theme.label,
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    Retalho Útil
+                  </span>
+                  <span
+                    title="Representa a sobra de chapa limpa que retornará ao estoque em relação à chapa total."
+                    style={{
+                      fontSize: "16px",
+                      fontWeight: "bold",
+                      color: "#17a2b8",
+                    }}
+                  >
+                    {currentEfficiencies.retalhoPercent}%
+                  </span>
+                </div>
               </div>
 
-              <button
-                onClick={() =>
-                  setCurrentBinIndex(
-                    Math.min(totalBins - 1, currentBinIndex + 1),
-                  )
-                }
-                disabled={currentBinIndex === totalBins - 1}
-                title="Avançar para a próxima chapa"
-                style={{
-                  cursor:
-                    currentBinIndex === totalBins - 1 ? "default" : "pointer",
-                  border: "none",
-                  background: "transparent",
-                  fontWeight: "bold",
-                  color:
-                    currentBinIndex === totalBins - 1 ? "#555" : theme.text,
-                  fontSize: "18px",
-                  padding: 0,
-                  display: "flex",
-                  justifyContent: "center",
-                  width: "100%",
-                }}
-              >
-                ▾
-              </button>
-              {/* --- NOVO ÍCONE DE GALERIA (INSERIDO AQUI) --- */}
+              {/* DIREITA: STATUS E TEMPO */}
               <div
                 style={{
-                  width: "20px",
-                  height: "1px",
-                  background: "rgba(255,255,255,0.2)",
-                  margin: "2px 0",
-                }}
-              />
-              <button
-                onClick={() => setIsGalleryOpen(true)}
-                title="Abrir Galeria de Chapas (Visão Geral)"
-                style={{
-                  cursor: "pointer",
-                  border: "none",
-                  background: "transparent",
-                  color: theme.text,
-                  padding: "4px 0",
                   display: "flex",
-                  justifyContent: "center",
-                  width: "100%",
-                  opacity: 0.9,
+                  gap: "15px",
+                  alignItems: "center",
+                  justifyContent: "flex-end",
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-                onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.9")}
               >
-                {/* Ícone de Grid/Carrossel SVG */}
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="3" y="3" width="7" height="7"></rect>
-                  <rect x="14" y="3" width="7" height="7"></rect>
-                  <rect x="14" y="14" width="7" height="7"></rect>
-                  <rect x="3" y="14" width="7" height="7"></rect>
-                </svg>
-              </button>
-              {/* ------------------------------------------- */}
+                {calculationTime !== null && (
+                  <span style={{ fontSize: "12px", color: theme.label }}>
+                    ⏱️ {calculationTime.toFixed(2)}s
+                  </span>
+                )}
+
+                {isCurrentSheetSaved && (
+                  <span
+                    style={{
+                      color: "#28a745",
+                      fontWeight: "bold",
+                      fontSize: "12px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
+                  >
+                    ✅ SALVO
+                  </span>
+                )}
+
+                {failedCount > 0 && (
+                  <span
+                    style={{
+                      color: "#dc3545",
+                      fontWeight: "bold",
+                      fontSize: "12px",
+                      background: "rgba(220,53,69,0.1)",
+                      padding: "2px 6px",
+                      borderRadius: "4px",
+                    }}
+                  >
+                    ⚠️ {failedCount} FALHAS
+                  </span>
+                )}
+              </div>
             </div>
-          )}
+          </div>
 
-          <InteractiveCanvas
-            key={viewKey}
-            parts={displayedParts}
-            placedParts={currentPlacedParts}
-            binWidth={binSize.width}
-            binHeight={binSize.height}
-            margin={margin}
-            showDebug={showDebug}
-            strategy={
-              // Adicione a verificação para 'nfp' aqui
-              strategy === "true-shape-v2" ||
-              strategy === "true-shape-v3" ||
-              strategy === "nfp"
-                ? "true-shape"
-                : strategy
-            }
-            theme={theme}
-            selectedPartIds={selectedPartIds}
-            collidingPartIds={collidingPartIds}
-            cropLines={cropLines}
-            calculatedRemnants={calculatedRemnants}
-            onCropLineMove={moveCropLine}
-            onCropLineContextMenu={handleLineContextMenu}
-            onBackgroundContextMenu={handleBackgroundContextMenu}
-            onPartsMove={handlePartsMoveWithClear}
-            onPartSelect={handlePartSelect}
-            onContextMenu={handlePartContextMenu}
-            onPartReturn={handleReturnToBank}
-            onUndo={undo}
-            onRedo={redo}
-            canUndo={canUndo}
-            canRedo={canRedo}
-            onCanvasDrop={handleExternalDrop}
-          />
-
-          {/* --- BARRA DE RODAPÉ (FOOTER) APRIMORADA COM CONSUMO --- */}
+          {/* ⬇️ --- [INSERÇÃO 3] BARRA LATERAL REDIMENSIONÁVEL --- ⬇️ */}
           <div
             style={{
-              padding: "0 15px",
-              display: "grid",
-              gridTemplateColumns: "1fr auto 1fr",
-              alignItems: "center",
-              borderTop: `1px solid ${theme.border}`,
-              background: theme.panelBg,
+              width: sidebarWidth, // <--- Agora usa a variável de estado
+              // minWidth: "500px", // (Opcional, já tratado na lógica, mas bom garantir)
+              borderLeft: `1px solid ${theme.border}`,
+              display: "flex",
+              flexDirection: "column",
+              backgroundColor: theme.panelBg,
               zIndex: 5,
               color: theme.text,
-              height: "50px",
+              position: "relative", // <--- IMPORTANTE: Para posicionar o "puxador"
             }}
           >
-            {/* ESQUERDA: Contagem */}
-            <div style={{ display: "flex", gap: "15px", alignItems: "center" }}>
-              <span
-                style={{ opacity: 0.9, fontSize: "12px", fontWeight: "bold" }}
-              >
-                Total: {currentPlacedParts.length} / {displayedParts.length}{" "}
-                Peças
-              </span>
-            </div>
-
-           {/* CENTRO: MÉTRICAS DE EFICIÊNCIA */}
+            {/* --- O "PUXADOR" (Área sensível ao clique) --- */}
             <div
-              // --- INSERÇÃO 5: TRANSFORMANDO EM BOTÃO ---
-              onClick={() => {
-                if (currentPlacedParts.length > 0) setIsStatsModalOpen(true);
+              onMouseDown={(e) => {
+                e.preventDefault(); // Evita seleção de texto
+                setIsResizingSidebar(true);
               }}
-              title={currentPlacedParts.length > 0 ? "Clique para ver o relatório completo (M², KG e OPs)" : ""}
-              onMouseEnter={(e) => {
-                if (currentPlacedParts.length > 0) {
-                  e.currentTarget.style.transform = "scale(1.02)";
-                  e.currentTarget.style.borderColor = "#007bff";
-                }
+              title="Arraste para redimensionar"
+              style={{
+                position: "absolute",
+                left: "-4px", // Fica levemente sobre a borda para facilitar o clique
+                top: 0,
+                bottom: 0,
+                width: "8px", // Área de clique confortável (invisível visualmente)
+                cursor: "ew-resize",
+                zIndex: 100, // Garante que fique acima de tudo
+                background: isResizingSidebar
+                  ? "rgba(0, 123, 255, 0.2)" // Feedback visual azul quando arrasta
+                  : "transparent",
+                transition: "background 0.2s",
               }}
+              // Opcional: Feedback visual ao passar o mouse (hover)
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.background = "rgba(0, 123, 255, 0.1)")
+              }
               onMouseLeave={(e) => {
-                e.currentTarget.style.transform = "scale(1)";
-                e.currentTarget.style.borderColor = theme.border;
+                if (!isResizingSidebar)
+                  e.currentTarget.style.background = "transparent";
               }}
-              // ------------------------------------------
-              style={{
-                display: "flex",
-                gap: "15px",
-                alignItems: "center",
-                background: theme.canvasBg,
-                padding: "4px 15px",
-                borderRadius: "20px",
-                border: `1px solid ${theme.border}`,
-                boxShadow: "inset 0 1px 3px rgba(0,0,0,0.1)",
-              }}
-            >
-              {/* 1. ÁREA DE CORTE */}
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1 }}>
-                <span style={{ fontSize: "10px", color: theme.label, textTransform: "uppercase" }}>
-                  Área de Corte
-                </span>
-                <span 
-                  title="Representa a porção da chapa destinada ao corte (inclui Peças + Sucata) em relação à chapa total." 
-                  style={{ fontSize: "16px", fontWeight: "bold", color: "#007bff" }}
-                >
-                  {currentEfficiencies.consumption}%
-                </span>
-              </div>
-
-              <div style={{ width: "1px", height: "20px", background: theme.border }}></div>
-
-              {/* 2. ÁREA LÍQ. PEÇAS */}
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1 }}>
-                <span style={{ fontSize: "10px", color: theme.label, textTransform: "uppercase" }}>
-                  Área Liq. Peças
-                </span>
-                <span 
-                  title="Representa o material útil (peso real faturado das peças) em relação à chapa total." 
-                  style={{ fontSize: "16px", fontWeight: "bold", color: "#28a745" }}
-                >
-                  {currentEfficiencies.real}%
-                </span>
-              </div>
-
-              <div style={{ width: "1px", height: "20px", background: theme.border }}></div>
-
-              {/* 3. SUCATA */}
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1 }}>
-                <span style={{ fontSize: "10px", color: theme.label, textTransform: "uppercase" }}>
-                  Sucata
-                </span>
-                <span 
-                  title="Representa o material perdido (esqueleto/retalho morto) na área de corte em relação à chapa total." 
-                  style={{ fontSize: "16px", fontWeight: "bold", color: "#dc3545" }}
-                >
-                  {currentEfficiencies.sucataPercent}%
-                </span>
-              </div>
-
-              <div style={{ width: "1px", height: "30px", backgroundColor: theme.border }}></div>
-
-              {/* 4. RETALHO ÚTIL */}
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1 }}>
-                <span style={{ fontSize: "10px", color: theme.label, textTransform: "uppercase" }}>
-                  Retalho Útil
-                </span>
-                <span 
-                  title="Representa a sobra de chapa limpa que retornará ao estoque em relação à chapa total." 
-                  style={{ fontSize: "16px", fontWeight: "bold", color: "#17a2b8" }} 
-                >
-                  {currentEfficiencies.retalhoPercent}%
-                </span>
-              </div>
-            </div>
-
-            {/* DIREITA: STATUS E TEMPO */}
+            />
+            {/* --------------------------------------------- */}
+            <PartFilter
+              allParts={parts}
+              filters={filters}
+              onFilterChange={setFilters}
+              theme={theme}
+            />
+            <GlobalLabelPanel
+              showWhite={globalWhiteEnabled}
+              showPink={globalPinkEnabled}
+              onToggleWhite={() => toggleGlobal("white")}
+              onTogglePink={() => toggleGlobal("pink")}
+              theme={theme}
+            />
+            {/* --- ABAS DE NAVEGAÇÃO + SELECT ALL --- */}
             <div
               style={{
                 display: "flex",
-                gap: "15px",
-                alignItems: "center",
-                justifyContent: "flex-end",
+                alignItems: "center", // Garante alinhamento vertical
+                borderBottom: `1px solid ${theme.border}`,
+                background: theme.headerBg,
+                paddingRight: "15px", // Margem direita para não colar na borda
               }}
             >
-              {calculationTime !== null && (
-                <span style={{ fontSize: "12px", color: theme.label }}>
-                  ⏱️ {calculationTime.toFixed(2)}s
-                </span>
-              )}
+              <button
+                style={tabStyle(activeTab === "grid")}
+                onClick={() => setActiveTab("grid")}
+              >
+                🔳 Banco de Peças
+              </button>
+              <button
+                style={tabStyle(activeTab === "list")}
+                onClick={() => setActiveTab("list")}
+              >
+                📄 Lista Técnica
+              </button>
 
-              {isCurrentSheetSaved && (
-                <span
+              {/* --- NOVO: CHECKBOX ALINHADO À DIREITA --- */}
+              <div style={{ marginLeft: "auto" }}>
+                <label
                   style={{
-                    color: "#28a745",
-                    fontWeight: "bold",
                     fontSize: "12px",
+                    fontWeight: "bold",
+                    color: theme.text,
                     display: "flex",
                     alignItems: "center",
-                    gap: "4px",
+                    gap: "6px",
+                    cursor: parts.length === 0 ? "not-allowed" : "pointer",
+                    userSelect: "none",
+                    opacity: parts.length === 0 ? 0.5 : 1,
+                  }}
+                  title={
+                    isAllEnabled
+                      ? "Remover todas do cálculo"
+                      : "Incluir todas no cálculo"
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    checked={isAllEnabled}
+                    onChange={handleToggleAll}
+                    disabled={parts.length === 0}
+                    style={{
+                      cursor: "pointer",
+                      backgroundColor: theme.checkboxBg,
+                    }}
+                  />
+                  Selecionar Todos
+                </label>
+              </div>
+            </div>
+
+            <div
+              style={{
+                flex: 1,
+                overflowY: "auto",
+                padding: activeTab === "grid" ? "15px" : "0",
+              }}
+            >
+              {activeTab === "grid" && (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fill, minmax(130px, 1fr))",
+                    gap: "15px",
+                    alignContent: "start",
                   }}
                 >
-                  ✅ SALVO
-                </span>
-              )}
+                  {sortedParts.map((part) => {
+                    const qty = quantities[part.id] || 1;
+                    const { produced } = getPartStatus(part.id, qty);
+                    const orderColor = stringToColor(part.pedido || "N/A");
+                    const placedTotal = totalPlacedCounts[part.id] || 0;
+                    const totalVisual = produced + placedTotal;
+                    const remainingVisual = Math.max(0, qty - totalVisual);
+                    const isDoneVisual = remainingVisual === 0;
+                    const isSelected = activeSelectedPartIds.has(part.id);
+                    const isOnCurrentSheet = currentBinPartIds.has(part.id);
 
-              {failedCount > 0 && (
-                <span
-                  style={{
-                    color: "#dc3545",
-                    fontWeight: "bold",
-                    fontSize: "12px",
-                    background: "rgba(220,53,69,0.1)",
-                    padding: "2px 6px",
-                    borderRadius: "4px",
-                  }}
-                >
-                  ⚠️ {failedCount} FALHAS
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
+                    let mainBorderColor = theme.border;
+                    let mainBorderWidth = "1px";
+                    if (isSelected) {
+                      mainBorderColor = "#007bff";
+                      mainBorderWidth = "2px";
+                    } else if (isOnCurrentSheet) {
+                      mainBorderColor = "#28a745";
+                      mainBorderWidth = "3px";
+                    }
 
-        {/* ⬇️ --- [INSERÇÃO 3] BARRA LATERAL REDIMENSIONÁVEL --- ⬇️ */}
-        <div
-          style={{
-            width: sidebarWidth, // <--- Agora usa a variável de estado
-            // minWidth: "500px", // (Opcional, já tratado na lógica, mas bom garantir)
-            borderLeft: `1px solid ${theme.border}`,
-            display: "flex",
-            flexDirection: "column",
-            backgroundColor: theme.panelBg,
-            zIndex: 5,
-            color: theme.text,
-            position: "relative", // <--- IMPORTANTE: Para posicionar o "puxador"
-          }}
-        >
-          {/* --- O "PUXADOR" (Área sensível ao clique) --- */}
-          <div
-            onMouseDown={(e) => {
-              e.preventDefault(); // Evita seleção de texto
-              setIsResizingSidebar(true);
-            }}
-            title="Arraste para redimensionar"
-            style={{
-              position: "absolute",
-              left: "-4px", // Fica levemente sobre a borda para facilitar o clique
-              top: 0,
-              bottom: 0,
-              width: "8px", // Área de clique confortável (invisível visualmente)
-              cursor: "ew-resize",
-              zIndex: 100, // Garante que fique acima de tudo
-              background: isResizingSidebar
-                ? "rgba(0, 123, 255, 0.2)" // Feedback visual azul quando arrasta
-                : "transparent",
-              transition: "background 0.2s",
-            }}
-            // Opcional: Feedback visual ao passar o mouse (hover)
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.background = "rgba(0, 123, 255, 0.1)")
-            }
-            onMouseLeave={(e) => {
-              if (!isResizingSidebar)
-                e.currentTarget.style.background = "transparent";
-            }}
-          />
-          {/* --------------------------------------------- */}
-          <PartFilter
-            allParts={parts}
-            filters={filters}
-            onFilterChange={setFilters}
-            theme={theme}
-          />
-          <GlobalLabelPanel
-            showWhite={globalWhiteEnabled}
-            showPink={globalPinkEnabled}
-            onToggleWhite={() => toggleGlobal("white")}
-            onTogglePink={() => toggleGlobal("pink")}
-            theme={theme}
-          />
-          {/* --- ABAS DE NAVEGAÇÃO + SELECT ALL --- */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center", // Garante alinhamento vertical
-              borderBottom: `1px solid ${theme.border}`,
-              background: theme.headerBg,
-              paddingRight: "15px", // Margem direita para não colar na borda
-            }}
-          >
-            <button
-              style={tabStyle(activeTab === "grid")}
-              onClick={() => setActiveTab("grid")}
-            >
-              🔳 Banco de Peças
-            </button>
-            <button
-              style={tabStyle(activeTab === "list")}
-              onClick={() => setActiveTab("list")}
-            >
-              📄 Lista Técnica
-            </button>
+                    const cardBorderStyle = {
+                      borderLeft: `5px solid ${orderColor}`,
+                      borderTop: `${mainBorderWidth} solid ${mainBorderColor}`,
+                      borderRight: `${mainBorderWidth} solid ${mainBorderColor}`,
+                      borderBottom: `${mainBorderWidth} solid ${mainBorderColor}`,
+                    };
+                    const cursorStyle = isDoneVisual ? "not-allowed" : "grab";
+                    const canDrag = !isDoneVisual;
+                    const box = calculateBoundingBox(
+                      part.entities,
+                      part.blocks,
+                    );
+                    const originalW = box.width || 100;
+                    const originalH = box.height || 100;
 
-            {/* --- NOVO: CHECKBOX ALINHADO À DIREITA --- */}
-            <div style={{ marginLeft: "auto" }}>
-              <label
-                style={{
-                  fontSize: "12px",
-                  fontWeight: "bold",
-                  color: theme.text,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  cursor: parts.length === 0 ? "not-allowed" : "pointer",
-                  userSelect: "none",
-                  opacity: parts.length === 0 ? 0.5 : 1,
-                }}
-                title={
-                  isAllEnabled
-                    ? "Remover todas do cálculo"
-                    : "Incluir todas no cálculo"
-                }
-              >
-                <input
-                  type="checkbox"
-                  checked={isAllEnabled}
-                  onChange={handleToggleAll}
-                  disabled={parts.length === 0}
-                  style={{
-                    cursor: "pointer",
-                    backgroundColor: theme.checkboxBg,
-                  }}
-                />
-                Selecionar Todos
-              </label>
-            </div>
-          </div>
+                    // --- ALTERAÇÃO AQUI ---
+                    // Só consideramos "Alta" (para girar a visualização) se ela NÃO estiver travada.
+                    // Se estiver travada, queremos ver a orientação real (WYSIWYG).
+                    const shouldRotateVisual =
+                      originalH > originalW && !part.isRotationLocked;
 
-          <div
-            style={{
-              flex: 1,
-              overflowY: "auto",
-              padding: activeTab === "grid" ? "15px" : "0",
-            }}
-          >
-            {activeTab === "grid" && (
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))",
-                  gap: "15px",
-                  alignContent: "start",
-                }}
-              >
-                {sortedParts.map((part) => {
-                  const qty = quantities[part.id] || 1;
-                  const { produced } = getPartStatus(part.id, qty);
-                  const orderColor = stringToColor(part.pedido || "N/A");
-                  const placedTotal = totalPlacedCounts[part.id] || 0;
-                  const totalVisual = produced + placedTotal;
-                  const remainingVisual = Math.max(0, qty - totalVisual);
-                  const isDoneVisual = remainingVisual === 0;
-                  const isSelected = activeSelectedPartIds.has(part.id);
-                  const isOnCurrentSheet = currentBinPartIds.has(part.id);
+                    const p = Math.max(originalW, originalH) * 0.1;
+                    let finalViewBox = "";
+                    let contentTransform = "";
 
-                  let mainBorderColor = theme.border;
-                  let mainBorderWidth = "1px";
-                  if (isSelected) {
-                    mainBorderColor = "#007bff";
-                    mainBorderWidth = "2px";
-                  } else if (isOnCurrentSheet) {
-                    mainBorderColor = "#28a745";
-                    mainBorderWidth = "3px";
-                  }
+                    if (shouldRotateVisual) {
+                      // LÓGICA ANTIGA: Gira a peça visualmente para caber melhor
+                      const cx = (box.minX + box.maxX) / 2;
+                      const cy = (box.minY + box.maxY) / 2;
+                      contentTransform = `rotate(-90, ${cx}, ${cy})`;
+                      const cameraW = originalH + p * 2;
+                      const cameraH = originalW + p * 2;
+                      const cameraX = cx - cameraW / 2;
+                      const cameraY = cy - cameraH / 2;
+                      finalViewBox = `${cameraX} ${cameraY} ${cameraW} ${cameraH}`;
+                    } else {
+                      // VISUALIZAÇÃO REAL: Mostra como a peça realmente está
+                      finalViewBox = `${box.minX - p} ${box.minY - p} ${
+                        originalW + p * 2
+                      } ${originalH + p * 2}`;
+                    }
 
-                  const cardBorderStyle = {
-                    borderLeft: `5px solid ${orderColor}`,
-                    borderTop: `${mainBorderWidth} solid ${mainBorderColor}`,
-                    borderRight: `${mainBorderWidth} solid ${mainBorderColor}`,
-                    borderBottom: `${mainBorderWidth} solid ${mainBorderColor}`,
-                  };
-                  const cursorStyle = isDoneVisual ? "not-allowed" : "grab";
-                  const canDrag = !isDoneVisual;
-                  const box = calculateBoundingBox(part.entities, part.blocks);
-                  const originalW = box.width || 100;
-                  const originalH = box.height || 100;
-
-                  // --- ALTERAÇÃO AQUI ---
-                  // Só consideramos "Alta" (para girar a visualização) se ela NÃO estiver travada.
-                  // Se estiver travada, queremos ver a orientação real (WYSIWYG).
-                  const shouldRotateVisual =
-                    originalH > originalW && !part.isRotationLocked;
-
-                  const p = Math.max(originalW, originalH) * 0.1;
-                  let finalViewBox = "";
-                  let contentTransform = "";
-
-                  if (shouldRotateVisual) {
-                    // LÓGICA ANTIGA: Gira a peça visualmente para caber melhor
-                    const cx = (box.minX + box.maxX) / 2;
-                    const cy = (box.minY + box.maxY) / 2;
-                    contentTransform = `rotate(-90, ${cx}, ${cy})`;
-                    const cameraW = originalH + p * 2;
-                    const cameraH = originalW + p * 2;
-                    const cameraX = cx - cameraW / 2;
-                    const cameraY = cy - cameraH / 2;
-                    finalViewBox = `${cameraX} ${cameraY} ${cameraW} ${cameraH}`;
-                  } else {
-                    // VISUALIZAÇÃO REAL: Mostra como a peça realmente está
-                    finalViewBox = `${box.minX - p} ${box.minY - p} ${
-                      originalW + p * 2
-                    } ${originalH + p * 2}`;
-                  }
-
-                  return (
-                    <div
-                      key={part.id}
-                      ref={(el) => {
-                        thumbnailRefs.current[part.id] = el;
-                      }}
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        position: "relative",
-                        opacity: 1,
-                        cursor: cursorStyle,
-                      }}
-                      onContextMenu={(e) =>
-                        handleThumbnailContextMenu(e, part.id)
-                      }
-                      draggable={canDrag}
-                      onDragStart={(e) => canDrag && handleDragStart(e, part)}
-                    >
-                      <ThumbnailFlags
-                        partId={part.id}
-                        labelState={labelStates}
-                        onTogglePartFlag={togglePartFlag}
-                        theme={theme}
-                      />
-
+                    return (
                       <div
-                        style={{
-                          position: "absolute",
-                          top: 5,
-                          left: 8,
-                          zIndex: 1000,
-                          background: theme.checkboxBg,
-                          borderRadius: "4px",
-                          padding: "2px",
-                          display: "flex",
-                          alignItems: "center",
-                          boxShadow: "0 1px 1px rgba(0,0,0,0.2)",
+                        key={part.id}
+                        ref={(el) => {
+                          thumbnailRefs.current[part.id] = el;
                         }}
-                        onClick={(e) => e.stopPropagation()}
-                        title="Incluir esta peça no cálculo automático?"
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          position: "relative",
+                          opacity: 1,
+                          cursor: cursorStyle,
+                        }}
+                        onContextMenu={(e) =>
+                          handleThumbnailContextMenu(e, part.id)
+                        }
+                        draggable={canDrag}
+                        onDragStart={(e) => canDrag && handleDragStart(e, part)}
                       >
-                        <input
-                          type="checkbox"
-                          checked={!disabledNestingIds.has(part.id)}
-                          onChange={(e) => {
-                            const newSet = new Set(disabledNestingIds);
-                            if (e.target.checked) {
-                              newSet.delete(part.id);
-                            } else {
-                              newSet.add(part.id);
-                            }
-                            setDisabledNestingIds(newSet);
-                          }}
-                          style={{
-                            cursor: "pointer",
-                            margin: 0,
-                            width: "16px",
-                            height: "16px",
-                          }}
+                        <ThumbnailFlags
+                          partId={part.id}
+                          labelState={labelStates}
+                          onTogglePartFlag={togglePartFlag}
+                          theme={theme}
                         />
-                      </div>
-                      {/* --- INSERIR O CÓDIGO DO CADEADO AQUI (ENTRE AS DIVS) --- */}
 
-                      {part.isRotationLocked && (
                         <div
-                          title="Rotação Travada no Sentido Escovado"
                           style={{
                             position: "absolute",
-                            top: 35, // Coloquei 35 para ficar logo abaixo do checkbox
+                            top: 5,
                             left: 8,
-                            background: "#dc3545",
-                            color: "white",
-                            borderRadius: "50%",
-                            width: "18px",
-                            height: "18px",
+                            zIndex: 1000,
+                            background: theme.checkboxBg,
+                            borderRadius: "4px",
+                            padding: "2px",
+                            display: "flex",
+                            alignItems: "center",
+                            boxShadow: "0 1px 1px rgba(0,0,0,0.2)",
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          title="Incluir esta peça no cálculo automático?"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={!disabledNestingIds.has(part.id)}
+                            onChange={(e) => {
+                              const newSet = new Set(disabledNestingIds);
+                              if (e.target.checked) {
+                                newSet.delete(part.id);
+                              } else {
+                                newSet.add(part.id);
+                              }
+                              setDisabledNestingIds(newSet);
+                            }}
+                            style={{
+                              cursor: "pointer",
+                              margin: 0,
+                              width: "16px",
+                              height: "16px",
+                            }}
+                          />
+                        </div>
+                        {/* --- INSERIR O CÓDIGO DO CADEADO AQUI (ENTRE AS DIVS) --- */}
+
+                        {part.isRotationLocked && (
+                          <div
+                            title="Rotação Travada no Sentido Escovado"
+                            style={{
+                              position: "absolute",
+                              top: 35, // Coloquei 35 para ficar logo abaixo do checkbox
+                              left: 8,
+                              background: "#dc3545",
+                              color: "white",
+                              borderRadius: "50%",
+                              width: "18px",
+                              height: "18px",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: "10px",
+                              zIndex: 1000,
+                              boxShadow: "0 1px 2px rgba(0,0,0,0.3)",
+                              pointerEvents: "none",
+                            }}
+                          >
+                            <svg
+                              width="10"
+                              height="10"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <rect
+                                x="3"
+                                y="11"
+                                width="18"
+                                height="11"
+                                rx="2"
+                                ry="2"
+                              ></rect>
+                              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                            </svg>
+                          </div>
+                        )}
+
+                        {/* -------------------------------------------------------- */}
+
+                        <div
+                          style={{
+                            width: "100%",
+                            aspectRatio: "1/1",
+                            background: theme.cardBg,
+                            borderRadius: "8px",
+                            marginBottom: "5px",
+                            padding: "10px",
+                            boxSizing: "border-box",
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
-                            fontSize: "10px",
-                            zIndex: 1000,
-                            boxShadow: "0 1px 2px rgba(0,0,0,0.3)",
-                            pointerEvents: "none",
+                            overflow: "hidden",
+                            boxShadow: isSelected
+                              ? "0 0 8px rgba(0,123,255,0.6)"
+                              : "none",
+                            transition: "all 0.2s ease",
+                            ...cardBorderStyle,
                           }}
                         >
                           <svg
-                            width="10"
-                            height="10"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="3"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
+                            viewBox={finalViewBox}
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              overflow: "visible",
+                              color: theme.text,
+                              opacity: isDoneVisual ? 0.8 : 1,
+                              transition: "opacity 0.3s ease",
+                            }}
+                            transform="scale(1, -1)"
+                            preserveAspectRatio="xMidYMid meet"
                           >
-                            <rect
-                              x="3"
-                              y="11"
-                              width="18"
-                              height="11"
-                              rx="2"
-                              ry="2"
-                            ></rect>
-                            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                            <g transform={contentTransform}>
+                              {part.entities.map((ent, i) =>
+                                renderEntityFunction(
+                                  ent,
+                                  i,
+                                  part.blocks,
+                                  1,
+                                  isDoneVisual ? theme.border : theme.text,
+                                ),
+                              )}
+                            </g>
                           </svg>
                         </div>
-                      )}
-
-                      {/* -------------------------------------------------------- */}
-
-                      <div
-                        style={{
-                          width: "100%",
-                          aspectRatio: "1/1",
-                          background: theme.cardBg,
-                          borderRadius: "8px",
-                          marginBottom: "5px",
-                          padding: "10px",
-                          boxSizing: "border-box",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          overflow: "hidden",
-                          boxShadow: isSelected
-                            ? "0 0 8px rgba(0,123,255,0.6)"
-                            : "none",
-                          transition: "all 0.2s ease",
-                          ...cardBorderStyle,
-                        }}
-                      >
-                        <svg
-                          viewBox={finalViewBox}
+                        <div
                           style={{
                             width: "100%",
-                            height: "100%",
-                            overflow: "visible",
-                            color: theme.text,
-                            opacity: isDoneVisual ? 0.8 : 1,
-                            transition: "opacity 0.3s ease",
-                          }}
-                          transform="scale(1, -1)"
-                          preserveAspectRatio="xMidYMid meet"
-                        >
-                          <g transform={contentTransform}>
-                            {part.entities.map((ent, i) =>
-                              renderEntityFunction(
-                                ent,
-                                i,
-                                part.blocks,
-                                1,
-                                isDoneVisual ? theme.border : theme.text,
-                              ),
-                            )}
-                          </g>
-                        </svg>
-                      </div>
-                      <div
-                        style={{
-                          width: "100%",
-                          display: "flex",
-                          flexDirection: "column",
-                          fontSize: "12px",
-                        }}
-                      >
-                        <div
-                          style={{
                             display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "flex-start",
+                            flexDirection: "column",
+                            fontSize: "12px",
                           }}
                         >
                           <div
                             style={{
                               display: "flex",
-                              flexDirection: "column",
-                              width: "65%",
+                              justifyContent: "space-between",
+                              alignItems: "flex-start",
                             }}
                           >
-                            <span
-                              title={part.name}
-                              style={{
-                                fontWeight: "bold",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {part.name}
-                            </span>
-                            <span
-                              style={{
-                                fontSize: "10px",
-                                fontWeight: "bold",
-                                color: orderColor,
-                              }}
-                            >
-                              Ped: {part.pedido || "-"}
-                            </span>
-                          </div>
-                          <div
-                            style={{
-                              display: "flex",
-                              flexDirection: "column",
-                              alignItems: "center",
-                              background: isDoneVisual
-                                ? "rgba(40, 167, 69, 0.1)"
-                                : theme.hoverRow,
-                              padding: "2px 4px",
-                              borderRadius: "4px",
-                              border: `1px solid ${
-                                isDoneVisual ? "#28a745" : "transparent"
-                              }`,
-                            }}
-                          >
-                            <span
-                              style={{
-                                fontSize: "10px",
-                                fontWeight: "bold",
-                                color: isDoneVisual ? "#28a745" : theme.text,
-                              }}
-                            >
-                              {totalVisual}/{qty}
-                            </span>
-                          </div>
-                        </div>
-                        {renderProgressBar(totalVisual, qty, orderColor)}
-                        <div
-                          style={{
-                            fontSize: "10px",
-                            color: isDoneVisual ? "#28a745" : theme.label,
-                            display: "flex",
-                            justifyContent: "space-between",
-                          }}
-                        >
-                          <span>
-                            {isDoneVisual ? "✅ CONCLUÍDO" : "Em Produção"}
-                          </span>
-                          <span style={{ fontWeight: "bold" }}>
-                            Falta: {remainingVisual}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {sheetMenu && (() => {
-              // --- CORREÇÃO 1: Verificação correta baseada no tipo PlacedPart[] ---
-              let hasPartsInBin = false;
-              if (Array.isArray(nestingResult)) {
-                // Se for um array de arrays (múltiplas chapas), pega a atual. 
-                // Se for um array simples (uma chapa), usa ele mesmo.
-                const currentBinData = nestingResult[currentBinIndex] || nestingResult;
-                hasPartsInBin = Array.isArray(currentBinData) 
-                  ? currentBinData.length > 0 
-                  : nestingResult.length > 0;
-              }
-
-              return (
-                <SheetContextMenu
-                  x={sheetMenu.x}
-                  y={sheetMenu.y}
-                  targetLineId={sheetMenu.lineId}
-                  
-                  // --- CORREÇÃO 2: Restaurando o uso real da função trimCropLine ---
-                  onTrim={() => {
-                    if (
-                      sheetMenu.lineId &&
-                      sheetMenu.binX !== undefined &&
-                      sheetMenu.binY !== undefined
-                    ) {
-                      trimCropLine(
-                        sheetMenu.lineId,
-                        sheetMenu.binX,
-                        sheetMenu.binY,
-                      );
-                      setSheetMenu(null); // Fecha o menu
-                    }
-                  }}
-                  // -----------------------------------------------------------------
-
-                  onDeleteLine={removeCropLine}
-                  onClose={() => setSheetMenu(null)}
-                  onDeleteSheet={handleDeleteSheetWrapper}
-                  onAddCropLine={handleAddCropLineWrapper}
-                  onDefineRemnants={handleCalculateRemnants}
-                  hasPlacedParts={hasPartsInBin}
-                />
-              );
-            })()}
-
-            {activeTab === "list" && (
-              <div
-                style={{
-                  overflowX: "auto",
-                  transform: "rotateX(180deg)",
-                  borderBottom: `1px solid ${theme.border}`,
-                }}
-              >
-                <table
-                  style={{
-                    width: "100%",
-                    borderCollapse: "collapse",
-                    borderSpacing: 0,
-                    minWidth: "600px",
-                    transform: "rotateX(180deg)",
-                  }}
-                >
-                  <thead style={{ background: theme.panelBg }}>
-                    <tr>
-                      <th style={thStyle}>#</th>
-                      <th style={thStyle}>Peça</th>
-                      <th style={thStyle}>Pedido</th>
-                      <th style={thStyle}>Mat/Esp</th>
-                      <th style={thStyle}>Dimensões</th>
-                      <th style={thStyle}>Área</th>
-                      <th style={thStyle}>Meta</th>
-                      <th style={thStyle}>Status Produção</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedParts.map((part, index) => {
-                      const qty = quantities[part.id] || 1;
-                      const { produced } = getPartStatus(part.id, qty);
-                      const orderColor = stringToColor(part.pedido || "N/A");
-                      const placedTotal = totalPlacedCounts[part.id] || 0;
-                      const totalVisual = produced + placedTotal;
-                      const remainingVisual = Math.max(0, qty - totalVisual);
-                      const isDoneVisual = remainingVisual === 0;
-                      const isOnCurrentSheet = currentBinPartIds.has(part.id);
-                      // --- ALTERAÇÃO 1: Detecta se está selecionado ---
-                      const isSelected = activeSelectedPartIds.has(part.id);
-
-                      // --- ALTERAÇÃO 2: Prioriza a cor de seleção (Azul) sobre as outras ---
-                      const rowBg = isSelected
-                        ? theme.selectedRow // Fundo azulado definido no tema
-                        : isOnCurrentSheet
-                          ? "rgba(40, 167, 69, 0.05)" // Verde claro (na chapa)
-                          : isDoneVisual
-                            ? "rgba(40, 167, 69, 0.1)" // Verde escuro (concluído)
-                            : "transparent";
-
-                      // --- ALTERAÇÃO 3: Borda de destaque para seleção ---
-                      // Se selecionado, usamos uma borda azul grossa (#007bff).
-                      // Se não, mantemos a borda padrão do tema.
-                      const rowBorder = isSelected
-                        ? "2px solid #007bff"
-                        : `1px solid ${theme.border}`;
-                      return (
-                        <tr
-                          key={part.id}
-                          // ADICIONE ESTA LINHA ABAIXO:
-                          ref={(el) => {
-                            if (el) thumbnailRefs.current[part.id] = el;
-                          }}
-                          // --- OPCIONAL: Clique na linha seleciona a peça também ---
-                          onClick={(e) => {
-                            // Se quiser que o clique na lista selecione a peça na mesa:
-                            if (e.ctrlKey) handlePartSelect([part.id], true);
-                            else handlePartSelect([part.id], false);
-                          }}
-                          style={{
-                            // Aplica a borda calculada acima
-                            borderBottom: rowBorder,
-                            borderTop: isSelected
-                              ? "2px solid #007bff"
-                              : undefined, // Borda dupla para destaque total
-                            background: rowBg,
-                            cursor: "pointer", // Indica que é clicável
-                            position: "relative", // Para garantir que o z-index da borda funcione se necessário
-                          }}
-                        >
-                          <td
-                            style={{
-                              ...tdStyle,
-                              borderLeft: `4px solid ${orderColor}`,
-                            }}
-                          >
-                            {index + 1}
-                          </td>
-                          <td
-                            style={{ ...tdStyle, fontWeight: "bold" }}
-                            title={part.name}
-                          >
-                            {part.name}
-                          </td>
-                          <td
-                            style={{
-                              ...tdStyle,
-                              color: orderColor,
-                              fontWeight: "bold",
-                            }}
-                          >
-                            {part.pedido || "-"}
-                          </td>
-                          <td style={tdStyle}>
-                            {part.material}{" "}
-                            {part.espessura && `/ ${part.espessura}`}
-                          </td>
-                          <td style={tdStyle}>
-                            {part.width.toFixed(0)}x{part.height.toFixed(0)}
-                          </td>
-                          <td style={tdStyle}>{formatArea(part.grossArea)}</td>
-                          <td style={{ ...tdStyle, textAlign: "center" }}>
-                            <span
-                              style={{
-                                fontWeight: "bold",
-                                fontSize: "13px",
-                                color: theme.text,
-                              }}
-                            >
-                              {qty}
-                            </span>
-                          </td>
-                          <td style={{ ...tdStyle, textAlign: "center" }}>
-                            <div
-                              style={{
-                                padding: "4px 8px",
-                                borderRadius: "4px",
-                                background: isDoneVisual
-                                  ? "rgba(40, 167, 69, 0.1)"
-                                  : theme.hoverRow,
-                                border: `1px solid ${
-                                  isDoneVisual ? "#28a745" : theme.border
-                                }`,
-                                color: isDoneVisual ? "#28a745" : theme.text,
-                                fontWeight: "bold",
-                                fontSize: "12px",
-                                display: "inline-block",
-                                minWidth: "60px",
-                              }}
-                            >
-                              {totalVisual}{" "}
-                              <span
-                                style={{
-                                  fontSize: "10px",
-                                  fontWeight: "normal",
-                                  opacity: 0.7,
-                                }}
-                              >
-                                de {qty}
-                              </span>
-                            </div>
-                          </td>
-                          <td style={{ ...tdStyle, width: "120px" }}>
                             <div
                               style={{
                                 display: "flex",
-                                justifyContent: "space-between",
-                                fontSize: "10px",
-                                marginBottom: "2px",
+                                flexDirection: "column",
+                                width: "65%",
                               }}
                             >
-                              <span style={{ fontWeight: "bold" }}>Saldo:</span>
-                              <span>
-                                {remainingVisual === 0
-                                  ? "✅"
-                                  : `-${remainingVisual}`}
+                              <span
+                                title={part.name}
+                                style={{
+                                  fontWeight: "bold",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {part.name}
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: "10px",
+                                  fontWeight: "bold",
+                                  color: orderColor,
+                                }}
+                              >
+                                Ped: {part.pedido || "-"}
                               </span>
                             </div>
-                            {renderProgressBar(totalVisual, qty, orderColor)}
-                          </td>
-                        </tr>
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                background: isDoneVisual
+                                  ? "rgba(40, 167, 69, 0.1)"
+                                  : theme.hoverRow,
+                                padding: "2px 4px",
+                                borderRadius: "4px",
+                                border: `1px solid ${
+                                  isDoneVisual ? "#28a745" : "transparent"
+                                }`,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  fontSize: "10px",
+                                  fontWeight: "bold",
+                                  color: isDoneVisual ? "#28a745" : theme.text,
+                                }}
+                              >
+                                {totalVisual}/{qty}
+                              </span>
+                            </div>
+                          </div>
+                          {renderProgressBar(totalVisual, qty, orderColor)}
+                          <div
+                            style={{
+                              fontSize: "10px",
+                              color: isDoneVisual ? "#28a745" : theme.label,
+                              display: "flex",
+                              justifyContent: "space-between",
+                            }}
+                          >
+                            <span>
+                              {isDoneVisual ? "✅ CONCLUÍDO" : "Em Produção"}
+                            </span>
+                            <span style={{ fontWeight: "bold" }}>
+                              Falta: {remainingVisual}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {sheetMenu &&
+                (() => {
+                  let hasPartsInBin = false;
+                  let currentBinData: PlacedPart[] = [];
+                  
+                  if (Array.isArray(nestingResult)) {
+                    currentBinData = nestingResult.filter((p) => p.binId === currentBinIndex);
+                    hasPartsInBin = currentBinData.length > 0;
+                  }
+
+                  // === LÓGICA DE TRAVA DO RETALHO ===
+                  let lineCollision = false;
+                  if (cropLines.length > 0 && hasPartsInBin) {
+                      lineCollision = hasCropLineCollision(
+                          currentBinData,
+                          parts,
+                          binSize.width,
+                          binSize.height,
+                          cropLines
                       );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                  }
+
+                  const canDefineRemnants = cropLines.length > 0 && !lineCollision;
+                  
+                  let remnantTooltip = "Aplica a regra matemática para definir a área de retalho útil";
+                  if (cropLines.length === 0) {
+                      remnantTooltip = "Adicione pelo menos uma linha de corte primeiro.";
+                  } else if (lineCollision) {
+                      remnantTooltip = "⚠️ Bloqueado: Linha de corte cruzando sobre peça(s)!";
+                  }
+                  // ==================================
+
+                  return (
+                    <SheetContextMenu
+                      x={sheetMenu.x}
+                      y={sheetMenu.y}
+                      targetLineId={sheetMenu.lineId}
+                      onTrim={() => {
+                        if (sheetMenu.lineId && sheetMenu.binX !== undefined && sheetMenu.binY !== undefined) {
+                          trimCropLine(sheetMenu.lineId, sheetMenu.binX, sheetMenu.binY);
+                          setSheetMenu(null); 
+                        }
+                      }}
+                      onDeleteLine={removeCropLine}
+                      onClose={() => setSheetMenu(null)}
+                      onDeleteSheet={handleDeleteSheetWrapper}
+                      onAddCropLine={handleAddCropLineWrapper}
+                      onDefineRemnants={handleCalculateRemnants}
+                      hasPlacedParts={hasPartsInBin}
+                      canDefineRemnants={canDefineRemnants} // <-- PASSA PRA CÁ
+                      remnantTooltip={remnantTooltip}       // <-- PASSA PRA CÁ
+                    />
+                  );
+                })()}
+
+              {activeTab === "list" && (
+                <div
+                  style={{
+                    overflowX: "auto",
+                    transform: "rotateX(180deg)",
+                    borderBottom: `1px solid ${theme.border}`,
+                  }}
+                >
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      borderSpacing: 0,
+                      minWidth: "600px",
+                      transform: "rotateX(180deg)",
+                    }}
+                  >
+                    <thead style={{ background: theme.panelBg }}>
+                      <tr>
+                        <th style={thStyle}>#</th>
+                        <th style={thStyle}>Peça</th>
+                        <th style={thStyle}>Pedido</th>
+                        <th style={thStyle}>Mat/Esp</th>
+                        <th style={thStyle}>Dimensões</th>
+                        <th style={thStyle}>Área</th>
+                        <th style={thStyle}>Meta</th>
+                        <th style={thStyle}>Status Produção</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedParts.map((part, index) => {
+                        const qty = quantities[part.id] || 1;
+                        const { produced } = getPartStatus(part.id, qty);
+                        const orderColor = stringToColor(part.pedido || "N/A");
+                        const placedTotal = totalPlacedCounts[part.id] || 0;
+                        const totalVisual = produced + placedTotal;
+                        const remainingVisual = Math.max(0, qty - totalVisual);
+                        const isDoneVisual = remainingVisual === 0;
+                        const isOnCurrentSheet = currentBinPartIds.has(part.id);
+                        // --- ALTERAÇÃO 1: Detecta se está selecionado ---
+                        const isSelected = activeSelectedPartIds.has(part.id);
+
+                        // --- ALTERAÇÃO 2: Prioriza a cor de seleção (Azul) sobre as outras ---
+                        const rowBg = isSelected
+                          ? theme.selectedRow // Fundo azulado definido no tema
+                          : isOnCurrentSheet
+                            ? "rgba(40, 167, 69, 0.05)" // Verde claro (na chapa)
+                            : isDoneVisual
+                              ? "rgba(40, 167, 69, 0.1)" // Verde escuro (concluído)
+                              : "transparent";
+
+                        // --- ALTERAÇÃO 3: Borda de destaque para seleção ---
+                        // Se selecionado, usamos uma borda azul grossa (#007bff).
+                        // Se não, mantemos a borda padrão do tema.
+                        const rowBorder = isSelected
+                          ? "2px solid #007bff"
+                          : `1px solid ${theme.border}`;
+                        return (
+                          <tr
+                            key={part.id}
+                            // ADICIONE ESTA LINHA ABAIXO:
+                            ref={(el) => {
+                              if (el) thumbnailRefs.current[part.id] = el;
+                            }}
+                            // --- OPCIONAL: Clique na linha seleciona a peça também ---
+                            onClick={(e) => {
+                              // Se quiser que o clique na lista selecione a peça na mesa:
+                              if (e.ctrlKey) handlePartSelect([part.id], true);
+                              else handlePartSelect([part.id], false);
+                            }}
+                            style={{
+                              // Aplica a borda calculada acima
+                              borderBottom: rowBorder,
+                              borderTop: isSelected
+                                ? "2px solid #007bff"
+                                : undefined, // Borda dupla para destaque total
+                              background: rowBg,
+                              cursor: "pointer", // Indica que é clicável
+                              position: "relative", // Para garantir que o z-index da borda funcione se necessário
+                            }}
+                          >
+                            <td
+                              style={{
+                                ...tdStyle,
+                                borderLeft: `4px solid ${orderColor}`,
+                              }}
+                            >
+                              {index + 1}
+                            </td>
+                            <td
+                              style={{ ...tdStyle, fontWeight: "bold" }}
+                              title={part.name}
+                            >
+                              {part.name}
+                            </td>
+                            <td
+                              style={{
+                                ...tdStyle,
+                                color: orderColor,
+                                fontWeight: "bold",
+                              }}
+                            >
+                              {part.pedido || "-"}
+                            </td>
+                            <td style={tdStyle}>
+                              {part.material}{" "}
+                              {part.espessura && `/ ${part.espessura}`}
+                            </td>
+                            <td style={tdStyle}>
+                              {part.width.toFixed(0)}x{part.height.toFixed(0)}
+                            </td>
+                            <td style={tdStyle}>
+                              {formatArea(part.grossArea)}
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: "center" }}>
+                              <span
+                                style={{
+                                  fontWeight: "bold",
+                                  fontSize: "13px",
+                                  color: theme.text,
+                                }}
+                              >
+                                {qty}
+                              </span>
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: "center" }}>
+                              <div
+                                style={{
+                                  padding: "4px 8px",
+                                  borderRadius: "4px",
+                                  background: isDoneVisual
+                                    ? "rgba(40, 167, 69, 0.1)"
+                                    : theme.hoverRow,
+                                  border: `1px solid ${
+                                    isDoneVisual ? "#28a745" : theme.border
+                                  }`,
+                                  color: isDoneVisual ? "#28a745" : theme.text,
+                                  fontWeight: "bold",
+                                  fontSize: "12px",
+                                  display: "inline-block",
+                                  minWidth: "60px",
+                                }}
+                              >
+                                {totalVisual}{" "}
+                                <span
+                                  style={{
+                                    fontSize: "10px",
+                                    fontWeight: "normal",
+                                    opacity: 0.7,
+                                  }}
+                                >
+                                  de {qty}
+                                </span>
+                              </div>
+                            </td>
+                            <td style={{ ...tdStyle, width: "120px" }}>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  fontSize: "10px",
+                                  marginBottom: "2px",
+                                }}
+                              >
+                                <span style={{ fontWeight: "bold" }}>
+                                  Saldo:
+                                </span>
+                                <span>
+                                  {remainingVisual === 0
+                                    ? "✅"
+                                    : `-${remainingVisual}`}
+                                </span>
+                              </div>
+                              {renderProgressBar(totalVisual, qty, orderColor)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
-      {editingPartId &&
-        labelStates[editingPartId] &&
-        parts.find((p) => p.id === editingPartId) && (
-          <LabelEditorModal
-            part={parts.find((p) => p.id === editingPartId)!}
-            labelState={labelStates[editingPartId]}
-            onUpdate={(type, changes) =>
-              updateLabelConfig(editingPartId, type, changes)
-            }
-            onClose={() => setEditingPartId(null)}
-            theme={theme}
-          />
-        )}
+        {editingPartId &&
+          labelStates[editingPartId] &&
+          parts.find((p) => p.id === editingPartId) && (
+            <LabelEditorModal
+              part={parts.find((p) => p.id === editingPartId)!}
+              labelState={labelStates[editingPartId]}
+              onUpdate={(type, changes) =>
+                updateLabelConfig(editingPartId, type, changes)
+              }
+              onClose={() => setEditingPartId(null)}
+              theme={theme}
+            />
+          )}
 
-      {/* SE O ESTADO FOR TRUE, MOSTRA A TELA DE EQUIPE */}
-      {isTeamModalOpen && (
-        <TeamManagementScreen onClose={() => setIsTeamModalOpen(false)} />
-      )}
-      <SheetGalleryModal
-        isOpen={isGalleryOpen}
-        onClose={() => setIsGalleryOpen(false)}
-        totalBins={totalBins}
-        currentBinIndex={currentBinIndex}
-        onSelectBin={setCurrentBinIndex}
-        binWidth={binSize.width}
-        binHeight={binSize.height}
-        parts={parts}
-        nestingResult={nestingResult}
-        theme={theme}
-      />
-      {/* --- INSERÇÃO 6: RENDERIZAR O MODAL DE ESTATÍSTICAS --- */}
-      <EngineeringStatsModal
-        isOpen={isStatsModalOpen}
-        onClose={() => setIsStatsModalOpen(false)}
-        theme={theme}
-        stats={engineeringStats}
-      />
-      {/* ------------------------------------------------------ */}
-    </div>
-   </> 
+        {/* SE O ESTADO FOR TRUE, MOSTRA A TELA DE EQUIPE */}
+        {isTeamModalOpen && (
+          <TeamManagementScreen onClose={() => setIsTeamModalOpen(false)} />
+        )}
+        <SheetGalleryModal
+          isOpen={isGalleryOpen}
+          onClose={() => setIsGalleryOpen(false)}
+          totalBins={totalBins}
+          currentBinIndex={currentBinIndex}
+          onSelectBin={setCurrentBinIndex}
+          binWidth={binSize.width}
+          binHeight={binSize.height}
+          parts={parts}
+          nestingResult={nestingResult}
+          theme={theme}
+        />
+        {/* --- INSERÇÃO 6: RENDERIZAR O MODAL DE ESTATÍSTICAS --- */}
+        <EngineeringStatsModal
+          isOpen={isStatsModalOpen}
+          onClose={() => setIsStatsModalOpen(false)}
+          theme={theme}
+          stats={engineeringStats}
+        />
+        {/* ------------------------------------------------------ */}
+        {/* --- INSERÇÃO: MODAL ECO-SMART MODULARIZADO --- */}
+        <RemnantModal
+          isOpen={isRemnantModalOpen}
+          onClose={() => setIsRemnantModalOpen(false)}
+          availableRemnants={availableRemnants}
+          selectedDBRemnant={selectedDBRemnant}
+          onSelectRemnant={handleSelectRemnant}
+          onRemoveRemnant={handleRemoveRemnant}
+          theme={theme}
+        />
+        {/* ------------------------------------------------------ */}
+      </div>
+    </>
   );
 };
