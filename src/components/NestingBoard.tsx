@@ -505,11 +505,18 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // --- DEFINIÇÃO DE ESTADOS ---
   const [parts, setParts] = useState<ImportedPart[]>(initialParts);
 
+  // 👇 INSERIR AQUI: Controle do Modo Rascunho
+  const [isDraftMode, setIsDraftMode] = useState<boolean>(
+    initialParts && initialParts.length > 0,
+  );
+  // 👆 --------------------------------------
+
   // --- NOVO: Sincroniza quando a Engenharia manda peças (Botão Cortar Agora) ---
   useEffect(() => {
     // Se initialParts mudar e não for vazio, atualizamos a mesa
     if (initialParts && initialParts.length > 0) {
       setParts(initialParts);
+      setIsDraftMode(true);
 
       // Também resetamos as quantidades para bater com a nova lista
       const newQuantities: { [key: string]: number } = {};
@@ -577,7 +584,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // --- FASE 3: BUSCA AUTOMÁTICA DE RETALHOS (ALERTA ECO-SMART) ---
   // =================================================================
   useEffect(() => {
-    if (!user?.token || !filters.material || !filters.espessura) {
+    // 👇 INSERÇÃO: Adicionamos o isDraftMode para bloquear a requisição
+    if (!user?.token || !filters.material || !filters.espessura || isDraftMode) {
       setAvailableRemnants([]);
       return;
     }
@@ -602,7 +610,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         if (Array.isArray(data)) setAvailableRemnants(data);
       })
       .catch((err) => console.error("Erro ao buscar retalhos:", err));
-  }, [filters.material, filters.espessura, thicknessesList, user]);
+  }, [filters.material, filters.espessura, thicknessesList, user, isDraftMode]);
   // =================================================================
 
   const { isDarkMode, theme } = useTheme();
@@ -2344,6 +2352,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       // 2. LIMPEZA LOCAL (O que já existia)
       resetNestingResult([]);
       setParts([]);
+      setIsDraftMode(false);
       clearSavedState();
       setFailedCount(0);
       setTotalBins(1);
@@ -3230,6 +3239,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   ]);
   // --- EFEITO: Pulsa e abre o modal (COM TRAVA DE PEÇAS VAZIAS) ---
   useEffect(() => {
+    // 👇 INSERÇÃO: Trava mestre do Modo Rascunho
+    if (isDraftMode) {
+      setIsRemnantPulsing(false);
+      setIsRemnantModalOpen(false); // Garante que nunca abra sozinho
+      return; // Interrompe o "radar" aqui
+    }
     // 1. Só pulsa e abre se houver retalhos, se não houver retalho em uso, E SE HOUVER PEÇAS NA TELA
     if (
       availableRemnants.length > 0 &&
@@ -3248,7 +3263,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       setIsRemnantPulsing(false);
       setIsRemnantModalOpen(false);
     }
-  }, [availableRemnants, selectedDBRemnant, displayedParts.length]);
+  }, [availableRemnants, selectedDBRemnant, displayedParts.length, isDraftMode]);
 
   const containerStyle: React.CSSProperties = {
     display: "flex",
@@ -4157,6 +4172,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
           <button
             onClick={() => {
+              if (isDraftMode) return; // <--- Bloqueia a abertura no Modo Rascunho
               // Só abre se houver peças válidas E (tiver retalho na lista ou um já selecionado)
               if (
                 displayedParts.length > 0 &&
@@ -4166,13 +4182,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               }
             }}
             title={
-              displayedParts.length === 0
-                ? "Adicione ou filtre peças para usar retalhos"
-                : selectedDBRemnant
-                  ? "Retalho Ativo - Clique para gerenciar"
-                  : availableRemnants.length > 0
-                    ? "Retalhos disponíveis!"
-                    : "Sem retalhos para esta combinação"
+              isDraftMode
+                ? "⛔ Bloqueado: Retalhos desativados no Modo Local."
+                : displayedParts.length === 0
+                  ? "Adicione ou filtre peças para usar retalhos"
+                  : selectedDBRemnant
+                    ? "Retalho Ativo - Clique para gerenciar"
+                    : availableRemnants.length > 0
+                      ? "Retalhos disponíveis!"
+                      : "Sem retalhos para esta combinação"
             }
             className={
               isRemnantPulsing && displayedParts.length > 0
@@ -4184,18 +4202,21 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               border: "none",
               fontSize: "24px",
               // Cursor bloqueado se não tiver peças
-              cursor:
-                displayedParts.length > 0 &&
-                (availableRemnants.length > 0 || selectedDBRemnant)
+              cursor: isDraftMode
+                ? "not-allowed"
+                : displayedParts.length > 0 &&
+                    (availableRemnants.length > 0 || selectedDBRemnant)
                   ? "pointer"
                   : "default",
-              // Fica opaco (0.3) se a mesa estiver vazia OU se não tiver retalhos
-              opacity:
-                displayedParts.length > 0 &&
-                (selectedDBRemnant || availableRemnants.length > 0)
+              // Fica opaco se estiver no modo rascunho ou vazio
+              opacity: isDraftMode
+                ? 0.3
+                : displayedParts.length > 0 &&
+                    (selectedDBRemnant || availableRemnants.length > 0)
                   ? 1
                   : 0.3,
               filter:
+                !isDraftMode &&
                 displayedParts.length > 0 &&
                 (selectedDBRemnant ||
                   (!isRemnantPulsing && availableRemnants.length > 0))
@@ -4275,13 +4296,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               </button>
             </div>
             {/* ----------------------------------- */}
-            {/* BOTÃO BUSCAR PEDIDO (ALTERADO) */}
+            {/* BOTÃO BUSCAR PEDIDO (ALTERADO COM MODO RASCUNHO) */}
             <button
               onClick={() => {
-                if (isTrial) return; // Bloqueio funcional
+                if (isTrial || isDraftMode) return; // <--- Bloqueio Funcional
                 // --- [NOVO] GARANTIA DE LIMPEZA AO ABRIR ---
                 setSearchQuery(""); // Limpa o texto
-                setShowOnlySelected(false); // <--- FORÇA O CHECKBOX A ABRIR DESMARCADO
+                setShowOnlySelected(false); // FORÇA O CHECKBOX A ABRIR DESMARCADO
                 setSelectedOps([]); // Limpa OPs
                 setExpandedOrders([]); // Fecha accordions
                 // -------------------------------------------
@@ -4290,16 +4311,19 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               title={
                 isTrial
                   ? "Recurso indisponível no modo Trial"
-                  : "Buscar peças salvas no banco"
+                  : isDraftMode
+                    ? "⛔ Bloqueado: Mesa em Modo Local (Faça um Reset para buscar do banco)"
+                    : "Buscar peças salvas no banco"
               }
               style={{
-                background: isTrial ? "#6c757d" : "#6f42c1", // Cinza se Trial, Roxo se Premium
+                // Cinza se Trial ou Rascunho, Roxo se Premium/Oficial
+                background: isTrial || isDraftMode ? "#6c757d" : "#6f42c1",
                 color: "white",
                 border: "none",
                 padding: "6px 12px",
                 borderRadius: "4px",
-                cursor: isTrial ? "not-allowed" : "pointer", // Cursor de proibido
-                opacity: isTrial ? 0.6 : 1, // Visual "desabilitado"
+                cursor: isTrial || isDraftMode ? "not-allowed" : "pointer", // Cursor de proibido
+                opacity: isTrial || isDraftMode ? 0.6 : 1, // Visual "desabilitado"
                 fontWeight: "bold",
                 display: "flex",
                 alignItems: "center",
@@ -4308,7 +4332,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 transition: "all 0.3s ease",
               }}
             >
-              🔍 Buscar Pedido {isTrial && "🔒"}
+              🔍 Buscar Pedido {(isTrial || isDraftMode) && "🔒"}
             </button>
 
             <button
