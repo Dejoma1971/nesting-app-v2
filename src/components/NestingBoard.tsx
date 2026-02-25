@@ -423,23 +423,24 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // 👇 COLE OS ESTADOS AQUI 👇
   // --- INSERÇÃO FASE 3: ESTADOS DO ECO-SMART ---
   const [availableRemnants, setAvailableRemnants] = useState<DBRemnant[]>([]);
-  const [selectedDBRemnant, setSelectedDBRemnant] = useState<DBRemnant | null>(null);
+  const [selectedDBRemnant, setSelectedDBRemnant] = useState<DBRemnant | null>(
+    null,
+  );
 
   // --- NOVOS ESTADOS: CONTROLE DO MODAL E ANIMAÇÃO ---
   const [isRemnantModalOpen, setIsRemnantModalOpen] = useState(false);
   const [isRemnantPulsing, setIsRemnantPulsing] = useState(false);
 
-  
   // --- FUNÇÕES DO MODAL DE RETALHOS ---
   const handleSelectRemnant = useCallback((remnant: DBRemnant) => {
     setSelectedDBRemnant(remnant);
-    setBinSize({ width: Number(remnant.largura), height: Number(remnant.altura) });
+
     setIsRemnantModalOpen(false); // Fecha o modal ao selecionar
   }, []);
 
   const handleRemoveRemnant = useCallback(() => {
     setSelectedDBRemnant(null);
-    setBinSize({ width: 1200, height: 3000 }); // Volta a chapa padrão
+
     setIsRemnantModalOpen(false); // Fecha o modal
   }, []);
   // ---------------------------------------------
@@ -501,8 +502,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
   }, [user]);
 
-  
-
   // --- DEFINIÇÃO DE ESTADOS ---
   const [parts, setParts] = useState<ImportedPart[]>(initialParts);
 
@@ -550,6 +549,17 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     setCropLines,
   } = useSheetManager({ initialBins: 1 });
 
+  // 👇 === NOVA INSERÇÃO: TAMANHO DINÂMICO DA TELA === 👇
+  const activeBinWidth =
+    currentBinIndex === 0 && selectedDBRemnant
+      ? Number(selectedDBRemnant.largura)
+      : binSize.width;
+  const activeBinHeight =
+    currentBinIndex === 0 && selectedDBRemnant
+      ? Number(selectedDBRemnant.altura)
+      : binSize.height;
+  // 👆 =================================================== 👆
+
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || "");
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
@@ -562,41 +572,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     espessura: "",
   });
 
-  // 👇 === INSERÇÃO: AUTO-PREENCHIMENTO INTELIGENTE DE FILTROS === 👇
-  const prevPartsLength = useRef(0);
-
-  useEffect(() => {
-    // Regra 1: Se o banco de peças esvaziou (ex: Limpar Mesa), zera tudo.
-    if (parts.length === 0 && prevPartsLength.current > 0) {
-      setFilters({ pedido: [], op: [], material: "", espessura: "" });
-    } 
-    // Regra 2: Se temos peças, vamos checar se precisamos auto-preencher.
-    else if (parts.length > 0) {
-      // Só roda a lógica se houve adição de peças (primeira carga ou append)
-      if (prevPartsLength.current === 0 || parts.length !== prevPartsLength.current) {
-        setFilters((prev) => {
-          // Checa se o filtro atual está 100% vazio
-          const isFilterEmpty = prev.pedido.length === 0 && prev.op.length === 0 && !prev.material && !prev.espessura;
-          
-          if (isFilterEmpty) {
-            const firstPart = parts[0];
-            return {
-              pedido: firstPart.pedido ? [firstPart.pedido] : [],
-              op: firstPart.op ? [firstPart.op] : [],
-              material: String(firstPart.material || "").trim(),
-              espessura: String(firstPart.espessura || "").trim(),
-            };
-          }
-          return prev; // Se já tiver algo filtrado, não mexe
-        });
-      }
-    }
-    
-    // Atualiza a memória para a próxima checagem
-    prevPartsLength.current = parts.length;
-  }, [parts]);
-  // ⬆️ ============================================================== ⬆️
-
   // 👇 COLE AQUI 👇
   // =================================================================
   // --- FASE 3: BUSCA AUTOMÁTICA DE RETALHOS (ALERTA ECO-SMART) ---
@@ -607,19 +582,26 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       return;
     }
 
-    const espDb = thicknessesList.find(t => t.valor.trim().toLowerCase() === filters.espessura.trim().toLowerCase());
-    const espessuraMm = espDb?.valor_mm || parseFloat(filters.espessura.replace(',', '.'));
+    const espDb = thicknessesList.find(
+      (t) =>
+        t.valor.trim().toLowerCase() === filters.espessura.trim().toLowerCase(),
+    );
+    const espessuraMm =
+      espDb?.valor_mm || parseFloat(filters.espessura.replace(",", "."));
 
     if (!espessuraMm) return;
 
-    fetch(`http://localhost:3001/api/retalhos/disponiveis?material=${encodeURIComponent(filters.material)}&espessura_mm=${espessuraMm}`, {
-      headers: { Authorization: `Bearer ${user.token}` }
-    })
-    .then(res => res.json())
-    .then(data => {
-      if (Array.isArray(data)) setAvailableRemnants(data);
-    })
-    .catch(err => console.error("Erro ao buscar retalhos:", err));
+    fetch(
+      `http://localhost:3001/api/retalhos/disponiveis?material=${encodeURIComponent(filters.material)}&espessura_mm=${espessuraMm}`,
+      {
+        headers: { Authorization: `Bearer ${user.token}` },
+      },
+    )
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) setAvailableRemnants(data);
+      })
+      .catch((err) => console.error("Erro ao buscar retalhos:", err));
   }, [filters.material, filters.espessura, thicknessesList, user]);
   // =================================================================
 
@@ -693,7 +675,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       // --- INSERÇÃO: Só exibe o alerta de tela se NÃO for uma checagem em 2º plano ---
       if (!isSilentCollisionCheck.current) {
         if (collisions.length > 0) {
-          alert(`⚠️ ALERTA DE COLISÃO!\n\n${collisions.length} peças com problemas marcadas em VERMELHO.`);
+          alert(
+            `⚠️ ALERTA DE COLISÃO!\n\n${collisions.length} peças com problemas marcadas em VERMELHO.`,
+          );
         } else {
           alert("✅ Verificação Completa! Nenhuma colisão.");
         }
@@ -868,6 +852,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     getPartStatus,
     resetProduction,
     removeAndShiftLockedBins,
+    registerLocalProduction, // <--- ADICIONE AQUI
   } = useProductionManager(binSize);
 
   // --- NOVO HOOK DE REGISTRO ---
@@ -1017,8 +1002,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     // para não causar confusão visual, mas o usuário pode desmarcar o pai se quiser.
   };
 
-  const { isBinSaved, markBinAsSaved, resetAllSaveStatus, removeAndShiftSavedBins } =
-    useNestingSaveStatus(nestingResult); // <--- ADICIONE A FUNÇÃO AQUI
+  const {
+    isBinSaved,
+    markBinAsSaved,
+    resetAllSaveStatus,
+    removeAndShiftSavedBins,
+  } = useNestingSaveStatus(nestingResult); // <--- ADICIONE A FUNÇÃO AQUI
 
   // --- INTEGRAÇÃO: GERENCIADOR DE ARQUIVO LOCAL ---
   const { handleSaveProject, handleLoadProject, fileInputRef } =
@@ -1220,6 +1209,63 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     });
   }, [parts, filters, labelStates, theme]);
 
+  // 👇 === INSERÇÃO: AUTO-PREENCHIMENTO INTELIGENTE DE FILTROS === 👇
+  const prevPartsLength = useRef(0);
+
+  useEffect(() => {
+    const isFilterEmpty =
+      filters.pedido.length === 0 &&
+      filters.op.length === 0 &&
+      !filters.material &&
+      !filters.espessura;
+
+    if (parts.length === 0) {
+      // Regra 1: Banco geral zerou
+      if (!isFilterEmpty)
+        setFilters({ pedido: [], op: [], material: "", espessura: "" });
+    } else {
+      // Verifica se ainda há alguma peça aguardando corte nesta tela específica
+      const hasPendingInView = displayedParts.some((p) => {
+        const qty = quantities[p.id] || 1;
+        const { produced } = getPartStatus(p.id, qty);
+        return produced < qty;
+      });
+
+      // Regra 2: A tela ficou vazia ou todas as peças exibidas já foram 100% produzidas!
+      if (
+        (!hasPendingInView || displayedParts.length === 0) &&
+        !isFilterEmpty
+      ) {
+        setFilters({ pedido: [], op: [], material: "", espessura: "" });
+      }
+      // Regra 3: Auto-preencher se importou coisas novas
+      else if (
+        prevPartsLength.current === 0 ||
+        parts.length !== prevPartsLength.current
+      ) {
+        if (isFilterEmpty) {
+          // Acha a primeira peça que AINDA precisa de corte para focar nela
+          const firstPending =
+            parts.find((p) => {
+              const qty = quantities[p.id] || 1;
+              const { produced } = getPartStatus(p.id, qty);
+              return produced < qty;
+            }) || parts[0];
+
+          setFilters({
+            pedido: firstPending.pedido ? [firstPending.pedido] : [],
+            op: firstPending.op ? [firstPending.op] : [],
+            material: String(firstPending.material || "").trim(),
+            espessura: String(firstPending.espessura || "").trim(),
+          });
+        }
+      }
+    }
+
+    prevPartsLength.current = parts.length;
+  }, [parts, displayedParts, filters, quantities, getPartStatus]);
+  // 👆 ============================================================== 👆
+
   // --- SINCRONIZAÇÃO DO NFP COM A MESA ---
   useEffect(() => {
     if (strategy === "nfp" && !isNfpRunning && nfpResultData.length > 0) {
@@ -1272,8 +1318,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         consumption: "0,0",
         sucataPercent: "0,0", // <--- Adicionado para zerar a sucata
         retalhoPercent: "100,0", // <--- Adicionado: Chapa vazia = 100% de retalho!
-        remnantHeight: binSize.height.toFixed(0),
-        remnantArea: ((binSize.width * binSize.height) / 1000000).toFixed(2),
+        remnantHeight: activeBinHeight.toFixed(0), // <--- TROCADO PARA activeBinHeight
+        remnantArea: ((activeBinWidth * activeBinHeight) / 1000000).toFixed(2), // <--- TROCADO PARA activeBinWidth/Height
         isManual: false,
       };
     }
@@ -1284,7 +1330,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       return acc + (original?.netArea || original?.grossArea || 0);
     }, 0);
 
-    const totalBinArea = binSize.width * binSize.height;
+    const totalBinArea = activeBinWidth * activeBinHeight;
 
     // 2. Determina o Limite de Uso (Bounding Box Automático)
     let maxUsedY = 0;
@@ -1307,7 +1353,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     const vLine = cropLines.find((l) => l.type === "vertical");
 
     const limitY = hLine ? hLine.position : maxUsedY;
-    const limitX = vLine ? vLine.position : binSize.width;
+    const limitX = vLine ? vLine.position : activeBinWidth;
 
     const effectiveWidth = limitX;
     const effectiveHeight = Math.max(limitY, 1);
@@ -1322,24 +1368,31 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
     const sucataAreaMM = Math.max(0, effectiveUsedArea - usedNetArea);
     const remnantAreaMM = totalBinArea - effectiveUsedArea;
-    const remnantLinearY = binSize.height - effectiveHeight;
+    // --- CORREÇÃO: Usar a altura ativa e não o padrão ---
+    const remnantLinearY = activeBinHeight - effectiveHeight;
 
-    // 👇 1. ESTA LINHA PRECISA ESTAR AQUI PARA FAZER A CONTA
     const sucataPercentBin = (sucataAreaMM / totalBinArea) * 100;
-    const retalhoPercentBin = (remnantAreaMM / totalBinArea) * 100; // 👇 1. ADICIONE ESTA LINHA
+    const retalhoPercentBin = (remnantAreaMM / totalBinArea) * 100;
 
     return {
       real: realYield.toFixed(1).replace(".", ","),
       effective: Math.min(effectiveYield, 100).toFixed(1).replace(".", ","),
       consumption: Math.min(consumptionYield, 100).toFixed(1).replace(".", ","),
-      remnantHeight: remnantLinearY.toFixed(0), // Aqui já estava retornando string
-      // 👇 ESTA É A LINHA QUE ESTÁ FALTANDO PRO TYPESCRIPT PARAR DE RECLAMAR:
+      remnantHeight: remnantLinearY.toFixed(0),
       sucataPercent: sucataPercentBin.toFixed(1).replace(".", ","),
-      retalhoPercent: retalhoPercentBin.toFixed(1).replace(".", ","), // 👇 2. EXPORTE A VARIÁVEL AQUI
+      retalhoPercent: retalhoPercentBin.toFixed(1).replace(".", ","),
       remnantArea: (remnantAreaMM / 1000000).toFixed(2),
       isManual: !!(hLine || vLine),
     };
-  }, [nestingResult, currentBinIndex, parts, binSize, cropLines]);
+    // --- ADICIONADO activeBinWidth E activeBinHeight ABAIXO ---
+  }, [
+    nestingResult,
+    currentBinIndex,
+    parts,
+    cropLines,
+    activeBinWidth,
+    activeBinHeight,
+  ]);
 
   const activeSelectedPartIds = useMemo(() => {
     const ids = new Set<string>();
@@ -1517,9 +1570,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   const handleAddCropLineWrapper = useCallback(
     (type: "horizontal" | "vertical") => {
-      // Valor padrão (meio da chapa) caso algo falhe
+      // 👇 CORREÇÃO: Agora usa a dimensão Ativa (inclusive de retalhos)
       let position =
-        type === "vertical" ? binSize.width / 2 : binSize.height / 2;
+        type === "vertical" ? activeBinWidth / 2 : activeBinHeight / 2;
 
       // Se tivermos a posição do clique salva, usamos ela!
       if (
@@ -1533,9 +1586,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       addCropLine(type, position);
       setSheetMenu(null); // Fecha o menu após adicionar
     },
-    [addCropLine, binSize, sheetMenu], // Adicione sheetMenu nas dependências
+    [addCropLine, activeBinWidth, activeBinHeight, sheetMenu], // Dependências atualizadas
   );
-
   const handleDeleteSheetWrapper = useCallback(() => {
     handleDeleteCurrentBin(nestingResult, setNestingResult);
   }, [handleDeleteCurrentBin, nestingResult, setNestingResult]);
@@ -1564,16 +1616,18 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
 
     // 1. Descobre os limites X e Y formados pelas linhas atuais
+    // 👇 CORREÇÃO: Usando activeBinWidth e Height
     const { cutX, cutY } = resolveCropLines(
-      binSize.width,
-      binSize.height,
+      activeBinWidth,
+      activeBinHeight,
       cropLines,
     );
 
     // 2. Calcula os retângulos perfeitos usando a nossa regra de negócio
+    // 👇 CORREÇÃO: Usando activeBinWidth e Height
     const optimalRemnants = calculateOptimalRemnants(
-      binSize.width,
-      binSize.height,
+      activeBinWidth,
+      activeBinHeight,
       cutX,
       cutY,
     );
@@ -1584,7 +1638,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     // ===============================================================
     // 4. --- AUTO-TRIM MÁGICO PARA O LASER ---
     // ===============================================================
-    // Verificamos o ID do retalho gerado para saber quem ganhou o direito de passagem
     const isHorizontalWinner = optimalRemnants.some(
       (r) => r.id === "retalho-primario-horizontal",
     );
@@ -1593,23 +1646,22 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     );
 
     if (isHorizontalWinner || isVerticalWinner) {
-      // Atualiza as linhas no Canvas automaticamente (Se houver a função setCropLines)
       if (setCropLines) {
         setCropLines((prev) =>
           prev.map((line) => {
             if (line.type === "vertical") {
-              // Se a horizontal venceu, a vertical bate nela e para (max = cutY). Se não, vai até o topo.
               return {
                 ...line,
-                max: isHorizontalWinner ? cutY : binSize.height,
+                // 👇 CORREÇÃO: Limite máximo agora respeita o retalho atual
+                max: isHorizontalWinner ? cutY : activeBinHeight,
                 min: 0,
               };
             }
             if (line.type === "horizontal") {
-              // Se a vertical venceu, a horizontal bate nela e para (max = cutX). Se não, vai até a lateral.
               return {
                 ...line,
-                max: isVerticalWinner ? cutX : binSize.width,
+                // 👇 CORREÇÃO: Limite máximo agora respeita o retalho atual
+                max: isVerticalWinner ? cutX : activeBinWidth,
                 min: 0,
               };
             }
@@ -1620,9 +1672,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
     // ===============================================================
 
-    setSheetMenu(null); // Fecha o menu de contexto
-  }, [cropLines, binSize, setCropLines]); // <-- GARANTA QUE O setCropLines ESTÁ AQUI
-  // =================================================================
+    setSheetMenu(null);
+  }, [cropLines, activeBinWidth, activeBinHeight, setCropLines]);
 
   useEffect(() => {
     if (selectedPartIds.length > 0) {
@@ -1786,19 +1837,26 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     }
 
     // ⬇️ === INSERÇÃO DA FASE 4: TRAVA DE RETALHO (0.3m²) === ⬇️
-    const sobraM2 = ((engineeringStats.binHeight - engineeringStats.effectiveHeight) * engineeringStats.binWidth) / 1000000;
+    const sobraM2 =
+      ((engineeringStats.binHeight - engineeringStats.effectiveHeight) *
+        engineeringStats.binWidth) /
+      1000000;
 
     // Se a sobra detectada for maior ou igual a 0.3m², a trava entra em ação
     if (sobraM2 >= 0.3) {
       // Cenário A: O usuário nem sequer colocou a linha de guilhotina
       if (cropLines.length === 0) {
-        alert(`♻️ ECO-SMART: RETALHO OBRIGATÓRIO!\n\nA sobra linear desta chapa possui ${sobraM2.toFixed(2)}m².\n\nVocê PRECISA CRIAR O RETALHO (adicionar a linha de corte) para poder salvar o nesting.`);
+        alert(
+          `♻️ ECO-SMART: RETALHO OBRIGATÓRIO!\n\nA sobra linear desta chapa possui ${sobraM2.toFixed(2)}m².\n\nVocê PRECISA CRIAR O RETALHO (adicionar a linha de corte) para poder salvar o nesting.`,
+        );
         return; // Bloqueia o salvamento
       }
-      
+
       // Cenário B: O usuário colocou a linha, mas esqueceu de mandar calcular o retalho
       if (calculatedRemnants.length === 0) {
-        alert(`♻️ ECO-SMART: RETALHO NÃO GERADO!\n\nVocê inseriu a linha de corte, mas esqueceu de registrar o retalho.\n\nClique com o botão direito na chapa e selecione "Definir Retalhos" antes de prosseguir.`);
+        alert(
+          `♻️ ECO-SMART: RETALHO NÃO GERADO!\n\nVocê inseriu a linha de corte, mas esqueceu de registrar o retalho.\n\nClique com o botão direito na chapa e selecione "Definir Retalhos" antes de prosseguir.`,
+        );
         return; // Bloqueia o salvamento
       }
     }
@@ -1816,8 +1874,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         currentBinIndex,
         parts: displayedParts,
         user,
-        motor: strategy === "true-shape-v2" || strategy === "true-shape-v3" || strategy === "nfp" ? "true-shape" : strategy,
-        stats: engineeringStats // O objeto que contém toda a inteligência!
+        motor:
+          strategy === "true-shape-v2" ||
+          strategy === "true-shape-v3" ||
+          strategy === "nfp"
+            ? "true-shape"
+            : strategy,
+        stats: engineeringStats, // O objeto que contém toda a inteligência!
       });
 
       if (registro.success) {
@@ -1833,23 +1896,28 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             espessura_mm: engineeringStats.espessura,
             largura: retalho.width,
             altura: retalho.height,
-            origem_producao_id: registro.producaoId || null // Vinculando ao Histórico
+            origem_producao_id: registro.producaoId || null, // Vinculando ao Histórico
           }));
 
           try {
-            const respostaRetalho = await fetch("http://localhost:3001/api/retalhos", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${user.token}`,
+            const respostaRetalho = await fetch(
+              "http://localhost:3001/api/retalhos",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${user.token}`,
+                },
+                body: JSON.stringify({ retalhos: pacoteRetalhos }),
               },
-              body: JSON.stringify({ retalhos: pacoteRetalhos }),
-            });
+            );
 
             if (respostaRetalho.ok) {
               console.log("♻️ Retalhos salvos no estoque com sucesso!");
             } else {
-              console.error("Aviso: A produção foi salva, mas o retalho não foi pro estoque.");
+              console.error(
+                "Aviso: A produção foi salva, mas o retalho não foi pro estoque.",
+              );
             }
           } catch (err) {
             console.error("Erro na requisição de retalhos:", err);
@@ -1860,17 +1928,23 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         // =================================================================
         if (selectedDBRemnant) {
           try {
-            await fetch(`http://localhost:3001/api/retalhos/${selectedDBRemnant.id}/usar`, {
-              method: 'PUT',
-              headers: { Authorization: `Bearer ${user.token}` }
-            });
-            console.log(`Baixa efetuada no retalho: ${selectedDBRemnant.codigo}`);
-            
+            await fetch(
+              `http://localhost:3001/api/retalhos/${selectedDBRemnant.id}/usar`,
+              {
+                method: "PUT",
+                headers: { Authorization: `Bearer ${user.token}` },
+              },
+            );
+            console.log(
+              `Baixa efetuada no retalho: ${selectedDBRemnant.codigo}`,
+            );
+
             // --- INSERÇÃO DA CORREÇÃO AQUI ---
             // Remove o retalho usado da lista visual imediatamente para ele não aparecer de novo
-            setAvailableRemnants((prev) => prev.filter(r => r.id !== selectedDBRemnant.id));
+            setAvailableRemnants((prev) =>
+              prev.filter((r) => r.id !== selectedDBRemnant.id),
+            );
             // ---------------------------------
-            
           } catch (err) {
             console.error("Erro ao dar baixa no retalho:", err);
           }
@@ -1887,36 +1961,49 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       currentBinIndex,
       displayedParts,
       cropLines,
-      null, 
+      null,
       densidadeNumerica, // Agora passando o 7.85 corretamente!
-      bancoSalvoComSucesso, 
+      bancoSalvoComSucesso,
     );
 
     // ⬇️ === INSERÇÃO FASE 5: CLEANUP E RESET DA MESA === ⬇️
     if (bancoSalvoComSucesso) {
-      // 1. Abatimento de Quantidades (PCP)
-      const newQuantities = { ...quantities };
-      partsInBin.forEach((placed) => {
-        if (newQuantities[placed.partId]) {
-          newQuantities[placed.partId] -= 1;
-        }
+      // 0. NOVO: ATUALIZA A MEMÓRIA LOCAL DE PRODUÇÃO (Barra Lateral)
+      const partsCount: Record<string, number> = {};
+      partsInBin.forEach((p) => {
+        partsCount[p.partId] = (partsCount[p.partId] || 0) + 1;
       });
-      setQuantities(newQuantities);
+      registerLocalProduction(partsCount, currentBinIndex);
 
-      // 2. Remove as peças que zeraram do Banco de Peças (Barra Lateral)
-      setParts((prevParts) => prevParts.filter((p) => (newQuantities[p.id] || 0) > 0));
+      // 👻 EXORCISMO DEFINITIVO (SUA ESTRATÉGIA)
+      const temPecaPendente = parts.some((p) => {
+        const qty = quantities[p.id] || 1;
+        const { produced } = getPartStatus(p.id, qty);
+        const producaoDestaChapa = partsCount[p.id] || 0;
+        return produced + producaoDestaChapa < qty;
+      });
 
-      // 3. Exclui a chapa salva da mesa e reorganiza a galeria (Shift)
+      if (!temPecaPendente) {
+        // Se não há mais nenhuma peça pendente no pedido, aciona o botão Reset automaticamente!
+        handleClearTable();
+
+        alert("✅ Produção totalmente concluída! A mesa foi limpa e resetada.");
+        return; // Interrompe a função aqui para que o React não tente recriar o cache fantasma!
+      }
+
+      // 1. Exclui a chapa salva da mesa e reorganiza a galeria (Shift)
       setNestingResult((prevResult) => {
         // Tira as peças desta chapa que acabou de ser salva
-        const remainingParts = prevResult.filter((p) => p.binId !== currentBinIndex);
+        const remainingParts = prevResult.filter(
+          (p) => p.binId !== currentBinIndex,
+        );
         // Rebaixa o índice das chapas seguintes (Ex: Chapa 2 vira Chapa 1)
-        return remainingParts.map((p) => 
-          p.binId > currentBinIndex ? { ...p, binId: p.binId - 1 } : p
+        return remainingParts.map((p) =>
+          p.binId > currentBinIndex ? { ...p, binId: p.binId - 1 } : p,
         );
       });
 
-      // 4. Ajuste da Paginação (Galeria)
+      // 2. Ajuste da Paginação (Galeria)
       if (totalBins <= 1) {
         setTotalBins(1);
         setCurrentBinIndex(0);
@@ -1928,21 +2015,19 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         }
       }
 
-      // 5. Hard Reset da Mesa (Volta ao padrão, limpa guilhotina e desativa retalhos)
+      // 3. Hard Reset da Mesa (Volta ao padrão, limpa guilhotina e desativa retalhos)
       if (setCropLines) setCropLines([]);
       setSelectedDBRemnant(null);
       setBinSize({ width: 1200, height: 3000 }); // Dimensão Padrão
-      // --- CORREÇÃO: REMOVE O RESET GLOBAL E DESLOCA OS STATUS INDIVIDUAIS ---
       removeAndShiftSavedBins(currentBinIndex);
       removeAndShiftLockedBins(currentBinIndex);
-      // ---------------------------------------------------------------------
+      setCalculationTime(null);
 
-      // --- INSERÇÃO: RECENTRALIZAR A CÂMERA ---
       setViewKey((prev) => prev + 1);
-      // ----------------------------------------
-      
-      
-      alert("✅ Chapa enviada para produção! A mesa foi limpa e reconfigurada.");
+
+      alert(
+        "✅ Chapa enviada para produção! A mesa foi limpa e reconfigurada.",
+      );
     }
     // ⬆️ ======================================================= ⬆️
   };
@@ -1952,6 +2037,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     const partsToNest = displayedParts.filter(
       (p) => !disabledNestingIds.has(p.id),
     );
+
+    // 👇 --- INSERÇÃO PCP: CALCULAR A QUANTIDADE RESTANTE REAL --- 👇
+    const remainingQuantitiesToNest: Record<string, number> = {};
+    partsToNest.forEach((p) => {
+      const originalQty = quantities[p.id] || 1;
+      const { produced } = getPartStatus(p.id, originalQty);
+      remainingQuantitiesToNest[p.id] = Math.max(0, originalQty - produced);
+    });
+    // 👆 --------------------------------------------------------- 👆
 
     if (partsToNest.length === 0) {
       alert("Selecione pelo menos uma peça.");
@@ -1981,6 +2075,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     setTotalBins(1);
     setSelectedPartIds([]);
     resetAllSaveStatus();
+    // 👇 === INSERÇÃO: MEDIDAS DO RETALHO (SE HOUVER) === 👇
+    const fWidth = selectedDBRemnant
+      ? Number(selectedDBRemnant.largura)
+      : undefined;
+    const fHeight = selectedDBRemnant
+      ? Number(selectedDBRemnant.altura)
+      : undefined;
+    // 👆 ================================================ 👆
 
     // --- DECISÃO DO MOTOR ---
 
@@ -1991,7 +2093,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         // Timeout minúsculo só para o UI atualizar o loading
         const result = runGuillotineNesting(
           partsToNest,
-          quantities,
+          remainingQuantitiesToNest,
           binSize.width,
           binSize.height,
           direction,
@@ -2052,7 +2154,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       wiseNestingWorkerRef.current.postMessage({
         type: "START_NESTING", // Comando explicito
         parts: JSON.parse(JSON.stringify(partsToNest)),
-        quantities, // Objeto { "id": quantidade }
+        quantities: remainingQuantitiesToNest,
         binWidth: binSize.width,
         binHeight: binSize.height,
         gap: Number(gap), // Força número
@@ -2093,7 +2195,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
       smartNestV3WorkerRef.current.postMessage({
         parts: JSON.parse(JSON.stringify(partsToNest)),
-        quantities,
+        quantities: remainingQuantitiesToNest,
         gap,
         margin,
         binWidth: binSize.width,
@@ -2124,11 +2226,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
       smartNestNewWorkerRef.current.postMessage({
         parts: JSON.parse(JSON.stringify(partsToNest)),
-        quantities,
+        quantities: remainingQuantitiesToNest,
         gap,
         margin,
         binWidth: binSize.width,
         binHeight: binSize.height,
+        // 👇 ADICIONE ESTAS DUAS LINHAS:
+        firstBinWidth: fWidth,
+        firstBinHeight: fHeight,
+        // 👆 ---------------------------
         strategy: "true-shape", // O worker interno usa a mesma lógica base
         iterations,
         rotationStep,
@@ -2153,7 +2259,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
       nestingWorkerRef.current.postMessage({
         parts: JSON.parse(JSON.stringify(partsToNest)),
-        quantities,
+        quantities: remainingQuantitiesToNest,
         gap,
         margin,
         binWidth: binSize.width,
@@ -2181,6 +2287,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     rotationStep,
     direction,
     startNfpNesting,
+    selectedDBRemnant, // <--- NOVA DEPENDÊNCIA ADICIONADA AQUI
+    getPartStatus,
   ]);
 
   const handleCheckGuillotineCollisions = useCallback(() => {
@@ -2246,6 +2354,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       resetProduction();
       resetAllSaveStatus();
       if (setCropLines) setCropLines([]);
+      // 👇 AS DUAS LINHAS CIRÚRGICAS INSERIDAS AQUI 👇
+      setSelectedDBRemnant(null);
+      setBinSize({ width: 1200, height: 3000 });
+      // 👆 ========================================== 👆
       // Limpa seleções do modal também, por garantia
       setSelectedOps([]);
       // --- INSERÇÃO: RECENTRALIZAR A CÂMERA ---
@@ -2604,7 +2716,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     // Timer de 300ms: Garante que o Worker só rola depois que o usuário parar de arrastar a linha
     const timer = setTimeout(() => {
       isSilentCollisionCheck.current = true; // Avisa o Worker para não disparar Alert
-      
+
       if (collisionWorkerRef.current) {
         collisionWorkerRef.current.postMessage({
           placedParts: currentPlacedParts,
@@ -2615,7 +2727,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           cropLines: cropLines,
         });
       }
-    }, 300); 
+    }, 300);
 
     return () => clearTimeout(timer);
   }, [cropLines, currentPlacedParts, parts, binSize, margin]);
@@ -2923,6 +3035,28 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     totalPlacedCounts,
   ]);
 
+  // 👇 BLOCO CORRIGIDO: Some apenas após Salvar o DXF 👇
+  const sidebarParts = useMemo(() => {
+    return sortedParts.filter((part) => {
+      const qty = quantities[part.id] || 1;
+      const { produced } = getPartStatus(part.id, qty);
+
+      // A Mágica: Mantém na barra lateral enquanto a quantidade SALVA NO BANCO for menor que a meta.
+      // O fato de a peça estar desenhada na mesa não a faz sumir, até que você salve!
+      return produced < qty;
+    });
+  }, [sortedParts, quantities, getPartStatus]);
+  // 👆 ======================================================= 👆
+
+  // Cria uma lista geral apenas com o que FALTA produzir no sistema todo
+  const pendingPartsGlobal = useMemo(() => {
+    return parts.filter((p) => {
+      const qty = quantities[p.id] || 1;
+      const { produced } = getPartStatus(p.id, qty);
+      return produced < qty;
+    });
+  }, [parts, quantities, getPartStatus]);
+
   // =====================================================================
   // --- NOVO: HEARTBEAT (PULSAÇÃO) PARA MANTER BLOQUEIO ATIVO ---
   // =====================================================================
@@ -3050,12 +3184,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     const hLine = cropLines.find((l) => l.type === "horizontal");
     const vLine = cropLines.find((l) => l.type === "vertical");
 
-    // Dimensões da Área de Corte
-    const limitX = vLine ? vLine.position : binSize.width;
+    // --- CORREÇÃO MATEMÁTICA: Usando activeBinWidth/Height em vez de binSize ---
+    const limitX = vLine ? vLine.position : activeBinWidth;
     const limitY = hLine ? hLine.position : maxUsedY;
 
     const effectiveUsedArea = limitX * Math.max(limitY, 1);
-    const totalBinArea = binSize.width * binSize.height;
+    const totalBinArea = activeBinWidth * activeBinHeight;
 
     const sucataAreaMM = Math.max(0, effectiveUsedArea - usedNetArea);
     const remnantAreaMM = Math.max(0, totalBinArea - effectiveUsedArea);
@@ -3069,9 +3203,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       netPartsArea: usedNetArea,
       sucataArea: sucataAreaMM,
       retalhoArea: remnantAreaMM,
-      // --- NOVOS DADOS EXPORTADOS: DIMENSÕES EM MM ---
-      binWidth: binSize.width,
-      binHeight: binSize.height,
+      binWidth: activeBinWidth,
+      binHeight: activeBinHeight,
       effectiveWidth: limitX,
       effectiveHeight: Math.max(limitY, 1),
       remnants: calculatedRemnants.map((r) => ({
@@ -3080,7 +3213,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         height: r.height,
         type: r.type,
       })),
-      // -----------------------------------------------
       pedidos: Array.from(pedidosSet),
       ops: Array.from(opsSet),
       tiposProducao: Array.from(tiposSet),
@@ -3091,23 +3223,26 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     parts,
     materialsList,
     thicknessesList,
-    binSize,
     cropLines,
     calculatedRemnants,
-  ]); // <--- thicknessesList adicionado!
-  // =================================================================
-
+    activeBinWidth, // Agora o ESLint não vai reclamar, pois estamos usando elas acima!
+    activeBinHeight,
+  ]);
   // --- EFEITO: Pulsa e abre o modal (COM TRAVA DE PEÇAS VAZIAS) ---
   useEffect(() => {
     // 1. Só pulsa e abre se houver retalhos, se não houver retalho em uso, E SE HOUVER PEÇAS NA TELA
-    if (availableRemnants.length > 0 && !selectedDBRemnant && displayedParts.length > 0) {
+    if (
+      availableRemnants.length > 0 &&
+      !selectedDBRemnant &&
+      displayedParts.length > 0
+    ) {
       setIsRemnantPulsing(true);
       const timer = setTimeout(() => {
         setIsRemnantPulsing(false);
         setIsRemnantModalOpen(true);
       }, 2000);
       return () => clearTimeout(timer);
-    } 
+    }
     // 2. Se a tela ficou vazia (limpou a mesa ou filtrou algo vazio), desativa tudo
     else if (displayedParts.length === 0) {
       setIsRemnantPulsing(false);
@@ -4007,8 +4142,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           </div>
           {/* ----------------------------------------------- */}
           {/* --- ANIMAÇÃO E ÍCONE ECO-SMART --- */}
-            <style>
-              {`
+          <style>
+            {`
                 @keyframes pulseGreen {
                   0% { transform: scale(1); filter: drop-shadow(0 0 0px #28a745); }
                   50% { transform: scale(1.3); filter: drop-shadow(0 0 10px #28a745); }
@@ -4018,42 +4153,62 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   animation: pulseGreen 1s ease-in-out infinite;
                 }
               `}
-            </style>
-            
-            <button
-              onClick={() => {
-                // Só abre se houver peças válidas E (tiver retalho na lista ou um já selecionado)
-                if (displayedParts.length > 0 && (availableRemnants.length > 0 || selectedDBRemnant)) {
-                  setIsRemnantModalOpen(true);
-                }
-              }}
-              title={
-                displayedParts.length === 0 
-                  ? "Adicione ou filtre peças para usar retalhos" 
-                  : selectedDBRemnant 
-                    ? "Retalho Ativo - Clique para gerenciar" 
-                    : availableRemnants.length > 0 
-                      ? "Retalhos disponíveis!" 
-                      : "Sem retalhos para esta combinação"
+          </style>
+
+          <button
+            onClick={() => {
+              // Só abre se houver peças válidas E (tiver retalho na lista ou um já selecionado)
+              if (
+                displayedParts.length > 0 &&
+                (availableRemnants.length > 0 || selectedDBRemnant)
+              ) {
+                setIsRemnantModalOpen(true);
               }
-              className={isRemnantPulsing && displayedParts.length > 0 ? "eco-smart-pulse" : ""}
-              style={{
-                background: "transparent",
-                border: "none",
-                fontSize: "24px",
-                // Cursor bloqueado se não tiver peças
-                cursor: (displayedParts.length > 0 && (availableRemnants.length > 0 || selectedDBRemnant)) ? "pointer" : "default",
-                // Fica opaco (0.3) se a mesa estiver vazia OU se não tiver retalhos
-                opacity: (displayedParts.length > 0 && (selectedDBRemnant || availableRemnants.length > 0)) ? 1 : 0.3,
-                filter: (displayedParts.length > 0 && (selectedDBRemnant || (!isRemnantPulsing && availableRemnants.length > 0))) ? "drop-shadow(0 0 3px #28a745)" : "none",
-                transition: "all 0.3s ease",
-                padding: "0 10px",
-                marginRight: "5px"
-              }}
-            >
-              ♻️
-            </button>
-            {/* ---------------------------------- */}
+            }}
+            title={
+              displayedParts.length === 0
+                ? "Adicione ou filtre peças para usar retalhos"
+                : selectedDBRemnant
+                  ? "Retalho Ativo - Clique para gerenciar"
+                  : availableRemnants.length > 0
+                    ? "Retalhos disponíveis!"
+                    : "Sem retalhos para esta combinação"
+            }
+            className={
+              isRemnantPulsing && displayedParts.length > 0
+                ? "eco-smart-pulse"
+                : ""
+            }
+            style={{
+              background: "transparent",
+              border: "none",
+              fontSize: "24px",
+              // Cursor bloqueado se não tiver peças
+              cursor:
+                displayedParts.length > 0 &&
+                (availableRemnants.length > 0 || selectedDBRemnant)
+                  ? "pointer"
+                  : "default",
+              // Fica opaco (0.3) se a mesa estiver vazia OU se não tiver retalhos
+              opacity:
+                displayedParts.length > 0 &&
+                (selectedDBRemnant || availableRemnants.length > 0)
+                  ? 1
+                  : 0.3,
+              filter:
+                displayedParts.length > 0 &&
+                (selectedDBRemnant ||
+                  (!isRemnantPulsing && availableRemnants.length > 0))
+                  ? "drop-shadow(0 0 3px #28a745)"
+                  : "none",
+              transition: "all 0.3s ease",
+              padding: "0 10px",
+              marginRight: "5px",
+            }}
+          >
+            ♻️
+          </button>
+          {/* ---------------------------------- */}
           <div
             style={{
               marginLeft: "auto",
@@ -4098,7 +4253,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 }}
               >
                 📂 Abrir
-              </button>             
+              </button>
 
               <button
                 onClick={handleSaveProject}
@@ -4118,7 +4273,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               >
                 💾 Salvar
               </button>
-            
             </div>
             {/* ----------------------------------- */}
             {/* BOTÃO BUSCAR PEDIDO (ALTERADO) */}
@@ -4193,7 +4347,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   ? "✅ Chapa Salva"
                   : "💾 Salvar DXF"}
             </button>
-            
 
             <button
               onClick={handleClearTable}
@@ -4369,22 +4522,25 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             <label style={{ fontSize: 12 }}>L:</label>
             <input
               type="number"
-              value={binSize.width}
+              value={activeBinWidth} // <--- ALTERADO AQUI (Antes era binSize.width)
               onChange={(e) => {
                 setBinSize((p) => ({ ...p, width: Number(e.target.value) }));
-                // 👇 ADICIONE ESTA LINHA 👇
-                setSelectedDBRemnant(null); 
+                setSelectedDBRemnant(null); // Se ele digitar, quebra o retalho
               }}
               style={{ ...inputStyle, width: 50 }}
+              title={
+                currentBinIndex === 0 && selectedDBRemnant
+                  ? "Visualizando Retalho. Digitar quebrará o vínculo."
+                  : ""
+              }
             />
             <label style={{ fontSize: 12 }}>A:</label>
             <input
               type="number"
-              value={binSize.height}
+              value={activeBinHeight} // <--- ALTERADO AQUI (Antes era binSize.height)
               onChange={(e) => {
                 setBinSize((p) => ({ ...p, height: Number(e.target.value) }));
-                // 👇 ADICIONE ESTA LINHA 👇
-                setSelectedDBRemnant(null); 
+                setSelectedDBRemnant(null); // Se ele digitar, quebra o retalho
               }}
               style={{ ...inputStyle, width: 50 }}
             />
@@ -4687,7 +4843,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               <>Nesting</>
             )}
           </button>
-        </div>      
+        </div>
 
         <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
           <div
@@ -4854,8 +5010,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               key={viewKey}
               parts={displayedParts}
               placedParts={currentPlacedParts}
-              binWidth={binSize.width}
-              binHeight={binSize.height}
+              binWidth={activeBinWidth} // <--- ALTERADO
+              binHeight={activeBinHeight} // <--- ALTERADO
               margin={margin}
               showDebug={showDebug}
               strategy={
@@ -4906,7 +5062,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                 <span
                   style={{ opacity: 0.9, fontSize: "12px", fontWeight: "bold" }}
                 >
-                  Total: {currentPlacedParts.length} / {displayedParts.length}{" "}
+                  Total: {currentPlacedParts.length} / {sidebarParts.length}{" "}
                   Peças
                 </span>
               </div>
@@ -5182,7 +5338,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             />
             {/* --------------------------------------------- */}
             <PartFilter
-              allParts={parts}
+              allParts={pendingPartsGlobal}
               filters={filters}
               onFilterChange={setFilters}
               theme={theme}
@@ -5269,7 +5425,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                     alignContent: "start",
                   }}
                 >
-                  {sortedParts.map((part) => {
+                  {sidebarParts.map((part) => {
                     const qty = quantities[part.id] || 1;
                     const { produced } = getPartStatus(part.id, qty);
                     const orderColor = stringToColor(part.pedido || "N/A");
@@ -5595,13 +5751,17 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   // === INSERÇÃO: LÓGICA DE TRAVA DO RETALHO (USANDO WORKER REAL-TIME) ===
                   // Como o worker já roda em segundo plano, basta olharmos se há peças no array de colisão
                   const lineCollision = collidingPartIds.length > 0;
-                  const canDefineRemnants = cropLines.length > 0 && !lineCollision;
-                  
-                  let remnantTooltip = "Aplica a regra matemática para definir a área de retalho útil";
+                  const canDefineRemnants =
+                    cropLines.length > 0 && !lineCollision;
+
+                  let remnantTooltip =
+                    "Aplica a regra matemática para definir a área de retalho útil";
                   if (cropLines.length === 0) {
-                      remnantTooltip = "Adicione pelo menos uma linha de corte primeiro.";
+                    remnantTooltip =
+                      "Adicione pelo menos uma linha de corte primeiro.";
                   } else if (lineCollision) {
-                      remnantTooltip = "⚠️ Bloqueado: Colisão detectada na chapa!";
+                    remnantTooltip =
+                      "⚠️ Bloqueado: Colisão detectada na chapa!";
                   }
                   // ==========================================================
 
@@ -5668,7 +5828,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {sortedParts.map((part, index) => {
+                      {sidebarParts.map((part, index) => {
                         const qty = quantities[part.id] || 1;
                         const { produced } = getPartStatus(part.id, qty);
                         const orderColor = stringToColor(part.pedido || "N/A");
@@ -5849,6 +6009,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           onSelectBin={setCurrentBinIndex}
           binWidth={binSize.width}
           binHeight={binSize.height}
+          // 👇 --- INSERÇÃO AQUI --- 👇
+          firstBinWidth={
+            selectedDBRemnant ? Number(selectedDBRemnant.largura) : undefined
+          }
+          firstBinHeight={
+            selectedDBRemnant ? Number(selectedDBRemnant.altura) : undefined
+          }
+          // 👆 --------------------- 👆
           parts={parts}
           nestingResult={nestingResult}
           theme={theme}

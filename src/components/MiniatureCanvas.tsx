@@ -8,6 +8,10 @@ interface MiniatureCanvasProps {
   binId: number;
   binWidth: number;
   binHeight: number;
+  // 👇 INSERÇÃO: TAMANHO MÁXIMO GLOBAL 👇
+  globalMaxWidth?: number;
+  globalMaxHeight?: number;
+  // 👆 ------------------------------- 👆
   parts: ImportedPart[];
   placedParts: PlacedPart[];
   theme: AppTheme;
@@ -138,6 +142,8 @@ export const MiniatureCanvas: React.FC<MiniatureCanvasProps> = React.memo(
     binId,
     binWidth,
     binHeight,
+    globalMaxWidth,  // <--- ADICIONE AQUI
+    globalMaxHeight, // <--- ADICIONE AQUI
     parts,
     placedParts,
     theme,
@@ -150,10 +156,16 @@ export const MiniatureCanvas: React.FC<MiniatureCanvasProps> = React.memo(
       [placedParts, binId]
     );
 
-    // Configuração visual
-    const strokeWidth = 1; // Espessura fina e elegante
-    const viewPortBuffer = binWidth * 0.05;
-    const viewBox = `${-viewPortBuffer} ${-viewPortBuffer} ${binWidth + viewPortBuffer * 2} ${binHeight + viewPortBuffer * 2}`;
+    const strokeWidth = 1; 
+
+    // 👇 INSERÇÃO: LÓGICA DA LENTE FIXA 👇
+    // A câmera sempre olha para o tamanho máximo da mesa (o TODO)
+    const lensWidth = globalMaxWidth || binWidth;
+    const lensHeight = globalMaxHeight || binHeight;
+
+    const viewPortBuffer = lensWidth * 0.05;
+    const viewBox = `${-viewPortBuffer} ${-viewPortBuffer} ${lensWidth + viewPortBuffer * 2} ${lensHeight + viewPortBuffer * 2}`;
+    // 👆 ------------------------------ 👆
 
     return (
       <div
@@ -172,14 +184,14 @@ export const MiniatureCanvas: React.FC<MiniatureCanvasProps> = React.memo(
         }}
       >
         <svg
-          viewBox={viewBox}
-          preserveAspectRatio="xMidYMid meet"
+          viewBox={viewBox} // <--- Usa a lente gigante aqui
+          preserveAspectRatio="xMidYMid meet" // <--- Garante que o TODO apareça sem cortar
           style={{ width: "100%", height: "100%", display: "block" }}
         >
-          {/* Sistema de Coordenadas CNC (Y invertido para cima) */}
-          <g transform={`translate(0, ${binHeight}) scale(1, -1)`}>
+          {/* 👇 ALTERAÇÃO: O Transform usa a altura da Lente para alinhar a chapa embaixo 👇 */}
+          <g transform={`translate(0, ${lensHeight}) scale(1, -1)`}>
             
-            {/* Chapa (Borda) */}
+            {/* Chapa (Borda) - Continua usando o tamanho real dela (menor se for retalho) */}
             <rect
               x="0"
               y="0"

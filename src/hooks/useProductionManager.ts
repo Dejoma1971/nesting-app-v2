@@ -183,26 +183,11 @@ export const useProductionManager = (binSize: {
         }
 
         // --- ATUALIZAÇÃO DE ESTADO FINAL ---
+        // --- ATUALIZAÇÃO DE ESTADO FINAL ---
         if (fileSaved) {
-          // Atualiza estado local de quantidades produzidas
-          setState((prev) => {
-            const newQuantities = { ...prev.producedQuantities };
-            Object.entries(partsCount).forEach(([id, qty]) => {
-              newQuantities[id] = (newQuantities[id] || 0) + qty;
-            });
-            return {
-              ...prev,
-              producedQuantities: newQuantities,
-              // Adiciona aos travados apenas se não estava
-              lockedBins: prev.lockedBins.includes(currentBinIndex)
-                ? prev.lockedBins
-                : [...prev.lockedBins, currentBinIndex],
-            };
-          });
-
           // Mensagem Final ao Usuário
           if (dbSuccess) {
-            alert("✅ Arquivo Salvo e Produção Registrada no Banco!");
+            alert("✅ Arquivo DXF Salvo com sucesso!");
           } else {
             alert(
               "⚠️ Arquivo DXF salvo localmente!\n\n(Aviso: O registro no banco de dados não foi confirmado. Verifique sua conexão ou plano).",
@@ -235,6 +220,24 @@ export const useProductionManager = (binSize: {
   }, []);
   // ----------------------------------------------------------------------------
 
+  // --- INSERÇÃO: FUNÇÃO EXCLUSIVA PARA ATUALIZAR A MEMÓRIA DA TELA ---
+  const registerLocalProduction = useCallback((partsCount: Record<string, number>, binIndex: number) => {
+    setState((prev) => {
+      const newQuantities = { ...prev.producedQuantities };
+      Object.entries(partsCount).forEach(([id, qty]) => {
+        newQuantities[id] = (newQuantities[id] || 0) + qty;
+      });
+      return {
+        ...prev,
+        producedQuantities: newQuantities,
+        lockedBins: prev.lockedBins.includes(binIndex)
+          ? prev.lockedBins
+          : [...prev.lockedBins, binIndex],
+      };
+    });
+  }, []);
+  // -------------------------------------------------------------------
+
   return {
     producedQuantities: state.producedQuantities,
     lockedBins: state.lockedBins,
@@ -242,6 +245,7 @@ export const useProductionManager = (binSize: {
     handleProductionDownload,
     getPartStatus,
     resetProduction,
-    removeAndShiftLockedBins, // <--- EXPORTE A NOVA FUNÇÃO AQUI
+    removeAndShiftLockedBins,
+    registerLocalProduction, // <--- EXPORTE A NOVA FUNÇÃO AQUI
   };
 };

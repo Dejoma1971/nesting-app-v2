@@ -1251,13 +1251,32 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
       [values],
     );
 
-    // 5. ATUALIZAR STATUS DAS PEÇAS ORIGINAIS
-    const idsParaAtualizar = itens.map((i) => i.id);
-    if (idsParaAtualizar.length > 0) {
-      await connection.query(
-        "UPDATE pecas_engenharia SET status = 'EM PRODUÇÃO' WHERE id IN (?) AND empresa_id = ?",
-        [idsParaAtualizar, empresaId],
+    // 5. ATUALIZAR STATUS DAS PEÇAS ORIGINAIS (COM DESCONTO PARCIAL)
+    for (const item of itens) {
+      // a) Pega a meta total da peça (quantas a engenharia pediu)
+      const [pecaRows] = await connection.query(
+        "SELECT quantidade FROM pecas_engenharia WHERE id = ? AND empresa_id = ?",
+        [item.id, empresaId]
       );
+
+      if (pecaRows.length > 0) {
+        const metaTotal = Number(pecaRows[0].quantidade) || 1;
+
+        // b) Soma todas as peças que já foram cortadas desta ID (incluindo a que acabou de ser inserida no Passo 4)
+        const [prodRows] = await connection.query(
+          "SELECT SUM(quantidade) as total_produzido FROM producao_itens WHERE peca_original_id = ?",
+          [item.id]
+        );
+        const totalProduzido = Number(prodRows[0].total_produzido) || 0;
+
+        // c) Se já produziu tudo (ou mais), muda o status para tirar da fila de arranjo.
+        if (totalProduzido >= metaTotal) {
+          await connection.query(
+            "UPDATE pecas_engenharia SET status = 'EM PRODUÇÃO' WHERE id = ? AND empresa_id = ?",
+            [item.id, empresaId]
+          );
+        }
+      }
     }
 
     await connection.commit();

@@ -289,13 +289,58 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   const [dontShowAgain, setDontShowAgain] = useState(false);
 
   const handleCutNowClick = () => {
-    // --- CORREÇÃO 2: Validação de mesa vazia ---
+    // --- 1. Validação de mesa vazia ---
     if (parts.length === 0) {
       alert("Adicione peças antes de cortar!");
       return;
     }
-    // -------------------------------------------
 
+    // =================================================================
+    // --- 2. AUDITORIA: MATERIAL, ESPESSURA E REGRA DO BLOCO ---
+    // =================================================================
+    const errorReport: string[] = [];
+
+    parts.forEach((p: any, index: number) => {
+      const issues: string[] = [];
+
+      // A) Valida Material e Espessura (Mínimo obrigatório para nesting)
+      if (!p.material || String(p.material).trim() === "") issues.push("Material");
+      if (!p.espessura || String(p.espessura).trim() === "") issues.push("Espessura");
+
+      // B) Valida se a regra do Insert/Block foi obedecida
+      const entityCount = p.entities ? p.entities.length : 0;
+      if (entityCount === 0) {
+        issues.push("Desenho Vazio");
+      } else if (entityCount > 1) {
+        issues.push("Geometria não convertida em Bloco");
+      }
+
+      // Se encontrou alguma pendência, adiciona ao relatório
+      if (issues.length > 0) {
+        errorReport.push(`• Linha ${index + 1} (${p.name}): ${issues.join(", ")}`);
+      }
+    });
+
+    // SE HOUVER ERROS, MOSTRA O ALERTA E TRAVA A IDA PARA A MESA
+    if (errorReport.length > 0) {
+      const maxErrorsToShow = 10;
+      const shownErrors = errorReport.slice(0, maxErrorsToShow).join("\n");
+      const remaining = errorReport.length - maxErrorsToShow;
+
+      let msg = `⚠️ NESTING BLOQUEADO\n\nPara o corte rápido, é obrigatório definir Material e Espessura, além de converter a geometria em Bloco.\n\nErros encontrados:\n${shownErrors}`;
+
+      if (remaining > 0) {
+        msg += `\n\n...e mais ${remaining} peças.`;
+      }
+
+      msg += `\n\nSOLUÇÃO:\n1. Clique no botão amarelo "📦 Insert/Block" para adequar a geometria.\n2. Preencha Material e Espessura no lote.`;
+
+      alert(msg);
+      return; // <--- Trava a execução e impede de ir para a mesa!
+    }
+    // =================================================================
+
+    // --- 3. Se passou na auditoria, segue o fluxo normal ---
     const skip = localStorage.getItem("skipCutNowWarning");
 
     if (skip === "true") {
