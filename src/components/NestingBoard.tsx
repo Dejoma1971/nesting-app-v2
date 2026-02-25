@@ -585,7 +585,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // =================================================================
   useEffect(() => {
     // 👇 INSERÇÃO: Adicionamos o isDraftMode para bloquear a requisição
-    if (!user?.token || !filters.material || !filters.espessura || isDraftMode) {
+    if (
+      !user?.token ||
+      !filters.material ||
+      !filters.espessura ||
+      isDraftMode
+    ) {
       setAvailableRemnants([]);
       return;
     }
@@ -1850,8 +1855,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         engineeringStats.binWidth) /
       1000000;
 
-    // Se a sobra detectada for maior ou igual a 0.3m², a trava entra em ação
-    if (sobraM2 >= 0.3) {
+    // 👇 INSERÇÃO: Adicionamos o "&& !isDraftMode" para ignorar a trava no Modo Local
+    if (sobraM2 >= 0.3 && !isDraftMode) {
       // Cenário A: O usuário nem sequer colocou a linha de guilhotina
       if (cropLines.length === 0) {
         alert(
@@ -1875,7 +1880,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
     let bancoSalvoComSucesso = false;
 
-    if (user && user.token) {
+    if (isDraftMode) {
+      bancoSalvoComSucesso = true; // No modo local, aprova direto para baixar o DXF
+    } else if (user && user.token) {
       // MANDANDO O PACOTE LIMPO E RICO PARA O BANCO!
       const registro = await registerProduction({
         nestingResult,
@@ -3263,7 +3270,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       setIsRemnantPulsing(false);
       setIsRemnantModalOpen(false);
     }
-  }, [availableRemnants, selectedDBRemnant, displayedParts.length, isDraftMode]);
+  }, [
+    availableRemnants,
+    selectedDBRemnant,
+    displayedParts.length,
+    isDraftMode,
+  ]);
 
   const containerStyle: React.CSSProperties = {
     display: "flex",
@@ -5775,12 +5787,19 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   // === INSERÇÃO: LÓGICA DE TRAVA DO RETALHO (USANDO WORKER REAL-TIME) ===
                   // Como o worker já roda em segundo plano, basta olharmos se há peças no array de colisão
                   const lineCollision = collidingPartIds.length > 0;
+
+                  // 👇 INSERÇÃO: A trava do isDraftMode foi adicionada aqui
                   const canDefineRemnants =
-                    cropLines.length > 0 && !lineCollision;
+                    cropLines.length > 0 && !lineCollision && !isDraftMode;
 
                   let remnantTooltip =
                     "Aplica a regra matemática para definir a área de retalho útil";
-                  if (cropLines.length === 0) {
+
+                  // 👇 INSERÇÃO: Alerta customizado para o Modo Local
+                  if (isDraftMode) {
+                    remnantTooltip =
+                      "⛔ Bloqueado: Gestão de retalhos desativada no Modo Local.";
+                  } else if (cropLines.length === 0) {
                     remnantTooltip =
                       "Adicione pelo menos uma linha de corte primeiro.";
                   } else if (lineCollision) {
