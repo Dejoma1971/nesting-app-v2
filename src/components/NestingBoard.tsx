@@ -499,11 +499,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // --- DEFINIÇÃO DE ESTADOS ---
   const [parts, setParts] = useState<ImportedPart[]>(initialParts);
 
-  // 👇 INSERIR AQUI: Controle do Modo Rascunho
+ // 👇 INSERIR AQUI: Controle do Modo Rascunho
   const [isDraftMode, setIsDraftMode] = useState<boolean>(
     initialParts && initialParts.length > 0,
   );
   // 👆 --------------------------------------
+
+  // A VARIÁVEL QUE HAVIA SUMIDO:
+  const [calculatedRemnants, setCalculatedRemnants] = useState<RemnantRect[]>([]);
 
   // --- NOVO: Sincroniza quando a Engenharia manda peças (Botão Cortar Agora) ---
   useEffect(() => {
@@ -1312,21 +1315,30 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     [nestingResult, currentBinIndex],
   );
 
-  // --- CÁLCULO DE EFICIÊNCIA, RETALHO E CONSUMO (CORRIGIDO) ---
+  // =================================================================
+  // --- NOVO: AUTO-LIMPEZA DO RETALHO SE A MESA ESVAZIAR ---
+  // =================================================================
+  useEffect(() => {
+    if (currentPlacedParts.length === 0 && calculatedRemnants.length > 0) {
+      setCalculatedRemnants([]);
+      console.log("♻️ Mesa vazia: Área de retalho removida automaticamente.");
+    }
+  }, [currentPlacedParts, calculatedRemnants]); // <-- DEPENDÊNCIAS LIMPAS PARA O ESLINT
+
+  // --- CÁLCULO DE EFICIÊNCIA, RETALHO E CONSUMO (ATUALIZADO) ---
   const currentEfficiencies = useMemo(() => {
-    const partsInSheet = nestingResult.filter(
-      (p) => p.binId === currentBinIndex,
-    );
+    const partsInSheet = nestingResult.filter((p) => p.binId === currentBinIndex);
+    const totalBinArea = activeBinWidth * activeBinHeight;
 
     if (partsInSheet.length === 0) {
       return {
         real: "0,0",
         effective: "0,0",
         consumption: "0,0",
-        sucataPercent: "0,0", // <--- Adicionado para zerar a sucata
-        retalhoPercent: "100,0", // <--- Adicionado: Chapa vazia = 100% de retalho!
-        remnantHeight: activeBinHeight.toFixed(0), // <--- TROCADO PARA activeBinHeight
-        remnantArea: ((activeBinWidth * activeBinHeight) / 1000000).toFixed(2), // <--- TROCADO PARA activeBinWidth/Height
+        sucataPercent: "0,0", 
+        retalhoPercent: "100,0",
+        remnantHeight: activeBinHeight.toFixed(0), 
+        remnantArea: (totalBinArea / 1000000).toFixed(2), 
         isManual: false,
       };
     }
@@ -1337,69 +1349,32 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       return acc + (original?.netArea || original?.grossArea || 0);
     }, 0);
 
-    const totalBinArea = activeBinWidth * activeBinHeight;
+    // 2. Área do Retalho (Soma da área dos retângulos verdes inteligentes)
+    const remnantAreaMM = calculatedRemnants.reduce((acc, r) => acc + (r.width * r.height), 0);
 
-    // 2. Determina o Limite de Uso (Bounding Box Automático)
-    let maxUsedY = 0;
+    // 3. Área de Corte (Área da chapa - Área de retalho)
+    const cuttingAreaMM = totalBinArea - remnantAreaMM;
 
-    partsInSheet.forEach((placed) => {
-      const original = parts.find((p) => p.id === placed.partId);
-      if (original) {
-        const dims = calculateRotatedDimensions(
-          original.width,
-          original.height,
-          placed.rotation,
-        );
-        const topY = placed.y + dims.height;
-        if (topY > maxUsedY) maxUsedY = topY;
-      }
-    });
+    // 4. Sucata (Área de corte - Área Liq. Peças)
+    const sucataAreaMM = Math.max(0, cuttingAreaMM - usedNetArea);
 
-    // 3. Verifica se existe Linha de Retalho Manual
-    const hLine = cropLines.find((l) => l.type === "horizontal");
-    const vLine = cropLines.find((l) => l.type === "vertical");
-
-    const limitY = hLine ? hLine.position : maxUsedY;
-    const limitX = vLine ? vLine.position : activeBinWidth;
-
-    const effectiveWidth = limitX;
-    const effectiveHeight = Math.max(limitY, 1);
-
-    // Área Efetiva (Retângulo usado da chapa)
-    const effectiveUsedArea = effectiveWidth * effectiveHeight;
-
-    // 4. Cálculos Finais
+    // 5. Cálculos Percentuais (Sempre em relação à chapa inteira = 100%)
+    const consumptionYield = (cuttingAreaMM / totalBinArea) * 100;
     const realYield = (usedNetArea / totalBinArea) * 100;
-    const effectiveYield = (usedNetArea / effectiveUsedArea) * 100;
-    const consumptionYield = (effectiveUsedArea / totalBinArea) * 100;
-
-    const sucataAreaMM = Math.max(0, effectiveUsedArea - usedNetArea);
-    const remnantAreaMM = totalBinArea - effectiveUsedArea;
-    // --- CORREÇÃO: Usar a altura ativa e não o padrão ---
-    const remnantLinearY = activeBinHeight - effectiveHeight;
-
     const sucataPercentBin = (sucataAreaMM / totalBinArea) * 100;
     const retalhoPercentBin = (remnantAreaMM / totalBinArea) * 100;
 
     return {
       real: realYield.toFixed(1).replace(".", ","),
-      effective: Math.min(effectiveYield, 100).toFixed(1).replace(".", ","),
-      consumption: Math.min(consumptionYield, 100).toFixed(1).replace(".", ","),
-      remnantHeight: remnantLinearY.toFixed(0),
+      effective: consumptionYield.toFixed(1).replace(".", ","), // Legado de compatibilidade
+      consumption: consumptionYield.toFixed(1).replace(".", ","),
+      remnantHeight: "0", 
       sucataPercent: sucataPercentBin.toFixed(1).replace(".", ","),
       retalhoPercent: retalhoPercentBin.toFixed(1).replace(".", ","),
       remnantArea: (remnantAreaMM / 1000000).toFixed(2),
-      isManual: !!(hLine || vLine),
+      isManual: cropLines.length > 0,
     };
-    // --- ADICIONADO activeBinWidth E activeBinHeight ABAIXO ---
-  }, [
-    nestingResult,
-    currentBinIndex,
-    parts,
-    cropLines,
-    activeBinWidth,
-    activeBinHeight,
-  ]);
+  }, [nestingResult, currentBinIndex, parts, cropLines, calculatedRemnants, activeBinWidth, activeBinHeight]);
 
   const activeSelectedPartIds = useMemo(() => {
     const ids = new Set<string>();
@@ -1597,16 +1572,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   );
   const handleDeleteSheetWrapper = useCallback(() => {
     handleDeleteCurrentBin(nestingResult, setNestingResult);
-  }, [handleDeleteCurrentBin, nestingResult, setNestingResult]);
+  }, [handleDeleteCurrentBin, nestingResult, setNestingResult]); 
+  
 
+ // =================================================================
+  // --- CÁLCULO INTELIGENTE E AUTO-GERADOR DE LINHAS (CONTORNO) ---
   // =================================================================
-  // --- INSERÇÃO: ESTADO E CÁLCULO DOS RETALHOS (REMNANTS) ---
-  // =================================================================
-  const [calculatedRemnants, setCalculatedRemnants] = useState<RemnantRect[]>(
-    [],
-  );
-
- const handleCalculateRemnants = useCallback(() => {
+  const handleCalculateRemnants = useCallback(() => {
     if (currentPlacedParts.length === 0) {
       alert("Não há peças na chapa para calcular retalhos.");
       setSheetMenu(null);
@@ -1622,8 +1594,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       if (!original) return [];
       const dims = calculateRotatedDimensions(original.width, original.height, placed.rotation);
 
-      // 👇 INSERÇÃO DO GAP DE SEGURANÇA
-      const safeGap = gap || 0;
+      // CORREÇÃO 1: Usamos metade do gap, para a linha de corte passar exatamente no MEIO do espaço entre a peça e o retalho
+      const safeGap = gap ? gap / 2 : 0;
 
       return [
         { x: placed.x - safeGap, y: placed.y - safeGap },
@@ -1633,18 +1605,59 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       ];
     }).filter(loop => loop.length > 0);
 
-    // 2. Roda a Matriz para achar os maiores retângulos (min 0.3m², máx 2)
-    const optimalRemnants = findSmartRemnants(binW, binH, realPartLoops, 0.3, 2);
+    // CORREÇÃO 2: Adicionamos o número '2' no final. Isso manda a matriz usar "pixels" de 2mm 
+    // em vez de 20mm, garantindo precisão absoluta e impedindo que a área verde invada a peça.
+    const optimalRemnants = findSmartRemnants(binW, binH, realPartLoops, 0.3, 2, 2);
 
     if (optimalRemnants.length === 0) {
       alert("Nenhum retalho com área útil superior a 0,3m² foi encontrado neste arranjo.");
     } else {
-      setCalculatedRemnants(optimalRemnants); // Apenas pinta a área de verde
-      console.log(`♻️ Eco-Smart: ${optimalRemnants.length} retalho(s) detectado(s) com sucesso.`);
+      setCalculatedRemnants(optimalRemnants); // Pinta a área de verde
+
+      // 3. AUTO-GERADOR DE LINHAS DE CORTE (CONTORNO INTERNO)
+      const newCropLines: any[] = []; 
+      const safeId = () => crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+
+      optimalRemnants.forEach((remnant) => {
+        const TOLERANCE = 2; // Tolerância ajustada para a nova resolução fina
+
+        // Verifica quais bordas estão "soltas" no meio da chapa (precisam de corte)
+        const hasInternalBottom = remnant.y > TOLERANCE;
+        const hasInternalTop = Math.abs((remnant.y + remnant.height) - binH) > TOLERANCE;
+        const hasInternalLeft = remnant.x > TOLERANCE;
+        const hasInternalRight = Math.abs((remnant.x + remnant.width) - binW) > TOLERANCE;
+
+        // Linha Horizontal na Base do retalho
+        if (hasInternalBottom) {
+          newCropLines.push({ id: safeId(), type: 'horizontal', position: remnant.y, min: remnant.x, max: remnant.x + remnant.width, binId: currentBinIndex });
+        }
+        // Linha Horizontal no Topo do retalho
+        if (hasInternalTop) {
+          newCropLines.push({ id: safeId(), type: 'horizontal', position: remnant.y + remnant.height, min: remnant.x, max: remnant.x + remnant.width, binId: currentBinIndex });
+        }
+        // Linha Vertical na Esquerda do retalho
+        if (hasInternalLeft) {
+          newCropLines.push({ id: safeId(), type: 'vertical', position: remnant.x, min: remnant.y, max: remnant.y + remnant.height, binId: currentBinIndex });
+        }
+        // Linha Vertical na Direita do retalho
+        if (hasInternalRight) {
+          newCropLines.push({ id: safeId(), type: 'vertical', position: remnant.x + remnant.width, min: remnant.y, max: remnant.y + remnant.height, binId: currentBinIndex });
+        }
+      });
+
+      // 4. Injeta as linhas exatas na chapa atual
+      if (setCropLines) {
+        setCropLines(prev => {
+           const otherBinsLines = prev.filter(l => l.binId !== currentBinIndex);
+           return [...otherBinsLines, ...newCropLines];
+        });
+      }
+
+      console.log(`♻️ Eco-Smart: ${optimalRemnants.length} retalho(s) detectado(s) e ${newCropLines.length} linhas geradas.`);
     }
 
     setSheetMenu(null);
-  }, [currentPlacedParts, activeBinWidth, activeBinHeight, parts, setCalculatedRemnants, gap]);
+  }, [currentPlacedParts, activeBinWidth, activeBinHeight, parts, setCalculatedRemnants, gap, setCropLines, currentBinIndex]);
 
   useEffect(() => {
     if (selectedPartIds.length > 0) {
@@ -3135,52 +3148,37 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       }
     });
 
-    // 4. Calcular Áreas e Dimensões Físicas
+    // 4. Calcular Áreas e Dimensões Físicas (Matemática Fechada)
+    const totalBinArea = activeBinWidth * activeBinHeight;
+
+    // A. Área Líquida das Peças
     const usedNetArea = currentPlacedParts.reduce((acc, placed) => {
       const original = parts.find((p) => p.id === placed.partId);
       return acc + (original?.netArea || original?.grossArea || 0);
     }, 0);
 
-    let maxUsedY = 0;
-    currentPlacedParts.forEach((placed) => {
-      const original = parts.find((p) => p.id === placed.partId);
-      if (original) {
-        const dims = calculateRotatedDimensions(
-          original.width,
-          original.height,
-          placed.rotation,
-        );
-        const topY = placed.y + dims.height;
-        if (topY > maxUsedY) maxUsedY = topY;
-      }
-    });
+    // B. Área do Retalho (Soma das áreas verdes)
+    const remnantAreaMM = calculatedRemnants.reduce((acc, r) => acc + (r.width * r.height), 0);
 
-    const hLine = cropLines.find((l) => l.type === "horizontal");
-    const vLine = cropLines.find((l) => l.type === "vertical");
+    // C. Área de Corte
+    const cuttingAreaMM = totalBinArea - remnantAreaMM;
 
-    // --- CORREÇÃO MATEMÁTICA: Usando activeBinWidth/Height em vez de binSize ---
-    const limitX = vLine ? vLine.position : activeBinWidth;
-    const limitY = hLine ? hLine.position : maxUsedY;
-
-    const effectiveUsedArea = limitX * Math.max(limitY, 1);
-    const totalBinArea = activeBinWidth * activeBinHeight;
-
-    const sucataAreaMM = Math.max(0, effectiveUsedArea - usedNetArea);
-    const remnantAreaMM = Math.max(0, totalBinArea - effectiveUsedArea);
+    // D. Sucata
+    const sucataAreaMM = Math.max(0, cuttingAreaMM - usedNetArea);
 
     return {
       material: materialName,
       espessura: espessuraMm,
       densidade: densidade,
       totalBinArea: totalBinArea,
-      effectiveArea: effectiveUsedArea,
+      effectiveArea: cuttingAreaMM, // Área faturada/gastada
       netPartsArea: usedNetArea,
       sucataArea: sucataAreaMM,
       retalhoArea: remnantAreaMM,
       binWidth: activeBinWidth,
       binHeight: activeBinHeight,
-      effectiveWidth: limitX,
-      effectiveHeight: Math.max(limitY, 1),
+      effectiveWidth: activeBinWidth, // Limites absolutos descontinuados do log
+      effectiveHeight: activeBinHeight,
       remnants: calculatedRemnants.map((r) => ({
         id: r.id,
         width: r.width,
@@ -3196,10 +3194,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     currentPlacedParts,
     parts,
     materialsList,
-    thicknessesList,
-    cropLines,
+    thicknessesList,    
     calculatedRemnants,
-    activeBinWidth, // Agora o ESLint não vai reclamar, pois estamos usando elas acima!
+    activeBinWidth, 
     activeBinHeight,
   ]);
   // --- EFEITO: Pulsa e abre o modal (COM TRAVA DE PEÇAS VAZIAS) ---
@@ -5795,6 +5792,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                       canDefineRemnants={canDefineRemnants}
                       remnantTooltip={remnantTooltip}
                       // -------------------------------------
+                      // 👇 INSERÇÃO AQUI 👇
+                      hasCalculatedRemnants={calculatedRemnants.length > 0}
+                      onClearRemnants={() => setCalculatedRemnants([])}
                     />
                   );
                 })()}
