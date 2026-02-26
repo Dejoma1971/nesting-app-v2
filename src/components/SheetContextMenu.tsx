@@ -17,6 +17,7 @@ interface SheetContextMenuProps {
   // --- NOVAS PROPS DA TRAVA DE RETALHO ---
   canDefineRemnants: boolean;
   remnantTooltip: string;
+  onTestRawRemnant?: () => void; // <--- NOVA PROP AQUI
 }
 
 export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
@@ -32,7 +33,8 @@ export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
   onDefineRemnants,
   hasPlacedParts,
   canDefineRemnants, 
-  remnantTooltip
+  remnantTooltip,
+  onTestRawRemnant
   // ------------------------------------
 }) => {
   
@@ -137,6 +139,22 @@ export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
                       title={remnantTooltip}
                   >
                       <span style={{ fontSize: '14px' }}>🟩</span> Definir Retalhos
+                  </button>
+                )}
+                {/* ------------------------------------------------------ */}
+                {/* --- INSERÇÃO: BOTÃO DE TESTE TEMPORÁRIO --- */}
+               {onTestRawRemnant && (
+                  <button 
+                      style={{...itemStyle, color: '#f39c12'}} 
+                      onClick={() => { 
+                          onTestRawRemnant(); 
+                          onClose(); 
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(243, 156, 18, 0.2)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      title="Testar a extração booleana via polygon-clipping"
+                  >
+                      <span style={{ fontSize: '14px' }}>🧪</span> Teste: Polígono Bruto
                   </button>
                 )}
                 {/* ------------------------------------------------------ */}

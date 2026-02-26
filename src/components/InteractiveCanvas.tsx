@@ -11,7 +11,7 @@ import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
 import type { AppTheme } from "../styles/theme";
 import type { CropLine } from "../hooks/useSheetManager";
-import type { RemnantRect } from "../utils/remnantCalculator";
+import { type RemnantRect } from '../utils/remnantDetector';
 import { getOBBCorners } from "../utils/obbUtil";
 import { useCanvasPan } from "../hooks/useCanvasPan";
 
@@ -1429,7 +1429,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                 vectorEffect="non-scaling-stroke"
                 style={{ pointerEvents: "all" }}
               />
-              {/* --- INSERÇÃO: PINTURA DOS RETALHOS DE ESTOQUE --- */}
+             {/* --- INSERÇÃO: PINTURA DOS RETALHOS INTELIGENTES --- */}
               {calculatedRemnants.map((remnant) => (
                 <rect
                   key={remnant.id}
@@ -1437,7 +1437,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                   y={remnant.y}
                   width={remnant.width}
                   height={remnant.height}
-                  fill={remnant.type === 'primary' ? 'rgba(40, 167, 69, 0.3)' : 'rgba(40, 167, 69, 0.15)'}
+                  fill="rgba(40, 167, 69, 0.3)"
                   stroke="rgba(40, 167, 69, 0.8)"
                   strokeWidth={2}
                   strokeDasharray="5,5"
@@ -1492,8 +1492,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
               })}
 
               {/* --- RENDERIZAÇÃO DAS LINHAS DE RETALHO (ATUALIZADO PARA TRIM) --- */}
-              {cropLines.map((line) => {
-                const strokeW = 2;
+              {cropLines.map((line) => {                
                 const hitW = 20;
 
                 // LÓGICA DO CURSOR: Se Trim ativo, vira alvo (crosshair). Se não, mover.
@@ -1564,17 +1563,15 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                       vectorEffect="non-scaling-stroke"
                     />
 
-                    {/* 2. Linha Visível */}
+                  {/* 2. Linha Visível */}
                     <line
                       x1={x1}
                       y1={y1}
                       x2={x2}
                       y2={y2}
-                      stroke={line.isSelected ? "#ff0000" : "#00ff3cff"} // Exemplo: muda cor se selecionado
-                      strokeWidth={strokeW}
-                      // --- ADICIONE ESTA LINHA: ---
+                      stroke={line.isSelected ? "#ff0000" : "#00ff3cff"}
+                      strokeWidth={2}
                       strokeLinecap="square"
-                      // ----------------------------
                       vectorEffect="non-scaling-stroke"
                       style={{ pointerEvents: "none" }}
                     />

@@ -53,15 +53,9 @@ import { calculateSmartLabel } from "../utils/labelUtils";
 
 import { RemnantModal } from "./RemnantModal";
 
-// --- INSERÇÃO: CÁLCULO DE RETALHOS ---
-import {
-  calculateOptimalRemnants,
-  resolveCropLines,
-  type RemnantRect,
-} from "../utils/remnantCalculator";
-// -------------------------------------
-
 import { useNfpNesting } from "../hooks/useNfpNesting";
+
+import { findSmartRemnants, type RemnantRect } from "../utils/remnantDetector";
 
 // 👇 COLE A INTERFACE AQUI 👇
 // --- INSERÇÃO FASE 3: INTERFACE DO RETALHO ---
@@ -1612,81 +1606,45 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     [],
   );
 
-  // Limpa os retalhos visuais se o usuário apagar todas as linhas de corte
-  useEffect(() => {
-    if (cropLines.length === 0 && calculatedRemnants.length > 0) {
-      setCalculatedRemnants([]);
-    }
-  }, [cropLines, calculatedRemnants]);
-
-  const handleCalculateRemnants = useCallback(() => {
-    if (cropLines.length === 0) {
-      alert(
-        "Adicione pelo menos uma linha de corte antes de definir os retalhos.",
-      );
+ const handleCalculateRemnants = useCallback(() => {
+    if (currentPlacedParts.length === 0) {
+      alert("Não há peças na chapa para calcular retalhos.");
       setSheetMenu(null);
       return;
     }
 
-    // 1. Descobre os limites X e Y formados pelas linhas atuais
-    // 👇 CORREÇÃO: Usando activeBinWidth e Height
-    const { cutX, cutY } = resolveCropLines(
-      activeBinWidth,
-      activeBinHeight,
-      cropLines,
-    );
+    const binW = activeBinWidth;
+    const binH = activeBinHeight;
 
-    // 2. Calcula os retângulos perfeitos usando a nossa regra de negócio
-    // 👇 CORREÇÃO: Usando activeBinWidth e Height
-    const optimalRemnants = calculateOptimalRemnants(
-      activeBinWidth,
-      activeBinHeight,
-      cutX,
-      cutY,
-    );
+    // 1. Extrai a geometria das peças reais da mesa
+    const realPartLoops = currentPlacedParts.map(placed => {
+      const original = parts.find(p => p.id === placed.partId);
+      if (!original) return [];
+      const dims = calculateRotatedDimensions(original.width, original.height, placed.rotation);
 
-    // 3. Salva no estado para a tela desenhar as cores
-    setCalculatedRemnants(optimalRemnants);
+      // 👇 INSERÇÃO DO GAP DE SEGURANÇA
+      const safeGap = gap || 0;
 
-    // ===============================================================
-    // 4. --- AUTO-TRIM MÁGICO PARA O LASER ---
-    // ===============================================================
-    const isHorizontalWinner = optimalRemnants.some(
-      (r) => r.id === "retalho-primario-horizontal",
-    );
-    const isVerticalWinner = optimalRemnants.some(
-      (r) => r.id === "retalho-primario-vertical",
-    );
+      return [
+        { x: placed.x - safeGap, y: placed.y - safeGap },
+        { x: placed.x + dims.width + safeGap, y: placed.y - safeGap },
+        { x: placed.x + dims.width + safeGap, y: placed.y + dims.height + safeGap },
+        { x: placed.x - safeGap, y: placed.y + dims.height + safeGap }
+      ];
+    }).filter(loop => loop.length > 0);
 
-    if (isHorizontalWinner || isVerticalWinner) {
-      if (setCropLines) {
-        setCropLines((prev) =>
-          prev.map((line) => {
-            if (line.type === "vertical") {
-              return {
-                ...line,
-                // 👇 CORREÇÃO: Limite máximo agora respeita o retalho atual
-                max: isHorizontalWinner ? cutY : activeBinHeight,
-                min: 0,
-              };
-            }
-            if (line.type === "horizontal") {
-              return {
-                ...line,
-                // 👇 CORREÇÃO: Limite máximo agora respeita o retalho atual
-                max: isVerticalWinner ? cutX : activeBinWidth,
-                min: 0,
-              };
-            }
-            return line;
-          }),
-        );
-      }
+    // 2. Roda a Matriz para achar os maiores retângulos (min 0.3m², máx 2)
+    const optimalRemnants = findSmartRemnants(binW, binH, realPartLoops, 0.3, 2);
+
+    if (optimalRemnants.length === 0) {
+      alert("Nenhum retalho com área útil superior a 0,3m² foi encontrado neste arranjo.");
+    } else {
+      setCalculatedRemnants(optimalRemnants); // Apenas pinta a área de verde
+      console.log(`♻️ Eco-Smart: ${optimalRemnants.length} retalho(s) detectado(s) com sucesso.`);
     }
-    // ===============================================================
 
     setSheetMenu(null);
-  }, [cropLines, activeBinWidth, activeBinHeight, setCropLines]);
+  }, [currentPlacedParts, activeBinWidth, activeBinHeight, parts, setCalculatedRemnants, gap]);
 
   useEffect(() => {
     if (selectedPartIds.length > 0) {
@@ -1865,10 +1823,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         return; // Bloqueia o salvamento
       }
 
-      // Cenário B: O usuário colocou a linha, mas esqueceu de mandar calcular o retalho
+      // Cenário: O usuário tem uma sobra considerável, mas não gerou o retalho inteligente
       if (calculatedRemnants.length === 0) {
         alert(
-          `♻️ ECO-SMART: RETALHO NÃO GERADO!\n\nVocê inseriu a linha de corte, mas esqueceu de registrar o retalho.\n\nClique com o botão direito na chapa e selecione "Definir Retalhos" antes de prosseguir.`,
+          `♻️ ECO-SMART: RETALHO OBRIGATÓRIO!\n\nA sobra desta chapa possui ${sobraM2.toFixed(2)}m².\n\nClique com o botão direito na chapa e selecione "Definir Retalhos" para o sistema gerar automaticamente as linhas de corte do Laser.`,
         );
         return; // Bloqueia o salvamento
       }
@@ -3227,7 +3185,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         id: r.id,
         width: r.width,
         height: r.height,
-        type: r.type,
+        type: "smart",
       })),
       pedidos: Array.from(pedidosSet),
       ops: Array.from(opsSet),
@@ -3473,6 +3431,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   //       placedParts: nestingResult, // Envia TODAS as chapas
   //     });
   // }, [nestingResult, parts, binSize, user]);
+
+  // === NOVA FUNÇÃO DE TESTE (Lendo as Peças Reais da Mesa) ===
 
   return (
     <>
@@ -5788,14 +5748,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   // Como o worker já roda em segundo plano, basta olharmos se há peças no array de colisão
                   const lineCollision = collidingPartIds.length > 0;
 
-                  // 👇 INSERÇÃO: A trava do isDraftMode foi adicionada aqui
-                  const canDefineRemnants =
-                    cropLines.length > 0 && !lineCollision && !isDraftMode;
+                  // Liberado para clique direto (sem exigir cropLines prévias)
+                  const canDefineRemnants = !lineCollision && !isDraftMode;
 
                   let remnantTooltip =
-                    "Aplica a regra matemática para definir a área de retalho útil";
+                    "Calcula e destaca as áreas de retalho úteis (>0,3m²)";
 
-                  // 👇 INSERÇÃO: Alerta customizado para o Modo Local
                   if (isDraftMode) {
                     remnantTooltip =
                       "⛔ Bloqueado: Gestão de retalhos desativada no Modo Local.";
