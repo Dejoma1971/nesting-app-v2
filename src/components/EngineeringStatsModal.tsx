@@ -103,7 +103,11 @@ export const EngineeringStatsModal: React.FC<EngineeringStatsModalProps> = ({
     },
     {
       label: "Área de Corte (Efetiva)",
-      dims: formatDims(stats.effectiveWidth, stats.effectiveHeight),
+      // Se houver retalho (formato irregular), oculta a dimensão para não causar confusão matemática
+      dims:
+        stats.retalhoArea > 0
+          ? "-"
+          : formatDims(stats.effectiveWidth, stats.effectiveHeight),
       area: stats.effectiveArea,
       color: "#007bff",
       isBold: false,
