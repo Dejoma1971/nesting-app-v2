@@ -13,9 +13,9 @@ interface RemnantModalProps {
   isOpen: boolean;
   onClose: () => void;
   availableRemnants: DBRemnant[];
-  selectedDBRemnant: DBRemnant | null;
-  onSelectRemnant: (remnant: DBRemnant) => void;
-  onRemoveRemnant: () => void;
+  selectedRemnants: Record<number, DBRemnant>; // A Fila Inteira (Dicionário)
+  onAddRemnant: (remnant: DBRemnant) => void;
+  onRemoveRemnant: (binIndex: number) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   theme: any;
 }
@@ -24,12 +24,24 @@ export const RemnantModal: React.FC<RemnantModalProps> = ({
   isOpen,
   onClose,
   availableRemnants,
-  selectedDBRemnant,
-  onSelectRemnant,
+  selectedRemnants,
+  onAddRemnant,
   onRemoveRemnant,
   theme,
 }) => {
   if (!isOpen) return null;
+
+  // 1. Converte o dicionário num array para renderizar a Fila de Corte
+  const queueList = Object.entries(selectedRemnants).map(([index, rem]) => ({
+    binIndex: Number(index),
+    remnant: rem,
+  }));
+
+  // 2. Filtra o estoque para esconder os retalhos que já foram colocados na Fila
+  const idsNoCarrinho = queueList.map((q) => q.remnant.id);
+  const estoqueFiltrado = availableRemnants.filter(
+    (r) => !idsNoCarrinho.includes(r.id)
+  );
 
   return (
     <div
@@ -52,8 +64,8 @@ export const RemnantModal: React.FC<RemnantModalProps> = ({
           backgroundColor: theme.panelBg,
           padding: "20px",
           borderRadius: "8px",
-          width: "500px",
-          maxHeight: "80vh",
+          width: "550px",
+          height: "85vh", // Mais alto para acomodar as duas listas confortavelmente
           display: "flex",
           flexDirection: "column",
           border: `1px solid ${theme.border}`,
@@ -71,7 +83,7 @@ export const RemnantModal: React.FC<RemnantModalProps> = ({
           }}
         >
           <h3 style={{ margin: 0, color: theme.text, display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ fontSize: "20px" }}>♻️</span> Gestão de Retalhos (Eco-Smart)
+            <span style={{ fontSize: "20px" }}>♻️</span> Gestão de Retalhos (Fila Múltipla)
           </h3>
           <button
             onClick={onClose}
@@ -87,52 +99,82 @@ export const RemnantModal: React.FC<RemnantModalProps> = ({
           </button>
         </div>
 
-        {/* ÁREA SE JÁ EXISTIR UM RETALHO SELECIONADO */}
-        {selectedDBRemnant && (
+        {/* ========================================================= */}
+        {/* SESSÃO 1: FILA DE CORTE (CARRINHO)                        */}
+        {/* ========================================================= */}
+        <div style={{ marginBottom: "20px" }}>
+          <span style={{ fontSize: "12px", color: theme.label, fontWeight: "bold" }}>
+            RETALHOS NA FILA DE CORTE:
+          </span>
           <div
             style={{
-              background: "rgba(23, 162, 184, 0.1)",
-              border: "1px solid #17a2b8",
-              padding: "15px",
+              background: "rgba(23, 162, 184, 0.05)",
+              border: "1px dashed #17a2b8",
+              padding: "10px",
               borderRadius: "6px",
-              marginBottom: "15px",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
+              marginTop: "5px",
+              minHeight: "70px",
+              maxHeight: "200px",
+              overflowY: "auto",
             }}
           >
-            <div>
-              <span style={{ fontSize: "12px", color: theme.label, fontWeight: "bold" }}>RETALHO EM USO:</span>
-              <div style={{ fontSize: "16px", color: theme.text, fontWeight: "bold" }}>
-                {selectedDBRemnant.codigo} ({selectedDBRemnant.largura} x {selectedDBRemnant.altura} mm)
+            {queueList.length === 0 ? (
+              <div style={{ textAlign: "center", color: theme.label, fontSize: "13px", marginTop: "15px" }}>
+                Nenhum retalho na fila. Dê um duplo clique abaixo para adicionar.
               </div>
-            </div>
-            <button
-              onClick={onRemoveRemnant}
-              style={{
-                background: "#dc3545",
-                color: "white",
-                border: "none",
-                padding: "8px 12px",
-                borderRadius: "4px",
-                cursor: "pointer",
-                fontWeight: "bold",
-                fontSize: "12px",
-                transition: "background 0.2s"
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.background = "#c82333"}
-              onMouseLeave={(e) => e.currentTarget.style.background = "#dc3545"}
-            >
-              Remover / Usar Chapa Padrão
-            </button>
+            ) : (
+              queueList.map(({ binIndex, remnant }) => (
+                <div
+                  key={binIndex}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    background: theme.panelBg,
+                    border: `1px solid ${theme.border}`,
+                    padding: "8px 12px",
+                    borderRadius: "4px",
+                    marginBottom: "6px",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <div style={{
+                      background: "#17a2b8", color: "white", padding: "2px 6px",
+                      borderRadius: "4px", fontSize: "11px", fontWeight: "bold"
+                    }}>
+                      Chapa {binIndex + 1}
+                    </div>
+                    <span style={{ fontSize: "14px", color: theme.text, fontWeight: "bold" }}>
+                      {remnant.codigo}
+                    </span>
+                    <span style={{ fontSize: "12px", color: theme.label }}>
+                      ({Number(remnant.largura)} x {Number(remnant.altura)} mm)
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => onRemoveRemnant(binIndex)}
+                    style={{
+                      background: "transparent", color: "#dc3545", border: "none",
+                      cursor: "pointer", fontWeight: "bold", fontSize: "14px", padding: "0 5px"
+                    }}
+                    title="Remover da fila e voltar para o estoque"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))
+            )}
           </div>
-        )}
+        </div>
 
-        {/* LISTA DE RETALHOS DISPONÍVEIS */}
+        {/* ========================================================= */}
+        {/* SESSÃO 2: ESTOQUE DISPONÍVEL                              */}
+        {/* ========================================================= */}
         <span style={{ fontSize: "12px", fontWeight: "bold", color: theme.label, marginBottom: "8px" }}>
-          DISPONÍVEIS (Duplo clique para usar):
+          ESTOQUE DISPONÍVEL (Duplo clique para adicionar à fila):
         </span>
-        
+
         <div
           style={{
             flex: 1,
@@ -143,15 +185,17 @@ export const RemnantModal: React.FC<RemnantModalProps> = ({
             padding: "5px",
           }}
         >
-          {availableRemnants.length === 0 ? (
+          {estoqueFiltrado.length === 0 ? (
             <div style={{ padding: "20px", textAlign: "center", color: theme.label, fontSize: "14px" }}>
-              Nenhum retalho encontrado para este material/espessura.
+              {availableRemnants.length > 0
+                ? "Todos os retalhos disponíveis já estão na Fila de Corte."
+                : "Nenhum retalho encontrado para este material/espessura."}
             </div>
           ) : (
-            availableRemnants.map((r) => (
+            estoqueFiltrado.map((r) => (
               <div
                 key={r.id}
-                onDoubleClick={() => onSelectRemnant(r)}
+                onDoubleClick={() => onAddRemnant(r)}
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
@@ -160,16 +204,12 @@ export const RemnantModal: React.FC<RemnantModalProps> = ({
                   borderBottom: `1px solid ${theme.border}`,
                   cursor: "pointer",
                   userSelect: "none",
-                  background: selectedDBRemnant?.id === r.id ? "rgba(40, 167, 69, 0.2)" : "transparent",
-                  transition: "background 0.2s"
+                  background: "transparent",
+                  transition: "background 0.2s",
                 }}
-                onMouseEnter={(e) => {
-                  if (selectedDBRemnant?.id !== r.id) e.currentTarget.style.background = theme.hoverRow;
-                }}
-                onMouseLeave={(e) => {
-                  if (selectedDBRemnant?.id !== r.id) e.currentTarget.style.background = "transparent";
-                }}
-                title="Dê um duplo clique para selecionar"
+                onMouseEnter={(e) => (e.currentTarget.style.background = theme.hoverRow)}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                title="Dê um duplo clique para enviar à fila de corte"
               >
                 <div>
                   <div style={{ fontWeight: "bold", color: theme.text, fontSize: "14px" }}>{r.codigo}</div>

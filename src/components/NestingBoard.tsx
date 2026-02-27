@@ -57,6 +57,8 @@ import { useNfpNesting } from "../hooks/useNfpNesting";
 
 import { findSmartRemnants, type RemnantRect } from "../utils/remnantDetector";
 
+import { useRemnantSelection } from "../hooks/useRemnantSelection";
+
 // 👇 COLE A INTERFACE AQUI 👇
 // --- INSERÇÃO FASE 3: INTERFACE DO RETALHO ---
 interface DBRemnant {
@@ -417,27 +419,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // 👇 COLE OS ESTADOS AQUI 👇
   // --- INSERÇÃO FASE 3: ESTADOS DO ECO-SMART ---
   const [availableRemnants, setAvailableRemnants] = useState<DBRemnant[]>([]);
-  const [selectedDBRemnant, setSelectedDBRemnant] = useState<DBRemnant | null>(
-    null,
-  );
 
   // --- NOVOS ESTADOS: CONTROLE DO MODAL E ANIMAÇÃO ---
   const [isRemnantModalOpen, setIsRemnantModalOpen] = useState(false);
   const [isRemnantPulsing, setIsRemnantPulsing] = useState(false);
-
-  // --- FUNÇÕES DO MODAL DE RETALHOS ---
-  const handleSelectRemnant = useCallback((remnant: DBRemnant) => {
-    setSelectedDBRemnant(remnant);
-
-    setIsRemnantModalOpen(false); // Fecha o modal ao selecionar
-  }, []);
-
-  const handleRemoveRemnant = useCallback(() => {
-    setSelectedDBRemnant(null);
-
-    setIsRemnantModalOpen(false); // Fecha o modal
-  }, []);
-  // ---------------------------------------------
 
   // =========================================================
   const [showOnlySelected, setShowOnlySelected] = useState(false);
@@ -554,16 +539,54 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     setCropLines,
   } = useSheetManager({ initialBins: 1 });
 
-  // 👇 === NOVA INSERÇÃO: TAMANHO DINÂMICO DA TELA === 👇
-  const activeBinWidth =
-    currentBinIndex === 0 && selectedDBRemnant
-      ? Number(selectedDBRemnant.largura)
-      : binSize.width;
-  const activeBinHeight =
-    currentBinIndex === 0 && selectedDBRemnant
-      ? Number(selectedDBRemnant.altura)
-      : binSize.height;
-  // 👆 =================================================== 👆
+  // 1. Inicia o Hook de Memória (RECUPERAMOS O 'selectedRemnants' AQUI!)
+  const {
+    selectedRemnants,
+    setRemnantForBin,
+    removeRemnantFromBin,
+    clearAllRemnants,
+    getRemnantForBin,
+  } = useRemnantSelection();
+
+  // 2. Variável mágica que diz qual retalho está ativo na chapa que estamos vendo
+  const selectedDBRemnant = getRemnantForBin(currentBinIndex);
+
+  // 👇 === FASE 2: TAMANHO DINÂMICO INDEPENDENTE POR CHAPA === 👇
+  const activeBinWidth = selectedDBRemnant
+    ? Number(selectedDBRemnant.largura)
+    : binSize.width;
+
+  const activeBinHeight = selectedDBRemnant
+    ? Number(selectedDBRemnant.altura)
+    : binSize.height;
+  // 👆 ======================================================= 👆
+
+  // 3. Novas Funções do Modal "Carrinho"
+  const handleAddRemnantToQueue = useCallback(
+    (remnant: DBRemnant) => {
+      // 1. Procura a primeira chapa livre (0, 1, 2...) que não tenha retalho atribuído
+      let nextIndex = 0;
+      while (selectedRemnants[nextIndex] !== undefined) {
+        nextIndex++;
+      }
+
+      // 2. Associa o retalho à chapa
+      setRemnantForBin(nextIndex, remnant);
+
+      // 3. AUTO-EXPANSÃO DA MESA: Se o índice for maior/igual ao total de chapas visíveis, cria as chapas necessárias
+      if (nextIndex >= totalBins) {
+        setTotalBins(nextIndex + 1);
+      }
+    },
+    [selectedRemnants, setRemnantForBin, totalBins, setTotalBins],
+  ); // <-- Atualize as dependências aqui!
+
+  const handleRemoveRemnantFromQueue = useCallback(
+    (binIndex: number) => {
+      removeRemnantFromBin(binIndex);
+    },
+    [removeRemnantFromBin],
+  );
 
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || "");
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -1693,7 +1716,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             min: remnant.x,
             max: remnant.x + remnant.width,
             binId: currentBinIndex,
-            isAutoRemnant: true // <--- ADICIONE AQUI
+            isAutoRemnant: true, // <--- ADICIONE AQUI
           });
         }
         // Linha Horizontal no Topo do retalho
@@ -1705,7 +1728,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             min: remnant.x,
             max: remnant.x + remnant.width,
             binId: currentBinIndex,
-            isAutoRemnant: true // <--- ADICIONE AQUI
+            isAutoRemnant: true, // <--- ADICIONE AQUI
           });
         }
         // Linha Vertical na Esquerda do retalho
@@ -1717,7 +1740,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             min: remnant.y,
             max: remnant.y + remnant.height,
             binId: currentBinIndex,
-            isAutoRemnant: true // <--- ADICIONE AQUI
+            isAutoRemnant: true, // <--- ADICIONE AQUI
           });
         }
         // Linha Vertical na Direita do retalho
@@ -1729,7 +1752,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             min: remnant.y,
             max: remnant.y + remnant.height,
             binId: currentBinIndex,
-            isAutoRemnant: true // <--- ADICIONE AQUI
+            isAutoRemnant: true, // <--- ADICIONE AQUI
           });
         }
       });
@@ -2105,7 +2128,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
       if (!temPecaPendente) {
         // Se não há mais nenhuma peça pendente no pedido, aciona o botão Reset automaticamente!
-        handleClearTable();
+        clearAllRemnants();
 
         alert("✅ Produção totalmente concluída! A mesa foi limpa e resetada.");
         return; // Interrompe a função aqui para que o React não tente recriar o cache fantasma!
@@ -2137,7 +2160,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
       // 3. Hard Reset da Mesa (Volta ao padrão, limpa guilhotina e desativa retalhos)
       if (setCropLines) setCropLines([]);
-      setSelectedDBRemnant(null);
+      removeRemnantFromBin(currentBinIndex);
       setBinSize({ width: 1200, height: 3000 }); // Dimensão Padrão
       removeAndShiftSavedBins(currentBinIndex);
       removeAndShiftLockedBins(currentBinIndex);
@@ -2476,7 +2499,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       resetAllSaveStatus();
       if (setCropLines) setCropLines([]);
       // 👇 AS DUAS LINHAS CIRÚRGICAS INSERIDAS AQUI 👇
-      setSelectedDBRemnant(null);
+      removeRemnantFromBin(currentBinIndex);
       setBinSize({ width: 1200, height: 3000 });
       // 👆 ========================================== 👆
       // Limpa seleções do modal também, por garantia
@@ -2495,6 +2518,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     setCropLines,
     clearSavedState,
     user, // <--- Adicione user nas dependências
+    currentBinIndex,
+    removeRemnantFromBin,
   ]);
 
   // ⬇️ --- SUBSTITUIR ESTA FUNÇÃO INTEIRA --- ⬇️
@@ -3292,7 +3317,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     const usedNetArea = currentPlacedParts.reduce((acc, placed) => {
       const original = parts.find((p) => p.id === placed.partId);
       if (original) {
-        const dims = calculateRotatedDimensions(original.width, original.height, placed.rotation);
+        const dims = calculateRotatedDimensions(
+          original.width,
+          original.height,
+          placed.rotation,
+        );
         const rightEdge = placed.x + dims.width;
         const bottomEdge = placed.y + dims.height;
 
@@ -3330,8 +3359,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       retalhoArea: remnantAreaMM,
       binWidth: activeBinWidth,
       binHeight: activeBinHeight,
-      effectiveWidth: safeEffectiveWidth > 0 ? safeEffectiveWidth : activeBinWidth, 
-      effectiveHeight: safeEffectiveHeight > 0 ? safeEffectiveHeight : activeBinHeight,
+      effectiveWidth:
+        safeEffectiveWidth > 0 ? safeEffectiveWidth : activeBinWidth,
+      effectiveHeight:
+        safeEffectiveHeight > 0 ? safeEffectiveHeight : activeBinHeight,
       remnants: currentBinRemnants.map((r) => ({
         id: r.id,
         width: r.width,
@@ -4672,7 +4703,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               value={activeBinWidth} // <--- ALTERADO AQUI (Antes era binSize.width)
               onChange={(e) => {
                 setBinSize((p) => ({ ...p, width: Number(e.target.value) }));
-                setSelectedDBRemnant(null); // Se ele digitar, quebra o retalho
+                removeRemnantFromBin(currentBinIndex); // Se ele digitar, quebra o retalho
               }}
               style={{ ...inputStyle, width: 50 }}
               title={
@@ -4687,7 +4718,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               value={activeBinHeight} // <--- ALTERADO AQUI (Antes era binSize.height)
               onChange={(e) => {
                 setBinSize((p) => ({ ...p, height: Number(e.target.value) }));
-                setSelectedDBRemnant(null); // Se ele digitar, quebra o retalho
+                removeRemnantFromBin(currentBinIndex); // Se ele digitar, quebra o retalho
               }}
               style={{ ...inputStyle, width: 50 }}
             />
@@ -6197,9 +6228,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           isOpen={isRemnantModalOpen}
           onClose={() => setIsRemnantModalOpen(false)}
           availableRemnants={availableRemnants}
-          selectedDBRemnant={selectedDBRemnant}
-          onSelectRemnant={handleSelectRemnant}
-          onRemoveRemnant={handleRemoveRemnant}
+          selectedRemnants={selectedRemnants}
+          onAddRemnant={handleAddRemnantToQueue}
+          onRemoveRemnant={handleRemoveRemnantFromQueue}
           theme={theme}
         />
         {/* ------------------------------------------------------ */}
