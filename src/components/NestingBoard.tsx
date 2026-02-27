@@ -1693,6 +1693,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             min: remnant.x,
             max: remnant.x + remnant.width,
             binId: currentBinIndex,
+            isAutoRemnant: true // <--- ADICIONE AQUI
           });
         }
         // Linha Horizontal no Topo do retalho
@@ -1704,6 +1705,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             min: remnant.x,
             max: remnant.x + remnant.width,
             binId: currentBinIndex,
+            isAutoRemnant: true // <--- ADICIONE AQUI
           });
         }
         // Linha Vertical na Esquerda do retalho
@@ -1715,6 +1717,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             min: remnant.y,
             max: remnant.y + remnant.height,
             binId: currentBinIndex,
+            isAutoRemnant: true // <--- ADICIONE AQUI
           });
         }
         // Linha Vertical na Direita do retalho
@@ -1726,6 +1729,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             min: remnant.y,
             max: remnant.y + remnant.height,
             binId: currentBinIndex,
+            isAutoRemnant: true // <--- ADICIONE AQUI
           });
         }
       });
@@ -2841,7 +2845,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           binWidth: binSize.width,
           binHeight: binSize.height,
           margin: margin,
-          cropLines: cropLines,
+          cropLines: cropLines.filter((l: any) => !l.isAutoRemnant),
         });
       }
     }, 300);
@@ -2867,7 +2871,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         binWidth: binSize.width,
         binHeight: binSize.height,
         margin: margin,
-        cropLines: cropLines,
+        cropLines: cropLines.filter((l: any) => !l.isAutoRemnant),
       });
     }
   }, [currentPlacedParts, parts, binSize, margin, cropLines]);
