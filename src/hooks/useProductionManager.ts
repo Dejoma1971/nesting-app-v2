@@ -40,6 +40,7 @@ export const useProductionManager = (binSize: {
       user: any = null,
       densityValue: number = 0,
       externalDbSuccess: boolean = false, // <--- Indica se já salvou no banco pelo hook novo
+      remnantsWithCodes: any[] = [] // <--- 1. ABRE A PORTA AQUI
     ) => {
       // 1. VALIDAÇÃO INICIAL
       const currentBinParts = nestingResult.filter(
@@ -92,6 +93,7 @@ export const useProductionManager = (binSize: {
         displayedParts,
         binSize,
         cropLines,
+        remnantsWithCodes
       );
 
       const blob = new Blob([dxfString], { type: "application/dxf" });

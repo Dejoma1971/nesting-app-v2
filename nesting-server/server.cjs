@@ -1589,18 +1589,31 @@ app.post("/api/retalhos", authenticateToken, async (req, res) => {
       VALUES ?
     `;
 
+    // 1. Criamos um array vazio para guardar o que o banco gerou
+    const retalhosCriados = [];
+
     const values = retalhos.map((r) => {
       // Blindagem matemática: garante que todos os números venham com ponto
       const espLimpa = parseFloat(String(r.espessura_mm).replace(',', '.')) || 0;
       const largLimpa = parseFloat(String(r.largura).replace(',', '.')) || 0;
       const altLimpa = parseFloat(String(r.altura).replace(',', '.')) || 0;
 
+      // 2. Extraímos a geração do código para uma variável separada
+      const codigoDefinitivo = r.codigo || `RET-${Math.floor(Math.random() * 10000)}`;
+
+      // 3. Guardamos a informação para devolver ao React
+      retalhosCriados.push({
+        codigo: codigoDefinitivo,
+        largura: largLimpa,
+        altura: altLimpa
+      });
+
       // ATENÇÃO: O colchete de abertura e as vírgulas devem estar exatos aqui
       return [
         crypto.randomUUID(),
         empresaId,
         usuarioId,
-        r.codigo || `RET-${Math.floor(Math.random() * 10000)}`,
+        codigoDefinitivo, // Usamos a variável aqui
         r.material || 'Desconhecido',
         espLimpa,
         largLimpa,
@@ -1615,7 +1628,8 @@ app.post("/api/retalhos", authenticateToken, async (req, res) => {
 
     res.status(201).json({
       message: "Retalhos salvos no estoque com sucesso!",
-      count: result.affectedRows
+      count: result.affectedRows,
+      retalhos: retalhosCriados // 4. AQUI ESTÁ A MÁGICA: Devolvemos a lista ao React!
     });
 
   } catch (error) {

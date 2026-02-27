@@ -1850,6 +1850,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     const densidadeNumerica = engineeringStats.densidade || 7.85;
 
     let bancoSalvoComSucesso = false;
+    let remnantsToExport: any[] = []; // <--- 1. ADICIONE A VARIÁVEL AQUI NO TOPO!
 
     if (isDraftMode) {
       bancoSalvoComSucesso = true; // No modo local, aprova direto para baixar o DXF
@@ -1876,13 +1877,15 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         // =================================================================
         // ♻️ FASE 2: CAPTURAR E SALVAR OS RETALHOS NO ESTOQUE
         // =================================================================
-        if (engineeringStats.remnants && engineeringStats.remnants.length > 0) {
-          const pacoteRetalhos = engineeringStats.remnants.map((retalho) => ({
+        
+        if (calculatedRemnants && calculatedRemnants.length > 0) {
+          // Usamos o calculatedRemnants direto porque ele possui a geometria real (X e Y)
+          const pacoteRetalhos = calculatedRemnants.map((retalho) => ({
             material: engineeringStats.material,
             espessura_mm: engineeringStats.espessura,
             largura: retalho.width,
             altura: retalho.height,
-            origem_producao_id: registro.producaoId || null, // Vinculando ao Histórico
+            origem_producao_id: registro.producaoId || null, 
           }));
 
           try {
@@ -1900,13 +1903,23 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
             if (respostaRetalho.ok) {
               console.log("♻️ Retalhos salvos no estoque com sucesso!");
+              const dataRetalho = await respostaRetalho.json();
+              
+              // Garante que consegue ler a lista de códigos que acabou de nascer no Banco
+              const listaCriada = Array.isArray(dataRetalho) ? dataRetalho : (dataRetalho.retalhos || dataRetalho.data || []);
+              
+              // Funde a resposta do Banco com a Geometria da tela
+              remnantsToExport = calculatedRemnants.map((r, i) => ({
+                ...r,
+                codigo: listaCriada[i]?.codigo || "RET-NOVO"
+              }));
             } else {
-              console.error(
-                "Aviso: A produção foi salva, mas o retalho não foi pro estoque.",
-              );
+              console.error("Aviso: Falha ao registrar retalho.");
+              remnantsToExport = calculatedRemnants.map(r => ({ ...r, codigo: "RET-NOVO" }));
             }
           } catch (err) {
             console.error("Erro na requisição de retalhos:", err);
+            remnantsToExport = calculatedRemnants.map(r => ({ ...r, codigo: "RET-NOVO" }));
           }
         }
         // =================================================================
@@ -1950,6 +1963,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       null,
       densidadeNumerica, // Agora passando o 7.85 corretamente!
       bancoSalvoComSucesso,
+      remnantsToExport
     );
 
     // ⬇️ === INSERÇÃO FASE 5: CLEANUP E RESET DA MESA === ⬇️
