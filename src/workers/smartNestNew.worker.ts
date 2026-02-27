@@ -19,8 +19,7 @@ interface NestingParams {
   quantities: Record<string, number>;
   binWidth: number;
   binHeight: number;
-  firstBinWidth?: number;  // <--- INSERÇÃO
-  firstBinHeight?: number; // <--- INSERÇÃO
+  customBinSizes?: Record<number, { width: number; height: number }>; // <--- FASE 3: Dicionário de Retalhos
   margin: number;
   gap: number;
   rotationStep: number;
@@ -195,8 +194,7 @@ self.onmessage = (e: MessageEvent<NestingParams>) => {
     quantities,
     binWidth,
     binHeight,
-    firstBinWidth,  // <--- ADICIONE ESTA LINHA
-    firstBinHeight, // <--- ADICIONE ESTA LINHA
+    customBinSizes,
     margin,
     gap,
     rotationStep,
@@ -229,11 +227,13 @@ self.onmessage = (e: MessageEvent<NestingParams>) => {
 
   // --- MUDANÇA AQUI: Array de Chapas Abertas ---
   const openBins: BinState[] = [];
-  // Inicializa a primeira chapa
+  
+  // FASE 3: Inicializa a primeira chapa (Lê do mapa ou usa o padrão)
+  const size0 = customBinSizes && customBinSizes[0];
   openBins.push({ 
       id: 0, geometries: [], areaUsed: 0,
-      width: firstBinWidth || binWidth,
-      height: firstBinHeight || binHeight
+      width: size0 ? size0.width : binWidth,
+      height: size0 ? size0.height : binHeight
   });
 
  
@@ -326,19 +326,23 @@ self.onmessage = (e: MessageEvent<NestingParams>) => {
       }
     }
 
-    // Se não coube em NENHUMA chapa existente, cria uma nova
-    if (!placed) {
+    // Se não coube em NENHUMA chapa existente, vai criando chapas novas até caber 
+    // ou até falhar na chapa gigante padrão
+    while (!placed) {
       const newBinId = openBins.length;
-      // 👇 NOVAS CHAPAS SEMPRE USAM O TAMANHO PADRÃO 👇
+      
+      const customSize = customBinSizes && customBinSizes[newBinId];
       const newBin: BinState = { 
           id: newBinId, geometries: [], areaUsed: 0,
-          width: binWidth, height: binHeight 
+          width: customSize ? customSize.width : binWidth, 
+          height: customSize ? customSize.height : binHeight 
       };
       openBins.push(newBin);
 
-      const result = tryToPlaceInBin(newBin, partId); // <--- MUDANÇA AQUI
+      const result = tryToPlaceInBin(newBin, partId);
 
       if (result) {
+        // Sucesso! Coube na chapa recém-criada
         const uuid = `${partId}_${placedParts.length}`;
         placedParts.push({
           uuid,
@@ -352,9 +356,16 @@ self.onmessage = (e: MessageEvent<NestingParams>) => {
         result.geom.uuid = uuid;
         newBin.geometries.push(result.geom);
         newBin.areaUsed += baseGeometries.get(partId)!.area;
+        placed = true;
       } else {
-        // Se falhar numa mesa vazia, a peça é grande demais
-        failedParts.push(partId);
+        // Falhou numa chapa recém-criada vazia.
+        if (!customSize) {
+          // Se NÃO era um retalho (ou seja, falhou na chapa gigante padrão vazia),
+          // então é fisicamente impossível. Agora sim desistimos!
+          failedParts.push(partId);
+          break; // Sai do while
+        }
+        // Se ERA um retalho, o while continua e ele cria a PRÓXIMA chapa da fila!
       }
     }
   }

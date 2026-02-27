@@ -4,6 +4,15 @@ import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
 import type { AppTheme } from "../styles/theme";
 
+// 👇 INSERÇÃO: Adicione a interface do retalho
+interface DBRemnant {
+  id: string;
+  codigo: string;
+  largura: number;
+  altura: number;
+  area_m2: number;
+}
+
 interface SheetGalleryModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -16,6 +25,9 @@ interface SheetGalleryModalProps {
   firstBinWidth?: number;
   firstBinHeight?: number;
   // 👆 -------------------------------- 👆
+  // 👇 SUBSTITUA AS PROPS ANTIGAS POR ESTA:
+  selectedRemnants?: Record<number, DBRemnant>;
+  // 👆 --------------------------------------
   parts: ImportedPart[];
   nestingResult: PlacedPart[];
   theme: AppTheme;
@@ -49,11 +61,10 @@ export const SheetGalleryModal = ({
   onSelectBin,
   binWidth,
   binHeight,
-  firstBinWidth, // <--- ADICIONE ESTA LINHA
-  firstBinHeight, // <--- ADICIONE ESTA LINHA
-  parts,
-  nestingResult,
-  theme,
+  selectedRemnants, // <--- Nossa nova propriedade
+  parts,            // <--- Faltava isto! (Peças originais)
+  nestingResult,    // <--- Faltava isto! (Peças posicionadas)
+  theme,            // <--- Faltava isto! (Cores)
 }: SheetGalleryModalProps) => {
   if (!isOpen) return null;
 
@@ -133,10 +144,12 @@ export const SheetGalleryModal = ({
         <div style={gridStyle}>
           {Array.from({ length: totalBins }).map((_, index) => {
             // 1. Cálculos de proporção e área
-            const currentW =
-              index === 0 && firstBinWidth ? firstBinWidth : binWidth;
-            const currentH =
-              index === 0 && firstBinHeight ? firstBinHeight : binHeight;
+            // 1. Cálculos de proporção e área
+            // 1. Cálculos de proporção e área independentes por chapa
+            const remnant = selectedRemnants ? selectedRemnants[index] : null;
+            const currentW = remnant ? Number(remnant.largura) : binWidth;
+            const currentH = remnant ? Number(remnant.altura) : binHeight;
+
             const currentBinArea = currentW * currentH;
 
             // 2. Estatísticas

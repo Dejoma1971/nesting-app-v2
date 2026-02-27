@@ -2218,13 +2218,16 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     setTotalBins(1);
     setSelectedPartIds([]);
     resetAllSaveStatus();
-    // 👇 === INSERÇÃO: MEDIDAS DO RETALHO (SE HOUVER) === 👇
-    const fWidth = selectedDBRemnant
-      ? Number(selectedDBRemnant.largura)
-      : undefined;
-    const fHeight = selectedDBRemnant
-      ? Number(selectedDBRemnant.altura)
-      : undefined;
+
+    // 👇 === FASE 3: MAPA DE RETALHOS PARA O MOTOR === 👇
+    const customBinSizes: Record<number, { width: number; height: number }> =
+      {};
+    Object.entries(selectedRemnants).forEach(([index, rem]) => {
+      customBinSizes[Number(index)] = {
+        width: Number(rem.largura),
+        height: Number(rem.altura),
+      };
+    });
     // 👆 ================================================ 👆
 
     // --- DECISÃO DO MOTOR ---
@@ -2375,8 +2378,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         binWidth: binSize.width,
         binHeight: binSize.height,
         // 👇 ADICIONE ESTAS DUAS LINHAS:
-        firstBinWidth: fWidth,
-        firstBinHeight: fHeight,
+        customBinSizes,
         // 👆 ---------------------------
         strategy: "true-shape", // O worker interno usa a mesma lógica base
         iterations,
@@ -2430,7 +2432,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     rotationStep,
     direction,
     startNfpNesting,
-    selectedDBRemnant, // <--- NOVA DEPENDÊNCIA ADICIONADA AQUI
+    selectedRemnants,
     getPartStatus,
   ]);
 
@@ -3384,17 +3386,23 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     activeBinHeight,
     currentBinIndex,
   ]);
-  // --- EFEITO: Pulsa e abre o modal (COM TRAVA DE PEÇAS VAZIAS) ---
+  // --- EFEITO: Pulsa e abre o modal (COM TRAVA DE PEÇAS VAZIAS E CARRINHO) ---
   useEffect(() => {
-    // 👇 INSERÇÃO: Trava mestre do Modo Rascunho
     if (isDraftMode) {
       setIsRemnantPulsing(false);
-      setIsRemnantModalOpen(false); // Garante que nunca abra sozinho
-      return; // Interrompe o "radar" aqui
+      setIsRemnantModalOpen(false);
+      return;
     }
-    // 1. Só pulsa e abre se houver retalhos, se não houver retalho em uso, E SE HOUVER PEÇAS NA TELA
+
+    // 👇 INSERÇÃO: Filtra apenas os retalhos que AINDA NÃO ESTÃO na fila de corte
+    const usedIds = Object.values(selectedRemnants).map((r) => r.id);
+    const freeRemnants = availableRemnants.filter(
+      (r) => !usedIds.includes(r.id),
+    );
+
+    // Só pulsa se houver retalhos LIVRES, se a chapa atual não tiver retalho, e se houver peças
     if (
-      availableRemnants.length > 0 &&
+      freeRemnants.length > 0 &&
       !selectedDBRemnant &&
       displayedParts.length > 0
     ) {
@@ -3404,14 +3412,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         setIsRemnantModalOpen(true);
       }, 2000);
       return () => clearTimeout(timer);
-    }
-    // 2. Se a tela ficou vazia (limpou a mesa ou filtrou algo vazio), desativa tudo
-    else if (displayedParts.length === 0) {
+    } else {
       setIsRemnantPulsing(false);
-      setIsRemnantModalOpen(false);
     }
   }, [
     availableRemnants,
+    selectedRemnants, // <--- NOVA DEPENDÊNCIA
     selectedDBRemnant,
     displayedParts.length,
     isDraftMode,
@@ -6211,6 +6217,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             selectedDBRemnant ? Number(selectedDBRemnant.altura) : undefined
           }
           // 👆 --------------------- 👆
+          // 👇 NOVA PROP QUE MANDA TODOS OS RETALHOS 👇
+          selectedRemnants={selectedRemnants} 
+          // 👆 -------------------------------------- 👆
           parts={parts}
           nestingResult={nestingResult}
           theme={theme}
