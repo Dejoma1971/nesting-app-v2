@@ -28,6 +28,12 @@ export function useRemnantSelection() {
     setSelectedRemnants({});
   }, []);
 
+  // 👇 1. INSERIR AQUI: Nova função para restaurar tudo do Auto-Save
+  const restoreAllRemnants = useCallback((savedRemnants: Record<number, DBRemnant>) => {
+    setSelectedRemnants(savedRemnants || {});
+  }, []);
+  // 👆 ==========================================================
+
   const getRemnantForBin = useCallback((binIndex: number) => {
     return selectedRemnants[binIndex] || null;
   }, [selectedRemnants]);
@@ -37,6 +43,7 @@ export function useRemnantSelection() {
     setRemnantForBin,
     removeRemnantFromBin,
     clearAllRemnants,
-    getRemnantForBin
+    getRemnantForBin,
+    restoreAllRemnants
   };
 }

@@ -4,6 +4,14 @@ import type { ImportedPart } from '../components/types';
 import type { CropLine } from './useSheetManager';
 import type { LabelStateMap } from '../components/labels/LabelTypes';
 
+// 👇 1. INSERIR AQUI: Importação da interface DBRemnant
+import type { DBRemnant } from './useRemnantSelection';
+// 👆 ========================================================
+
+// 👇 1. INSERIR AQUI: O import correto do utilitário
+import type { RemnantRect } from '../utils/remnantDetector';
+// 👆 ========================================================
+
 interface AutoSaveData {
   nestingResult: PlacedPart[];
   parts: ImportedPart[];
@@ -14,6 +22,11 @@ interface AutoSaveData {
   cropLines: CropLine[];
   calculationTime: number | null; // <--- NOVO CAMPO
   labelStates: LabelStateMap;
+  // 👇 2. INSERIR AQUI: Os novos campos de retalho
+  selectedRemnants: Record<number, DBRemnant>;
+  // 👇 2. CORREÇÃO DA LINHA 23:
+  calculatedRemnants: (RemnantRect & { binId: number })[];
+  // 👆 =========================================
   timestamp: number;
 }
 
@@ -29,6 +42,11 @@ export const useNestingAutoSave = (
     cropLines: CropLine[];
     calculationTime: number | null; // <--- NOVO CAMPO
     labelStates: LabelStateMap;
+    // 👇 3. INSERIR AQUI também nos parâmetros do hook
+    selectedRemnants: Record<number, DBRemnant>;
+    // 👇 3. CORREÇÃO DA LINHA 42:
+    calculatedRemnants: (RemnantRect & { binId: number })[];
+    // 👆 =============================================
   }
 ) => {
   // 1. Efeito de Salvamento

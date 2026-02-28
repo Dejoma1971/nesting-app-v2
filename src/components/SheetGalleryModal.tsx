@@ -62,9 +62,9 @@ export const SheetGalleryModal = ({
   binWidth,
   binHeight,
   selectedRemnants, // <--- Nossa nova propriedade
-  parts,            // <--- Faltava isto! (Peças originais)
-  nestingResult,    // <--- Faltava isto! (Peças posicionadas)
-  theme,            // <--- Faltava isto! (Cores)
+  parts, // <--- Faltava isto! (Peças originais)
+  nestingResult, // <--- Faltava isto! (Peças posicionadas)
+  theme, // <--- Faltava isto! (Cores)
 }: SheetGalleryModalProps) => {
   if (!isOpen) return null;
 

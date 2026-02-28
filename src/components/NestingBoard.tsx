@@ -546,6 +546,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     removeRemnantFromBin,
     clearAllRemnants,
     getRemnantForBin,
+    restoreAllRemnants,
   } = useRemnantSelection();
 
   // 2. Variável mágica que diz qual retalho está ativo na chapa que estamos vendo
@@ -803,6 +804,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       cropLines,
       calculationTime,
       labelStates,
+      selectedRemnants, // 👇 2. INSERIR AQUI
+      calculatedRemnants, // 👇 2. INSERIR AQUI
     }),
     [
       nestingResult,
@@ -814,6 +817,8 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       cropLines,
       calculationTime,
       labelStates,
+      selectedRemnants, // 👇 2. INSERIR AQUI (Dependência)
+      calculatedRemnants, // 👇 2. INSERIR AQUI (Dependência)
     ],
   );
 
@@ -855,6 +860,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           if (savedData.labelStates) setLabelStates(savedData.labelStates);
           if (savedData.calculationTime !== undefined)
             setCalculationTime(savedData.calculationTime);
+          // 👇 3. INSERIR AQUI: Restaura o carrinho de retalhos e as áreas verdes
+          if (savedData.selectedRemnants && restoreAllRemnants) {
+            restoreAllRemnants(savedData.selectedRemnants);
+          }
+          if (savedData.calculatedRemnants) {
+            setCalculatedRemnants(savedData.calculatedRemnants);
+          }
+          // 👆 ================================================================
         }
       }
 
@@ -877,6 +890,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     setCropLines,
     setCalculationTime,
     setLabelStates,
+    restoreAllRemnants,
   ]);
 
   const {
@@ -2127,11 +2141,39 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       });
 
       if (!temPecaPendente) {
-        // Se não há mais nenhuma peça pendente no pedido, aciona o botão Reset automaticamente!
-        clearAllRemnants();
+        // 1. Tenta liberar o pedido no banco automaticamente (desbloqueio silencioso)
+        if (user && user.token) {
+          fetch("http://localhost:3001/api/pedidos/unlock", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${user.token}`,
+            },
+            body: JSON.stringify({}),
+          }).catch(err => console.error("Erro ao liberar pedidos no fim da produção:", err));
+        }
 
-        alert("✅ Produção totalmente concluída! A mesa foi limpa e resetada.");
-        return; // Interrompe a função aqui para que o React não tente recriar o cache fantasma!
+        // 2. Limpeza total da memória RAM e Cache (Sem exibir o window.confirm)
+        resetNestingResult([]);
+        setParts([]);
+        setIsDraftMode(false);
+        clearSavedState();
+        setFailedCount(0);
+        setTotalBins(1);
+        setCurrentBinIndex(0);
+        setSelectedPartIds([]);
+        setQuantities({});
+        setSearchQuery("");
+        resetProduction();
+        resetAllSaveStatus();
+        if (setCropLines) setCropLines([]);
+        clearAllRemnants();
+        setBinSize({ width: 1200, height: 3000 });
+        setSelectedOps([]);
+        setViewKey((prev) => prev + 1); // Recarrega o Canvas
+
+        alert("✅ Produção totalmente concluída! O pedido foi liberado e a mesa foi limpa.");
+        return; // Interrompe a função aqui
       }
 
       // 1. Exclui a chapa salva da mesa e reorganiza a galeria (Shift)
@@ -6218,7 +6260,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           }
           // 👆 --------------------- 👆
           // 👇 NOVA PROP QUE MANDA TODOS OS RETALHOS 👇
-          selectedRemnants={selectedRemnants} 
+          selectedRemnants={selectedRemnants}
           // 👆 -------------------------------------- 👆
           parts={parts}
           nestingResult={nestingResult}
