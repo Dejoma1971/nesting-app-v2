@@ -562,31 +562,87 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     : binSize.height;
   // 👆 ======================================================= 👆
 
-  // 3. Novas Funções do Modal "Carrinho"
   const handleAddRemnantToQueue = useCallback(
-    (remnant: DBRemnant) => {
-      // 1. Procura a primeira chapa livre (0, 1, 2...) que não tenha retalho atribuído
-      let nextIndex = 0;
-      while (selectedRemnants[nextIndex] !== undefined) {
-        nextIndex++;
-      }
+    async (remnant: DBRemnant) => {
+      if (!user || !user.token) return;
 
-      // 2. Associa o retalho à chapa
-      setRemnantForBin(nextIndex, remnant);
+      try {
+        // 1. Tenta travar o retalho no banco PRIMEIRO
+        const lockResponse = await fetch(
+          "http://localhost:3001/api/retalhos/lock",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${user.token}`,
+            },
+            body: JSON.stringify({ retalhosIds: [remnant.id] }),
+          },
+        );
 
-      // 3. AUTO-EXPANSÃO DA MESA: Se o índice for maior/igual ao total de chapas visíveis, cria as chapas necessárias
-      if (nextIndex >= totalBins) {
-        setTotalBins(nextIndex + 1);
+        // 2. Se alguém pegou um milissegundo antes, barra a ação
+        if (lockResponse.status === 409) {
+          const errorData = await lockResponse.json();
+          alert(`🚫 RETALHO INDISPONÍVEL:\n\n${errorData.message}`);
+
+          // Remove da lista visual do usuário já que alguém pegou
+          setAvailableRemnants((prev) =>
+            prev.filter((r) => r.id !== remnant.id),
+          );
+          return;
+        }
+
+        if (!lockResponse.ok) throw new Error("Erro ao reservar retalho");
+
+        // 3. CAMINHO LIVRE: O banco confirmou a trava! Pode colocar na mesa
+        let nextIndex = 0;
+        while (selectedRemnants[nextIndex] !== undefined) {
+          nextIndex++;
+        }
+
+        setRemnantForBin(nextIndex, remnant);
+
+        if (nextIndex >= totalBins) {
+          setTotalBins(nextIndex + 1);
+        }
+
+        // Tira da lista visual de disponíveis (para ele não clicar de novo)
+        setAvailableRemnants((prev) => prev.filter((r) => r.id !== remnant.id));
+      } catch (error) {
+        console.error("Erro ao travar retalho:", error);
+        alert("Erro de conexão ao tentar reservar o retalho.");
       }
     },
-    [selectedRemnants, setRemnantForBin, totalBins, setTotalBins],
-  ); // <-- Atualize as dependências aqui!
+    [selectedRemnants, setRemnantForBin, totalBins, setTotalBins, user],
+  );
 
   const handleRemoveRemnantFromQueue = useCallback(
-    (binIndex: number) => {
+    async (binIndex: number) => {
+      const remnantToRemove = selectedRemnants[binIndex];
+
+      if (remnantToRemove && user && user.token) {
+        try {
+          // Avisa o banco que desisti do retalho, pode liberar para a equipe
+          await fetch("http://localhost:3001/api/retalhos/unlock", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${user.token}`,
+            },
+            body: JSON.stringify({ retalhosIds: [remnantToRemove.id] }),
+          });
+
+          // Devolve ele para a lista de "Disponíveis" visualmente
+          setAvailableRemnants((prev) => [...prev, remnantToRemove]);
+        } catch (error) {
+          console.error("Erro ao destravar retalho:", error);
+        }
+      }
+
+      // Tira da mesa
       removeRemnantFromBin(binIndex);
     },
-    [removeRemnantFromBin],
+    [removeRemnantFromBin, selectedRemnants, user],
   );
 
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || "");
@@ -2160,6 +2216,20 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           }).catch((err) =>
             console.error("Erro ao liberar pedidos no fim da produção:", err),
           );
+          // 👇 INSERIR AQUI: LIBERAÇÃO GLOBAL DE RETALHOS 👇
+          try {
+            await fetch("http://localhost:3001/api/retalhos/unlock", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${user.token}`,
+              },
+              body: JSON.stringify({}), // Vazio = Libera todos que estão no meu nome
+            });
+          } catch (error) {
+            console.error("Erro ao liberar retalhos:", error);
+          }
+          // 👆 ============================================= 👆
         }
 
         // 2. Limpeza total da memória RAM e Cache (Sem exibir o window.confirm)
@@ -3300,6 +3370,23 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           console.warn(`Falha ao renovar bloqueio do pedido ${pedido}`, error);
         }
       }
+      // 👇 INSERIR AQUI: PULSAÇÃO DOS RETALHOS 👇
+      const usedRemnantIds = Object.values(selectedRemnants).map((r) => r.id);
+      if (usedRemnantIds.length > 0) {
+        try {
+          await fetch("http://localhost:3001/api/retalhos/lock", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${user.token}`,
+            },
+            body: JSON.stringify({ retalhosIds: usedRemnantIds }),
+          });
+        } catch (error) {
+          console.warn("Falha ao renovar bloqueio dos retalhos", error);
+        }
+      }
+      // 👆 ===================================== 👆
     };
 
     // Executa imediatamente ao carregar as peças ou mudar o usuário
@@ -3311,7 +3398,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
     // Limpa o intervalo se o componente desmontar
     return () => clearInterval(intervalId);
-  }, [parts, user]);
+  }, [parts, user, selectedRemnants]);
 
   // ⬇️ --- INSERIR AQUI --- ⬇️
   const buttonHeight = "30px";

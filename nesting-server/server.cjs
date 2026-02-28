@@ -1536,36 +1536,139 @@ app.get("/api/fix-database", async (req, res) => {
 // ROTAS DE RETALHOS (ESTOQUE INTELIGENTE)
 // ==========================================
 
-// 1. LISTAR RETALHOS DISPONÍVEIS (Alerta "Eco-Smart")
+// 1. LISTAR RETALHOS DISPONÍVEIS (Alerta "Eco-Smart" com Bloqueio de Concorrência)
 app.get("/api/retalhos/disponiveis", authenticateToken, async (req, res) => {
   const empresaId = req.user.empresa_id;
+  const usuarioId = req.user.id; // <-- Adicionamos o ID do usuário
   const { material, espessura_mm } = req.query;
 
-  try {
-    let sql = `SELECT * FROM retalhos_estoque WHERE empresa_id = ? AND status = 'DISPONIVEL'`;
-    const params = [empresaId];
+  // TOLERÂNCIA: Retalhos bloqueados há mais de 2 minutos são considerados livres
+  const LOCK_TIMEOUT_MINUTES = 2;
 
-    // Se o frontend enviar o material e espessura da mesa atual, o banco já filtra!
+  try {
+    // A MÁGICA AQUI: Oculta retalhos que estão bloqueados por OUTROS usuários ativamente
+    let sql = `
+      SELECT * FROM retalhos_estoque 
+      WHERE empresa_id = ? 
+        AND status = 'DISPONIVEL'
+        AND (
+          locked_by IS NULL 
+          OR locked_by = ? 
+          OR locked_at <= DATE_SUB(NOW(), INTERVAL ? MINUTE)
+        )
+    `;
+    const params = [empresaId, usuarioId, LOCK_TIMEOUT_MINUTES];
+
     if (material) {
       sql += ` AND material = ?`;
       params.push(material);
     }
 
     if (espessura_mm) {
-      // Blindagem contra vírgulas
       const espLimpa = parseFloat(String(espessura_mm).replace(',', '.'));
       sql += ` AND espessura_mm = ?`;
       params.push(espLimpa);
     }
 
-    // ORDENAÇÃO DE OURO: Traz o menor retalho que sirva primeiro (Economia máxima)
-    sql += ` ORDER BY area_m2 ASC`; 
-
+    sql += ` ORDER BY area_m2 ASC`;
     const [rows] = await db.query(sql, params);
     res.json(rows);
   } catch (error) {
     console.error("❌ Erro ao buscar retalhos:", error);
     res.status(500).json({ error: "Erro ao buscar estoque de retalhos." });
+  }
+});
+
+// --- BLOQUEAR RETALHO (CHECK-ON-CLICK) ---
+app.post("/api/retalhos/lock", authenticateToken, async (req, res) => {
+  const { retalhosIds } = req.body; // Array de IDs de retalhos (pois a Fila aceita múltiplos)
+  const usuarioId = req.user.id;
+  const empresaId = req.user.empresa_id;
+  
+  // Mesma tolerância de 2 minutos dos pedidos
+  const TOLERANCIA_MINUTOS = 2;
+
+  if (!retalhosIds || !Array.isArray(retalhosIds) || retalhosIds.length === 0) {
+    return res.status(400).json({ error: "IDs dos retalhos obrigatórios." });
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 1. VERIFICAÇÃO INTELIGENTE (SEM FOR UPDATE)
+    // Verifica se existe alguém (que NÃO seja eu) usando um desses retalhos RECENTEMENTE (< 2 min)
+    const checkSql = `
+      SELECT u.nome, re.locked_at, re.codigo 
+      FROM retalhos_estoque re
+      JOIN usuarios u ON re.locked_by = u.id
+      WHERE re.empresa_id = ? 
+        AND re.id IN (?)
+        AND re.locked_by IS NOT NULL 
+        AND re.locked_by != ? 
+        AND re.locked_at > DATE_SUB(NOW(), INTERVAL ? MINUTE)
+      LIMIT 1
+    `;
+    const params = [empresaId, retalhosIds, usuarioId, TOLERANCIA_MINUTOS];
+    const [lockedRows] = await connection.query(checkSql, params);
+
+    // 2. SE ALGUÉM ESTIVER USANDO, RETORNA ERRO (MAS NÃO TRAVA O BANCO)
+    if (lockedRows.length > 0) {
+      await connection.rollback();
+      const usuarioBloqueador = lockedRows[0].nome || "Desconhecido";
+      const retalhoCodigo = lockedRows[0].codigo;
+      const horarioBloqueio = new Date(lockedRows[0].locked_at).toLocaleTimeString();
+      
+      return res.status(409).json({
+        error: "Bloqueado",
+        message: `O retalho ${retalhoCodigo} está em uso por ${usuarioBloqueador} (desde ${horarioBloqueio}).`,
+      });
+    }
+
+    // 3. CAMINHO LIVRE: REALIZA O BLOQUEIO OU RENOVAÇÃO
+    const updateSql = `
+      UPDATE retalhos_estoque 
+      SET locked_by = ?, locked_at = NOW()
+      WHERE empresa_id = ? AND id IN (?)
+    `;
+    await connection.query(updateSql, [usuarioId, empresaId, retalhosIds]);
+    
+    await connection.commit();
+    res.json({ message: "Sessão do(s) retalho(s) iniciada/renovada." });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Erro ao bloquear retalho:", error);
+    res.status(500).json({ error: "Erro técnico ao reservar retalho." });
+  } finally {
+    connection.release();
+  }
+});
+
+// --- DESBLOQUEAR RETALHO ---
+app.post("/api/retalhos/unlock", authenticateToken, async (req, res) => {
+  const { retalhosIds } = req.body;
+  const usuarioId = req.user.id;
+  const empresaId = req.user.empresa_id;
+
+  try {
+    let sql = `
+      UPDATE retalhos_estoque 
+      SET locked_by = NULL, locked_at = NULL
+      WHERE empresa_id = ? AND locked_by = ?
+    `;
+    const params = [empresaId, usuarioId];
+
+    // Se mandar IDs específicos, solta só eles. Se vier vazio, solta TODOS desse usuário.
+    if (retalhosIds && Array.isArray(retalhosIds) && retalhosIds.length > 0) {
+      sql += ` AND id IN (?)`;
+      params.push(retalhosIds);
+    }
+
+    await db.query(sql, params);
+    res.json({ message: "Retalho(s) desbloqueado(s) com sucesso." });
+  } catch (error) {
+    console.error("Erro ao desbloquear retalho:", error);
+    res.status(500).json({ error: "Erro ao liberar retalho." });
   }
 });
 
