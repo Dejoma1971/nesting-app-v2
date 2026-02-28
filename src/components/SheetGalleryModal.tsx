@@ -4,6 +4,8 @@ import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
 import type { AppTheme } from "../styles/theme";
 
+import type { RemnantRect } from "../utils/remnantDetector";
+
 // 👇 INSERÇÃO: Adicione a interface do retalho
 interface DBRemnant {
   id: string;
@@ -28,6 +30,7 @@ interface SheetGalleryModalProps {
   // 👇 SUBSTITUA AS PROPS ANTIGAS POR ESTA:
   selectedRemnants?: Record<number, DBRemnant>;
   // 👆 --------------------------------------
+  calculatedRemnants?: (RemnantRect & { binId: number })[];
   parts: ImportedPart[];
   nestingResult: PlacedPart[];
   theme: AppTheme;
@@ -62,6 +65,7 @@ export const SheetGalleryModal = ({
   binWidth,
   binHeight,
   selectedRemnants, // <--- Nossa nova propriedade
+  calculatedRemnants = [],
   parts, // <--- Faltava isto! (Peças originais)
   nestingResult, // <--- Faltava isto! (Peças posicionadas)
   theme, // <--- Faltava isto! (Cores)
@@ -199,6 +203,7 @@ export const SheetGalleryModal = ({
                     globalMaxHeight={binHeight} // Trava a câmera no tamanho máximo
                     parts={parts}
                     placedParts={nestingResult}
+                    calculatedRemnants={calculatedRemnants.filter((r) => r.binId === index)}
                     theme={theme}
                     isSelected={currentBinIndex === index}
                     onClick={() => {

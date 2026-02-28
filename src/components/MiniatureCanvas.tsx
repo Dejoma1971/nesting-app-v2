@@ -4,6 +4,8 @@ import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
 import type { AppTheme } from "../styles/theme";
 
+import type { RemnantRect } from "../utils/remnantDetector";
+
 interface MiniatureCanvasProps {
   binId: number;
   binWidth: number;
@@ -14,6 +16,7 @@ interface MiniatureCanvasProps {
   // 👆 ------------------------------- 👆
   parts: ImportedPart[];
   placedParts: PlacedPart[];
+  calculatedRemnants?: RemnantRect[];
   theme: AppTheme;
   onClick?: () => void;
   isSelected?: boolean;
@@ -146,6 +149,7 @@ export const MiniatureCanvas: React.FC<MiniatureCanvasProps> = React.memo(
     globalMaxHeight, // <--- ADICIONE AQUI
     parts,
     placedParts,
+    calculatedRemnants,
     theme,
     onClick,
     isSelected,
@@ -202,6 +206,22 @@ export const MiniatureCanvas: React.FC<MiniatureCanvasProps> = React.memo(
               strokeWidth={strokeWidth}
               vectorEffect="non-scaling-stroke"
             />
+            {/* 👇 4. INSERÇÃO: Renderiza as áreas de Retalho Útil em verde 👇 */}
+            {calculatedRemnants?.map((remnant, idx) => (
+              <rect
+                key={`remnant-${idx}`}
+                x={remnant.x}
+                y={remnant.y}
+                width={remnant.width}
+                height={remnant.height}
+                fill="rgba(40, 167, 69, 0.2)" /* Verde Translúcido */
+                stroke="#28a745"
+                strokeWidth="2"
+                strokeDasharray="8 4" /* Linha tracejada para indicar que é corte futuro */
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
+            {/* 👆 --------------------------------------------------------- 👆 */}
 
             {/* Peças Posicionadas */}
             {myParts.map((placed) => {

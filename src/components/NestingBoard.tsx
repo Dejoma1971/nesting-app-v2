@@ -856,7 +856,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           setBinSize(savedData.binSize);
           setTotalBins(savedData.totalBins);
           setCurrentBinIndex(savedData.currentBinIndex);
-          if (setCropLines) setCropLines(savedData.cropLines);
+          // if (setCropLines) setCropLines(savedData.cropLines);
           if (savedData.labelStates) setLabelStates(savedData.labelStates);
           if (savedData.calculationTime !== undefined)
             setCalculationTime(savedData.calculationTime);
@@ -867,6 +867,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           if (savedData.calculatedRemnants) {
             setCalculatedRemnants(savedData.calculatedRemnants);
           }
+          // 👇 2. INSERIR AQUI: Restauração blindada com pequeno atraso (150ms)
+          if (setCropLines && savedData.cropLines) {
+            setTimeout(() => {
+              setCropLines(savedData.cropLines);
+            }, 150);
+          }
+          // 👆 =============================================================
           // 👆 ================================================================
         }
       }
@@ -2150,7 +2157,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
               Authorization: `Bearer ${user.token}`,
             },
             body: JSON.stringify({}),
-          }).catch(err => console.error("Erro ao liberar pedidos no fim da produção:", err));
+          }).catch((err) =>
+            console.error("Erro ao liberar pedidos no fim da produção:", err),
+          );
         }
 
         // 2. Limpeza total da memória RAM e Cache (Sem exibir o window.confirm)
@@ -2172,7 +2181,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         setSelectedOps([]);
         setViewKey((prev) => prev + 1); // Recarrega o Canvas
 
-        alert("✅ Produção totalmente concluída! O pedido foi liberado e a mesa foi limpa.");
+        alert(
+          "✅ Produção totalmente concluída! O pedido foi liberado e a mesa foi limpa.",
+        );
         return; // Interrompe a função aqui
       }
 
@@ -6265,6 +6276,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           parts={parts}
           nestingResult={nestingResult}
           theme={theme}
+          calculatedRemnants={calculatedRemnants}
         />
         {/* --- INSERÇÃO 6: RENDERIZAR O MODAL DE ESTATÍSTICAS --- */}
         <EngineeringStatsModal
