@@ -11,7 +11,7 @@ import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
 import type { AppTheme } from "../styles/theme";
 import type { CropLine } from "../hooks/useSheetManager";
-import { type RemnantRect } from '../utils/remnantDetector';
+import { type RemnantRect } from "../utils/remnantDetector";
 import { getOBBCorners } from "../utils/obbUtil";
 import { useCanvasPan } from "../hooks/useCanvasPan";
 
@@ -1295,7 +1295,13 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       // AQUI VAMOS INSERIR OS HANDLERS
       onMouseDown={(e) => {
         handleMouseDownContainer();
-        panHandlers.onMouseDown(e); // <--- LIGA O PAN AQUI
+        // ⬇️ --- NOVA REGRA: PAN APENAS COM BOTÃO DO MEIO (SCROLL) --- ⬇️
+        if (e.button === 1) {
+          e.preventDefault(); // Impede o auto-scroll nativo do navegador
+          panHandlers.onMouseDown(e); // LIGA O PAN AQUI
+        }
+        // Futuramente, se for botão esquerdo (e.button === 0), ligaremos a Seleção CAD aqui
+        // ⬆️ --------------------------------------------------------- ⬆️
       }}
       onMouseMove={panHandlers.onMouseMove} // Novo
       onMouseUp={panHandlers.onMouseUp} // Novo
@@ -1429,7 +1435,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                 vectorEffect="non-scaling-stroke"
                 style={{ pointerEvents: "all" }}
               />
-             {/* --- INSERÇÃO: PINTURA DOS RETALHOS INTELIGENTES --- */}
+              {/* --- INSERÇÃO: PINTURA DOS RETALHOS INTELIGENTES --- */}
               {calculatedRemnants.map((remnant) => (
                 <rect
                   key={remnant.id}
@@ -1441,7 +1447,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                   stroke="rgba(40, 167, 69, 0.8)"
                   strokeWidth={2}
                   strokeDasharray="5,5"
-                  style={{ pointerEvents: 'none' }}
+                  style={{ pointerEvents: "none" }}
                 />
               ))}
               {/* ------------------------------------------------- */}
@@ -1492,7 +1498,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
               })}
 
               {/* --- RENDERIZAÇÃO DAS LINHAS DE RETALHO (ATUALIZADO PARA TRIM) --- */}
-              {cropLines.map((line) => {                
+              {cropLines.map((line) => {
                 const hitW = 20;
 
                 // LÓGICA DO CURSOR: Se Trim ativo, vira alvo (crosshair). Se não, mover.
@@ -1563,7 +1569,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                       vectorEffect="non-scaling-stroke"
                     />
 
-                  {/* 2. Linha Visível */}
+                    {/* 2. Linha Visível */}
                     <line
                       x1={x1}
                       y1={y1}
