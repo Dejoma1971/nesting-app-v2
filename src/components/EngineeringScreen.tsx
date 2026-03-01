@@ -1135,7 +1135,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           <select
             style={{
               ...inputStyle,
-              width: "160px",
+              width: "150px",
               background: theme.inputBg,
               color: theme.text,
             }}
@@ -1180,7 +1180,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           <select
             style={{
               ...inputStyle,
-              width: "220px",
+              width: "180px",
               background: theme.inputBg,
               color: theme.text,
             }}
@@ -1256,7 +1256,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           <select
             style={{
               ...inputStyle,
-              width: "170px",
+              width: "140px",
               background: theme.inputBg,
               color: theme.text,
             }}
@@ -1274,21 +1274,58 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           </select>
         </div>
 
-        <div
-          style={{
-            ...inputGroupStyle,
-            // ⬇️ --- ALTERAÇÃO: CENTRALIZAR NO ESPAÇO LIVRE --- ⬇️
-            marginLeft: "auto",
-            marginRight: "auto",
-            // ⬆️ ---------------------------------------------- ⬆️
-          }}
-        >
+        {/* ⬇️ --- NOVA INSERÇÃO: QUANTIDADE EM MASSA --- ⬇️ */}
+        <div style={inputGroupStyle}>
+          <label style={labelStyle}>
+            QTD.{" "}
+            <button
+              style={applyButtonStyle}
+              onClick={() =>
+                executeWithSessionConfirmation(
+                  "applyAll",
+                  selectedIds.length > 0
+                    ? `Deseja aplicar esta QUANTIDADE nas ${selectedIds.length} peças selecionadas?`
+                    : "Deseja aplicar esta QUANTIDADE a todas as peças?",
+                  () => {
+                    // Aplica a quantidade baseada na seleção
+                    applyToAll("quantity", selectedIds, true);
+                    // Limpa o campo para voltar ao normal (opcional, mas mantém o padrão dos outros)
+                    handleDefaultChange("quantity", ""); 
+                  },
+                )
+              }
+            >
+              {selectedIds.length > 0 ? "Aplicar Seleção" : "Aplicar Todos"}
+            </button>
+          </label>
+          <input
+            type="number"
+            min="1"
+            style={{
+              ...inputStyle,
+              width: "80px", // Um pouco menor, pois é apenas um número
+            }}
+            value={(batchDefaults as any).quantity || ""}
+            onChange={(e) => {
+              // Convertendo para número para garantir que o state armazene corretamente a Qtd.
+              const val = e.target.value === "" ? "" : Number(e.target.value);
+              handleDefaultChange("quantity", val);
+            }}
+            placeholder="Ex: 10"
+          />
+        </div>
+        {/* ⬆️ ------------------------------------------ ⬆️ */}
+
+        <div style={inputGroupStyle}>
           <label style={labelStyle}>
             AUTOR{" "}
             {/* Botão removido, pois a aplicação agora é automática no salvamento */}
           </label>
           <input
-            style={inputStyle}
+            style={{
+              ...inputStyle,
+              fontSize: "11px", // ⬅️ ADICIONE ESTA LINHA AQUI (Ajuste para 10px ou 11px conforme preferir)
+            }}
             // Garante que mostre o nome do usuário como padrão se o batchDefaults ainda não estiver pronto
             value={batchDefaults.autor !== undefined ? batchDefaults.autor : (user?.name || "")}
             onChange={(e) => handleDefaultChange("autor", e.target.value)}
@@ -1307,7 +1344,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             fontWeight: "bold",
             alignSelf: "center",
             // --- ALTERAÇÃO AQUI ---
-            marginLeft: "0", // Removemos o "auto" daqui
+            marginLeft: "auto", // Removemos o "auto" daqui
             // ----------------------
           }}
         >
