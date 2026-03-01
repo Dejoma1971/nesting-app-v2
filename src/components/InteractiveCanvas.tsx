@@ -653,6 +653,67 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     initialY: 0,
   });
 
+  // ⬇️ --- LUGAR CORRETO DO PART_TRANSFORMS --- ⬇️
+  const partTransforms = useMemo(() => {
+    const transforms: Record<string, any> = {};
+    placedParts.forEach((placed) => {
+      const part = parts.find((p) => p.id === placed.partId);
+      if (!part) return;
+
+      const cachedBox = boundingBoxCache[placed.partId];
+      let box;
+      if (cachedBox) {
+        box = cachedBox;
+      } else {
+        box = calculateBoundingBox(part.entities, part.blocks);
+        const newBox = {
+          ...box,
+          centerX: box.minX + box.width / 2,
+          centerY: box.minY + box.height / 2,
+        };
+        requestAnimationFrame(() => {
+          setBoundingBoxCache((prev) => ({ ...prev, [placed.partId]: newBox }));
+        });
+        box = newBox;
+      }
+
+      const { occupiedW, occupiedH } = calculateRotatedDimensions(
+        part.width,
+        part.height,
+        placed.rotation,
+      );
+
+      transforms[placed.uuid] = {
+        centerX: box.centerX,
+        centerY: box.centerY,
+        occupiedW: occupiedW,
+        occupiedH: occupiedH,
+        rawWidth: occupiedW,
+        rawHeight: occupiedH,
+      };
+    });
+    return transforms;
+  }, [placedParts, parts, boundingBoxCache]);
+  // ⬆️ ---------------------------------------- ⬆️
+
+  // ⬇️ --- COFRE DE DADOS PARA A SELEÇÃO CAD --- ⬇️
+  const selectionDataRef = useRef({
+    placedParts,
+    partTransforms,
+    parts,
+    selectedPartIds,
+  });
+  useEffect(() => {
+    // Mantém o cofre sempre atualizado de forma silenciosa, sem reiniciar os eventos do mouse!
+    selectionDataRef.current = {
+      placedParts,
+      partTransforms,
+      parts,
+      selectedPartIds,
+    };
+  }, [placedParts, partTransforms, parts, selectedPartIds]);
+  // ⬆️ ---------------------------------------------------- ⬆️
+
   const getSVGPoint = useCallback((clientX: number, clientY: number) => {
     const svgElement = svgContainerRef.current?.querySelector("svg");
     if (!svgElement) return { x: 0, y: 0 };
@@ -791,50 +852,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     [onBackgroundContextMenu, getSVGPoint, binHeight],
   );
   // ----------------------------------------------
-
-  const partTransforms = useMemo(() => {
-    const transforms: Record<string, any> = {};
-    placedParts.forEach((placed) => {
-      const part = parts.find((p) => p.id === placed.partId);
-      if (!part) return;
-
-      const cachedBox = boundingBoxCache[placed.partId];
-      let box;
-      if (cachedBox) {
-        box = cachedBox;
-      } else {
-        box = calculateBoundingBox(part.entities, part.blocks);
-        const newBox = {
-          ...box,
-          centerX: box.minX + box.width / 2,
-          centerY: box.minY + box.height / 2,
-        };
-        requestAnimationFrame(() => {
-          setBoundingBoxCache((prev) => ({ ...prev, [placed.partId]: newBox }));
-        });
-        box = newBox;
-      }
-
-      // --- AQUI ESTÁ A CORREÇÃO ---
-      // Calculamos a caixa envolvente exata usando a função trigonométrica
-      // (Certifique-se de que a função 'calculateRotatedDimensions' foi adicionada no topo do arquivo)
-      const { occupiedW, occupiedH } = calculateRotatedDimensions(
-        part.width,
-        part.height,
-        placed.rotation,
-      );
-
-      transforms[placed.uuid] = {
-        centerX: box.centerX,
-        centerY: box.centerY,
-        occupiedW: occupiedW, // Valor correto calculado
-        occupiedH: occupiedH, // Valor correto calculado
-        rawWidth: occupiedW,
-        rawHeight: occupiedH,
-      };
-    });
-    return transforms;
-  }, [placedParts, parts, boundingBoxCache]);
 
   const handleDoubleClickPart = useCallback(
     (e: React.MouseEvent, uuid: string) => {
@@ -1221,10 +1238,145 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     };
 
     // REMOVER 'e' ou 'e: MouseEvent' dos parênteses
-    const handleWindowMouseUp = () => {
+    // ⬇️ --- GARANTA QUE A FUNÇÃO RECEBE (e: MouseEvent) --- ⬇️
+    const handleWindowMouseUp = (e: MouseEvent) => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       setSnapLines([]);
 
+      // ⬇️ --- INSERÇÃO: LÓGICA MATEMÁTICA DE SELEÇÃO OBB (CORRIGIDA) --- ⬇️
+      if (dragMode === "select") {
+        const svgPos = getSVGPoint(e.clientX, e.clientY);
+        const currentT = transformRef.current;
+        const currentX = (svgPos.x - currentT.x) / currentT.k;
+        const currentY = binHeight - (svgPos.y - currentT.y) / currentT.k;
+
+        const startX = dragRef.current.initialX;
+        const startY = dragRef.current.initialY;
+
+        setSelectionBox((prev) => ({ ...prev, active: false }));
+
+        if (
+          Math.abs(currentX - startX) > 2 ||
+          Math.abs(currentY - startY) > 2
+        ) {
+          const selMinX = Math.min(startX, currentX);
+          const selMaxX = Math.max(startX, currentX);
+          const selMinY = Math.min(startY, currentY);
+          const selMaxY = Math.max(startY, currentY);
+
+          const isCrossing = currentX < startX;
+          const newlySelected: string[] = [];
+
+          const selCorners = [
+            { x: selMinX, y: selMinY },
+            { x: selMaxX, y: selMinY },
+            { x: selMaxX, y: selMaxY },
+            { x: selMinX, y: selMaxY },
+          ];
+          const selAxes = [
+            { x: 1, y: 0 },
+            { x: 0, y: 1 },
+          ];
+
+          // 🌟 A MÁGICA AQUI: Lemos os dados de forma segura sem quebrar o arraste
+          const {
+            placedParts: currentPlaced,
+            partTransforms: currentTransforms,
+            parts: currentParts,
+            selectedPartIds: currentSelected,
+          } = selectionDataRef.current;
+
+          currentPlaced.forEach((placed) => {
+            const part = currentParts.find((p) => p.id === placed.partId);
+            const partInfo = currentTransforms[placed.uuid];
+            if (!part || !partInfo) return;
+
+            const cx = placed.x + partInfo.occupiedW / 2;
+            const cy = placed.y + partInfo.occupiedH / 2;
+            const w2 = part.width / 2;
+            const h2 = part.height / 2;
+
+            const rad = (placed.rotation * Math.PI) / 180;
+            const cos = Math.cos(rad);
+            const sin = Math.sin(rad);
+
+            const corners = [
+              { x: cx + -w2 * cos + -h2 * sin, y: cy - -w2 * sin + -h2 * cos },
+              { x: cx + w2 * cos + -h2 * sin, y: cy - w2 * sin + -h2 * cos },
+              { x: cx + w2 * cos + h2 * sin, y: cy - w2 * sin + h2 * cos },
+              { x: cx + -w2 * cos + h2 * sin, y: cy - -w2 * sin + h2 * cos },
+            ];
+
+            let isSelected = false;
+
+            if (!isCrossing) {
+              isSelected = corners.every(
+                (c) =>
+                  c.x >= selMinX &&
+                  c.x <= selMaxX &&
+                  c.y >= selMinY &&
+                  c.y <= selMaxY,
+              );
+            } else {
+              const partAxes = [
+                {
+                  x: corners[1].x - corners[0].x,
+                  y: corners[1].y - corners[0].y,
+                },
+                {
+                  x: corners[3].x - corners[0].x,
+                  y: corners[3].y - corners[0].y,
+                },
+              ];
+
+              const axes = [...selAxes, ...partAxes];
+              let overlap = true;
+
+              for (const axis of axes) {
+                if (axis.x === 0 && axis.y === 0) continue;
+                let minA = Infinity,
+                  maxA = -Infinity;
+                for (const p of selCorners) {
+                  const proj = p.x * axis.x + p.y * axis.y;
+                  if (proj < minA) minA = proj;
+                  if (proj > maxA) maxA = proj;
+                }
+                let minB = Infinity,
+                  maxB = -Infinity;
+                for (const p of corners) {
+                  const proj = p.x * axis.x + p.y * axis.y;
+                  if (proj < minB) minB = proj;
+                  if (proj > maxB) maxB = proj;
+                }
+                if (maxA < minB || maxB < minA) {
+                  overlap = false;
+                  break;
+                }
+              }
+              isSelected = overlap;
+            }
+            if (isSelected) newlySelected.push(placed.uuid);
+          });
+
+          const isMulti = e.ctrlKey || e.metaKey || e.shiftKey;
+          if (isMulti) {
+            onPartSelect(
+              Array.from(new Set([...currentSelected, ...newlySelected])),
+              false,
+            );
+          } else {
+            onPartSelect(newlySelected, false);
+          }
+        } else {
+          // ⬇️ --- CORREÇÃO: UM CLIQUE SIMPLES NO FUNDO LIMPA A SELEÇÃO --- ⬇️
+          // Se o usuário apenas clicou (não arrastou a caixa) e não está segurando Ctrl/Shift, limpa tudo!
+          if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+            onPartSelect([], false);
+          }
+          // ⬆️ ----------------------------------------------------------- ⬆️
+        }
+      }
+      // ⬆️ ----------------------------------------------------------- ⬆️
       if (dragMode === "parts") {
         const finalDx = currentDragDeltaRef.current.dx;
         const finalDy = currentDragDeltaRef.current.dy;
@@ -1267,6 +1419,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     onCropLineMove,
     binWidth,
     binHeight,
+    onPartSelect, // Mantemos apenas a função, removemos as listas pesadas
   ]);
 
   const handleNativeDrop = useCallback(
@@ -1372,6 +1525,10 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
             currentY: binY,
             active: true,
           });
+
+          // ⬇️ --- CORREÇÃO: GRAVANDO O PONTO INICIAL PARA A MATEMÁTICA --- ⬇️
+          dragRef.current.initialX = binX;
+          dragRef.current.initialY = binY;
         }
         // ⬆️ --------------------------------------------------------- ⬆️
       }}
