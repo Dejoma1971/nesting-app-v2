@@ -59,6 +59,8 @@ import { findSmartRemnants, type RemnantRect } from "../utils/remnantDetector";
 
 import { useRemnantSelection } from "../hooks/useRemnantSelection";
 
+import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+
 // 👇 COLE A INTERFACE AQUI 👇
 // --- INSERÇÃO FASE 3: INTERFACE DO RETALHO ---
 interface DBRemnant {
@@ -709,6 +711,11 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     binY?: number; // Posição REAL do clique na Chapa (mm)
   } | null>(null);
   const [editingPartId, setEditingPartId] = useState<string | null>(null);
+
+  // ⬇️ --- NOVA INSERÇÃO: ESTADOS GLOBAIS DE ATALHO --- ⬇️
+  const [moveStep, setMoveStep] = useState(1);
+  const [fineRotStep, setFineRotStep] = useState(1);
+  // ⬆️ ------------------------------------------------ ⬆️
 
   const [gap, setGap] = useState(5);
   const [margin, setMargin] = useState(5);
@@ -1945,18 +1952,14 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         redo();
       }
       // --- CORREÇÃO: DEVOLVER AO BANCO (DELETE) ---
-      if (e.key === "Delete" || e.key === "Backspace") {
-        if (selectedPartIds.length > 0) {
-          e.preventDefault();
-          // Chama a função que já existia, mas não era usada
-          handleReturnToBank(selectedPartIds);
-        }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        redo();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [undo, redo, selectedPartIds, handleReturnToBank]);
-
   // ... (outros useEffects)
 
   // =====================================================================
@@ -2948,6 +2951,17 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
     },
     [selectedPartIds, setNestingResult],
   );
+
+  // ⬇️ --- INSTALANDO O MOTOR DE ATALHOS GLOBAIS --- ⬇️
+  useKeyboardShortcuts({
+    selectedPartIds,
+    moveStep,
+    fineRotStep,
+    onMove: handleContextMove,
+    onRotate: handleContextRotate,
+    onDelete: handleContextDelete,
+  });
+  // ⬆️ --------------------------------------------- ⬆️
 
   const handlePartsMove = useCallback(
     (moves: { partId: string; dx: number; dy: number }[]) => {
@@ -4368,6 +4382,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             onRotate={handleContextRotate}
             onDelete={handleContextDelete}
             isLocked={isSelectionLocked}
+            // ⬇️ --- NOVAS PROPRIEDADES PASSADAS --- ⬇️
+            moveStep={moveStep}
+            setMoveStep={setMoveStep}
+            fineRotStep={fineRotStep}
+            setFineRotStep={setFineRotStep}
+            // ⬆️ ----------------------------------- ⬆️
           />
         )}
 

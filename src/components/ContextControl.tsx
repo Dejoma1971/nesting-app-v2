@@ -4,11 +4,17 @@ import { useTheme } from "../context/ThemeContext";
 interface ContextControlProps {
   x: number;
   y: number;
-  isLocked?: boolean; // <--- ADICIONE ISSO
+  isLocked?: boolean;
   onClose: () => void;
   onMove: (dx: number, dy: number) => void;
   onRotate: (angle: number) => void;
   onDelete?: () => void;
+  // ⬇️ --- NOVAS PROPS RECEBIDAS --- ⬇️
+  moveStep: number;
+  setMoveStep: (val: number) => void;
+  fineRotStep: number;
+  setFineRotStep: (val: number) => void;
+  // ⬆️ ----------------------------- ⬆️
 }
 
 export const ContextControl: React.FC<ContextControlProps> = ({
@@ -19,11 +25,17 @@ export const ContextControl: React.FC<ContextControlProps> = ({
   onRotate,
   onDelete,
   isLocked = false,
+  moveStep,
+  setMoveStep,
+  fineRotStep,
+  setFineRotStep,
 }) => {
   const { theme } = useTheme();
 
-  const [step, setStep] = useState(1); // Passo de movimento (mm)
-  const [fineRot, setFineRot] = useState(isLocked ? 180 : 1); // Rotação de ajuste fino (1-90)
+  // ⬇️ --- ESTADOS SUBSTITUÍDOS --- ⬇️
+  // Garante que se a peça for bloqueada, a interface aplique 180º, sem perder a memória do passo fino original
+  const currentFineRot = isLocked ? 180 : fineRotStep;
+  // ⬆️ --------------------------- ⬆️
 
   // Estado local da posição
   const [position, setPosition] = useState({ x, y });
@@ -93,8 +105,7 @@ export const ContextControl: React.FC<ContextControlProps> = ({
   // --- NOVA LÓGICA DE ROTAÇÃO CONTÍNUA (PRESS & HOLD) ---
   const handleMouseDownRotate = (direction: 1 | -1) => {
     // 1. Aplica a primeira rotação imediatamente
-    const angle = direction * fineRot;
-    onRotate(angle);
+    const angle = direction * currentFineRot; // <--- CORRIGIDO AQUI
 
     // 2. Limpa qualquer intervalo existente (segurança)
     if (rotationIntervalRef.current) {
@@ -102,7 +113,6 @@ export const ContextControl: React.FC<ContextControlProps> = ({
     }
 
     // 3. Inicia o loop (a cada 50ms = 20 vezes por segundo)
-    // Usamos window.setInterval para garantir tipagem correta no browser
     rotationIntervalRef.current = window.setInterval(() => {
       onRotate(angle);
     }, 50);
@@ -229,7 +239,7 @@ export const ContextControl: React.FC<ContextControlProps> = ({
         <div />
         <button
           style={{ ...btnBaseStyle, height: "30px" }}
-          onClick={() => onMove(0, -step)}
+          onClick={() => onMove(0, -moveStep)}
           title="Mover para Cima"
         >
           ▲
@@ -238,7 +248,7 @@ export const ContextControl: React.FC<ContextControlProps> = ({
 
         <button
           style={{ ...btnBaseStyle, height: "30px" }}
-          onClick={() => onMove(-step, 0)}
+          onClick={() => onMove(-moveStep, 0)}
           title="Mover para Esquerda"
         >
           ◀
@@ -254,9 +264,8 @@ export const ContextControl: React.FC<ContextControlProps> = ({
           <input
             type="number"
             min="0.1"
-            value={step} // <--- VOLTA A USAR APENAS 'step'
-            onChange={(e) => setStep(Number(e.target.value))}
-            // REMOVA QUALQUER PROPRIEDADE 'disabled={isLocked}' DAQUI
+            value={moveStep}
+            onChange={(e) => setMoveStep(Number(e.target.value))}
             style={{
               width: "100%",
               height: "28px",
@@ -274,7 +283,7 @@ export const ContextControl: React.FC<ContextControlProps> = ({
 
         <button
           style={{ ...btnBaseStyle, height: "30px" }}
-          onClick={() => onMove(step, 0)}
+          onClick={() => onMove(moveStep, 0)}
           title="Mover para Direita"
         >
           ▶
@@ -283,7 +292,7 @@ export const ContextControl: React.FC<ContextControlProps> = ({
         <div />
         <button
           style={{ ...btnBaseStyle, height: "30px" }}
-          onClick={() => onMove(0, step)}
+          onClick={() => onMove(0, moveStep)}
           title="Mover para Baixo"
         >
           ▼
@@ -354,7 +363,7 @@ export const ContextControl: React.FC<ContextControlProps> = ({
             onMouseDown={() => handleMouseDownRotate(-1)}
             onMouseUp={stopRotation}
             onMouseLeave={stopRotation}
-            title={`Segure para girar Anti-Horário (Passo: ${fineRot}°)`}
+            title={`Segure para girar Anti-Horário (Passo: ${currentFineRot}°)`}
           >
             ↻
           </button>
@@ -375,12 +384,12 @@ export const ContextControl: React.FC<ContextControlProps> = ({
               type="number"
               min="1"
               max="90"
-              value={fineRot}
+              value={currentFineRot}
               onChange={(e) => {
                 // Garante limite entre 1 e 90
                 let val = Number(e.target.value);
                 if (val > 90) val = 90;
-                setFineRot(val);
+                setFineRotStep(val);
               }}
               style={{
                 width: "100%",
@@ -406,7 +415,7 @@ export const ContextControl: React.FC<ContextControlProps> = ({
             onMouseDown={() => handleMouseDownRotate(1)}
             onMouseUp={stopRotation}
             onMouseLeave={stopRotation}
-            title={`Segure para girar Horário (Passo: ${fineRot}°)`}
+            title={`Segure para girar Horário (Passo: ${currentFineRot}°)`}
           >
             ↺
           </button>
