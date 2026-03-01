@@ -1489,9 +1489,14 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         background: "transparent",
         display: "flex",
         flexDirection: "column",
-        // AQUI VAMOS ALTERAR O CURSOR
+        // ⬇️ --- CORREÇÃO: CURSOR CROSSHAIR PARA SELEÇÃO CAD --- ⬇️
         cursor:
-          dragMode !== "none" ? "grabbing" : isPanning ? "grabbing" : "default",
+          dragMode === "select"
+            ? "crosshair"
+            : dragMode !== "none" || isPanning
+              ? "grabbing"
+              : "default",
+        // ⬆️ ---------------------------------------------------- ⬆️
         overflow: "hidden",
         width: "100%",
         height: "100%",
