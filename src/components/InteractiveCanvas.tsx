@@ -607,8 +607,19 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
 
   const [dragMode, setDragMode] = useState<
-    "none" | "pan" | "parts" | "label" | "rotate" | "cropline"
+    "none" | "pan" | "parts" | "label" | "rotate" | "cropline" | "select"
   >("none");
+
+  // ⬇️ --- NOVA INSERÇÃO: ESTADO DA SELEÇÃO CAD --- ⬇️
+  const [selectionBox, setSelectionBox] = useState({
+    startX: 0,
+    startY: 0,
+    currentX: 0,
+    currentY: 0,
+    active: false,
+  });
+  // ⬆️ -------------------------------------------- ⬆️
+
   const [draggingLabel, setDraggingLabel] = useState<{
     partId: string;
     type: "white" | "pink";
@@ -846,11 +857,34 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   const handleMouseDownPart = useCallback(
     (e: React.MouseEvent, uuid: string) => {
       e.stopPropagation();
-      if (!selectedPartIds.includes(uuid)) return;
-      if (strategy !== "guillotine" && e.button === 0) {
+
+      if (e.button !== 0) return; // Garante que só funciona com o botão esquerdo
+
+      const isCtrl = e.ctrlKey || e.metaKey;
+      let currentSelection = [...selectedPartIds];
+
+      // --- 1. LÓGICA DE SELEÇÃO (Com um clique apenas) ---
+      if (!currentSelection.includes(uuid)) {
+        // Se a peça não estava selecionada, seleciona
+        if (isCtrl) {
+          currentSelection.push(uuid); // Adiciona à seleção múltipla
+        } else {
+          currentSelection = [uuid]; // Seleção única
+        }
+        onPartSelect(currentSelection, false);
+      } else if (isCtrl) {
+        // Se já estava selecionada e clicou com Ctrl, desmarca
+        currentSelection = currentSelection.filter((id) => id !== uuid);
+        onPartSelect(currentSelection, false);
+        return; // Aborta o arraste se apenas desmarcou
+      }
+
+      // --- 2. LÓGICA DE ARRASTE ---
+      if (strategy !== "guillotine") {
         e.preventDefault();
         setDragMode("parts");
-        draggingIdsRef.current = selectedPartIds;
+        // Usa a currentSelection que acabou de ser calculada
+        draggingIdsRef.current = currentSelection;
         currentDragDeltaRef.current = { dx: 0, dy: 0 };
         const svgPos = getSVGPoint(e.clientX, e.clientY);
         dragRef.current = {
@@ -863,7 +897,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         };
       }
     },
-    [strategy, selectedPartIds, getSVGPoint],
+    [strategy, selectedPartIds, getSVGPoint, onPartSelect], // <-- Dependências atualizadas
   );
 
   const handleLabelDown = useCallback(
@@ -1117,6 +1151,22 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           onLabelDrag(draggingLabel.partId, draggingLabel.type, dx, -dy);
           dragRef.current.startSvgX = currentSvgPos.x;
           dragRef.current.startSvgY = currentSvgPos.y;
+
+          // ⬇️ --- INSERÇÃO 3-A: ATUALIZA O DESENHO DA CAIXA AO ARRASTAR --- ⬇️
+        } else if (dragMode === "select") {
+          // --- CÁLCULO DAS COORDENADAS REAIS DA CHAPA ---
+          const currentT = transformRef.current;
+          const visualX = (currentSvgPos.x - currentT.x) / currentT.k;
+          const visualY = (currentSvgPos.y - currentT.y) / currentT.k;
+          const binX = visualX;
+          const binY = binHeight - visualY; // Inverte o Y para o padrão CNC
+
+          setSelectionBox((prev) => ({
+            ...prev,
+            currentX: binX,
+            currentY: binY,
+          }));
+          // ⬆️ --------------------------------------------------------- ⬆️
         } else if (dragMode === "parts") {
           // 1. Calcula o deslocamento bruto do mouse (em coordenadas SVG)
           const rawDx = currentSvgPos.x - dragRef.current.startSvgX;
@@ -1190,6 +1240,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       }
 
       setDragMode("none");
+      setSelectionBox((prev) => ({ ...prev, active: false }));
       setDraggingLabel(null);
       setDraggingLine(null);
       draggingIdsRef.current = [];
@@ -1295,12 +1346,33 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       // AQUI VAMOS INSERIR OS HANDLERS
       onMouseDown={(e) => {
         handleMouseDownContainer();
-        // ⬇️ --- NOVA REGRA: PAN APENAS COM BOTÃO DO MEIO (SCROLL) --- ⬇️
+
+        // ⬇️ --- REGRA DO PAN (BOTÃO DO MEIO) --- ⬇️
         if (e.button === 1) {
-          e.preventDefault(); // Impede o auto-scroll nativo do navegador
-          panHandlers.onMouseDown(e); // LIGA O PAN AQUI
+          e.preventDefault();
+          panHandlers.onMouseDown(e);
         }
-        // Futuramente, se for botão esquerdo (e.button === 0), ligaremos a Seleção CAD aqui
+        // ⬇️ --- REGRA DA SELEÇÃO CAD (BOTÃO ESQUERDO) --- ⬇️
+        else if (e.button === 0) {
+          e.preventDefault();
+          const svgPos = getSVGPoint(e.clientX, e.clientY);
+
+          // --- CÁLCULO DAS COORDENADAS REAIS DA CHAPA ---
+          const currentT = transformRef.current;
+          const visualX = (svgPos.x - currentT.x) / currentT.k;
+          const visualY = (svgPos.y - currentT.y) / currentT.k;
+          const binX = visualX;
+          const binY = binHeight - visualY; // Inverte o Y para o padrão CNC
+
+          setDragMode("select");
+          setSelectionBox({
+            startX: binX,
+            startY: binY,
+            currentX: binX,
+            currentY: binY,
+            active: true,
+          });
+        }
         // ⬆️ --------------------------------------------------------- ⬆️
       }}
       onMouseMove={panHandlers.onMouseMove} // Novo
@@ -1599,6 +1671,44 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                   style={{ pointerEvents: "none" }}
                 />
               ))}
+              {/* ⬇️ --- INSERÇÃO: RENDERIZAÇÃO DA CAIXA DE SELEÇÃO --- ⬇️ */}
+              {selectionBox.active &&
+                (() => {
+                  const { startX, startY, currentX, currentY } = selectionBox;
+                  const x = Math.min(startX, currentX);
+                  const y = Math.min(startY, currentY);
+                  const width = Math.abs(currentX - startX);
+                  const height = Math.abs(currentY - startY);
+
+                  // Lógica CAD: Direita para Esquerda = Crossing (Verde). Esquerda para Direita = Window (Azul).
+                  const isCrossing = currentX < startX;
+                  const strokeColor = isCrossing
+                    ? "rgba(40, 167, 69, 0.8)"
+                    : "rgba(0, 123, 255, 0.8)";
+                  const fillColor = isCrossing
+                    ? "rgba(40, 167, 69, 0.2)"
+                    : "rgba(0, 123, 255, 0.2)";
+
+                  return (
+                    <rect
+                      x={x}
+                      y={y}
+                      width={width}
+                      height={height}
+                      fill={fillColor}
+                      stroke={strokeColor}
+                      strokeWidth={1 / transform.k} // Mantém linha fina independente do zoom
+                      strokeDasharray={
+                        isCrossing
+                          ? `${5 / transform.k},${5 / transform.k}`
+                          : "none"
+                      }
+                      vectorEffect="non-scaling-stroke"
+                      style={{ pointerEvents: "none" }} // Não interfere no clique
+                    />
+                  );
+                })()}
+              {/* ⬆️ --------------------------------------------------- ⬆️ */}
             </g>
           </g>
         </svg>
