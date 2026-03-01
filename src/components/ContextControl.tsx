@@ -252,7 +252,7 @@ export const ContextControl: React.FC<ContextControlProps> = ({
           }}
         >
           <input
-           type="number"
+            type="number"
             min="0.1"
             value={step} // <--- VOLTA A USAR APENAS 'step'
             onChange={(e) => setStep(Number(e.target.value))}
@@ -356,7 +356,7 @@ export const ContextControl: React.FC<ContextControlProps> = ({
             onMouseLeave={stopRotation}
             title={`Segure para girar Anti-Horário (Passo: ${fineRot}°)`}
           >
-            ↺
+            ↻
           </button>
 
           {/* Input Central (Define o ângulo) */}
@@ -408,7 +408,7 @@ export const ContextControl: React.FC<ContextControlProps> = ({
             onMouseLeave={stopRotation}
             title={`Segure para girar Horário (Passo: ${fineRot}°)`}
           >
-            ↻
+            ↺
           </button>
         </div>
       </div>
