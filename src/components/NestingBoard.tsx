@@ -61,6 +61,8 @@ import { useRemnantSelection } from "../hooks/useRemnantSelection";
 
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 
+import { ShortcutsModal } from "./ShortcutsModal";
+
 // 👇 COLE A INTERFACE AQUI 👇
 // --- INSERÇÃO FASE 3: INTERFACE DO RETALHO ---
 interface DBRemnant {
@@ -408,6 +410,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
 
   // Estado para controlar o modal da equipe
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+
+  // ⬇️ --- ESTADO DO MODAL DE ATALHOS --- ⬇️
+  const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
+  // ⬆️ ---------------------------------- ⬆️
 
   // --- INSERÇÃO 2: ESTADOS DO NOVO MODAL ---
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
@@ -4388,6 +4394,10 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
             fineRotStep={fineRotStep}
             setFineRotStep={setFineRotStep}
             // ⬆️ ----------------------------------- ⬆️
+            onOpenShortcuts={() => {
+              setContextMenu(null); // Fecha o menu direito
+              setIsShortcutsModalOpen(true); // Abre o modal
+            }}
           />
         )}
 
@@ -6404,6 +6414,13 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
           theme={theme}
         />
         {/* ------------------------------------------------------ */}
+        {/* ⬇️ --- MODAL DE ATALHOS --- ⬇️ */}
+        <ShortcutsModal 
+          isOpen={isShortcutsModalOpen}
+          onClose={() => setIsShortcutsModalOpen(false)}
+          theme={theme}
+        />
+        {/* ⬆️ ------------------------ ⬆️ */}
       </div>
     </>
   );

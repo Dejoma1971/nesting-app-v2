@@ -14,6 +14,7 @@ interface ContextControlProps {
   setMoveStep: (val: number) => void;
   fineRotStep: number;
   setFineRotStep: (val: number) => void;
+  onOpenShortcuts?: () => void;
   // ⬆️ ----------------------------- ⬆️
 }
 
@@ -29,6 +30,7 @@ export const ContextControl: React.FC<ContextControlProps> = ({
   setMoveStep,
   fineRotStep,
   setFineRotStep,
+  onOpenShortcuts,
 }) => {
   const { theme } = useTheme();
 
@@ -198,16 +200,37 @@ export const ContextControl: React.FC<ContextControlProps> = ({
           borderRadius: "4px",
         }}
       >
-        <span
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onOpenShortcuts) onOpenShortcuts();
+          }}
+          title="Ver teclas de atalho CAD"
           style={{
+            background: "transparent",
+            border: "none",
+            color: theme.text,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            padding: "2px 4px",
+            borderRadius: "4px",
             fontSize: "11px",
             fontWeight: "bold",
             textTransform: "uppercase",
-            opacity: 0.7,
+            opacity: 0.9,
           }}
+          onMouseEnter={(e) =>
+            (e.currentTarget.style.background = "rgba(255,255,255,0.1)")
+          }
+          onMouseLeave={(e) =>
+            (e.currentTarget.style.background = "transparent")
+          }
         >
-          <span style={{ marginRight: 5 }}>✥</span> Ações
-        </span>
+          <span style={{ marginRight: 5 }}>✥</span> Ações{" "}
+          <span style={{ fontSize: "14px", marginLeft: "4px" }}>⌨️</span>
+        </button>
+
         <button
           onClick={(e) => {
             e.stopPropagation();
