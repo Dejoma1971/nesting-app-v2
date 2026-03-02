@@ -67,8 +67,10 @@ export const useEngineeringLogic = ({
     op: "",
     material: "",
     espessura: "",
+    quantity: "",
     autor: "",
     tipo_producao: "NORMAL",
+    
   });
 
   // CORREÇÃO: Inicia vazio para não mostrar dados de Trial (estáticos) enquanto carrega

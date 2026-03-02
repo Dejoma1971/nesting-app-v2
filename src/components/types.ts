@@ -44,6 +44,7 @@ export interface BatchDefaults {
   espessura: string;
   autor: string;
   tipo_producao?: string;
+  quantity?: number | ""; // <--- AQUI SIM ENTRAM OS TIPOS (A regra)
 }
 
 export interface EngineeringScreenProps {

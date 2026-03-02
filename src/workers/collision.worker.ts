@@ -397,21 +397,36 @@ const doLineSegmentsIntersect = (
   q1: Point,
   q2: Point
 ): boolean => {
+  // --- NOVA MICRO-OTIMIZAÇÃO (AABB do Segmento) ---
+  // Se as caixas delimitadoras dos dois segmentos não se cruzam,
+  // as linhas matematicamente não podem se cruzar. Isso poupa muita CPU.
+  if (
+    Math.max(p1.x, p2.x) < Math.min(q1.x, q2.x) ||
+    Math.min(p1.x, p2.x) > Math.max(q1.x, q2.x) ||
+    Math.max(p1.y, p2.y) < Math.min(q1.y, q2.y) ||
+    Math.min(p1.y, p2.y) > Math.max(q1.y, q2.y)
+  ) {
+    return false;
+  }
+  // ------------------------------------------------
+
   const subtract = (a: Point, b: Point) => ({ x: a.x - b.x, y: a.y - b.y });
   const crossProduct = (a: Point, b: Point) => a.x * b.y - a.y * b.x;
+  
   const r = subtract(p2, p1);
   const s = subtract(q2, q1);
   const rxs = crossProduct(r, s);
   const qpxr = crossProduct(subtract(q1, p1), r);
 
-  if (rxs === 0 && qpxr === 0) return false;
+  // Linhas colineares ou paralelas
+  if (rxs === 0 && qpxr === 0) return false; 
   if (rxs === 0 && qpxr !== 0) return false;
 
   const t = crossProduct(subtract(q1, p1), s) / rxs;
   const u = crossProduct(subtract(q1, p1), r) / rxs;
+  
   return t >= 0 && t <= 1 && u >= 0 && u <= 1;
 };
-
 // --- LÓGICA PRINCIPAL DO WORKER ---
 
 self.onmessage = (e: MessageEvent<WorkerData>) => {
@@ -560,25 +575,42 @@ self.onmessage = (e: MessageEvent<WorkerData>) => {
         }
       }
 
-      // TESTE 2: Inclusão (Um dentro do outro sem tocar bordas)
+   // TESTE 2: Inclusão (Um dentro do outro sem tocar bordas)
       if (!collision) {
-        const sampleA = geomA.outer[0];
-        if (isPointInMaterial(sampleA, geomB)) {
+        // Tenta até 3 vértices distantes entre si para garantir que não pegamos um falso negativo de borda
+        const stepA = Math.max(1, Math.floor(geomA.outer.length / 3));
+        let insideB = false;
+        for (let k = 0; k < geomA.outer.length; k += stepA) {
+          if (isPointInMaterial(geomA.outer[k], geomB)) {
+            insideB = true;
+            break;
+          }
+        }
+
+        if (insideB) {
           collision = true;
         } else {
-          const sampleB = geomB.outer[0];
-          if (isPointInMaterial(sampleB, geomA)) {
-            collision = true;
+          // Faz o inverso
+          const stepB = Math.max(1, Math.floor(geomB.outer.length / 3));
+          let insideA = false;
+          for (let k = 0; k < geomB.outer.length; k += stepB) {
+            if (isPointInMaterial(geomB.outer[k], geomA)) {
+              insideA = true;
+              break;
+            }
           }
+          if (insideA) collision = true;
         }
       }
 
+      // REGISTRO DE COLISÃO
       if (collision) {
         if (!collidingIds.includes(pA.uuid)) collidingIds.push(pA.uuid);
         if (!collidingIds.includes(pB.uuid)) collidingIds.push(pB.uuid);
       }
-    }
-  }
+    } // Fecha o for (let j = i + 1...)
+  } // Fecha o for (let i = 0...)
 
+  // ENVIA O RESULTADO
   self.postMessage(collidingIds);
-};
+}; // Fecha a função self.onmessage

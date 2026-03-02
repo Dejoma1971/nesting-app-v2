@@ -4,12 +4,19 @@ import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
 import type { AppTheme } from "../styles/theme";
 
+import type { RemnantRect } from "../utils/remnantDetector";
+
 interface MiniatureCanvasProps {
   binId: number;
   binWidth: number;
   binHeight: number;
+  // 👇 INSERÇÃO: TAMANHO MÁXIMO GLOBAL 👇
+  globalMaxWidth?: number;
+  globalMaxHeight?: number;
+  // 👆 ------------------------------- 👆
   parts: ImportedPart[];
   placedParts: PlacedPart[];
+  calculatedRemnants?: RemnantRect[];
   theme: AppTheme;
   onClick?: () => void;
   isSelected?: boolean;
@@ -138,8 +145,11 @@ export const MiniatureCanvas: React.FC<MiniatureCanvasProps> = React.memo(
     binId,
     binWidth,
     binHeight,
+    globalMaxWidth,  // <--- ADICIONE AQUI
+    globalMaxHeight, // <--- ADICIONE AQUI
     parts,
     placedParts,
+    calculatedRemnants,
     theme,
     onClick,
     isSelected,
@@ -150,10 +160,16 @@ export const MiniatureCanvas: React.FC<MiniatureCanvasProps> = React.memo(
       [placedParts, binId]
     );
 
-    // Configuração visual
-    const strokeWidth = 1; // Espessura fina e elegante
-    const viewPortBuffer = binWidth * 0.05;
-    const viewBox = `${-viewPortBuffer} ${-viewPortBuffer} ${binWidth + viewPortBuffer * 2} ${binHeight + viewPortBuffer * 2}`;
+    const strokeWidth = 1; 
+
+    // 👇 INSERÇÃO: LÓGICA DA LENTE FIXA 👇
+    // A câmera sempre olha para o tamanho máximo da mesa (o TODO)
+    const lensWidth = globalMaxWidth || binWidth;
+    const lensHeight = globalMaxHeight || binHeight;
+
+    const viewPortBuffer = lensWidth * 0.05;
+    const viewBox = `${-viewPortBuffer} ${-viewPortBuffer} ${lensWidth + viewPortBuffer * 2} ${lensHeight + viewPortBuffer * 2}`;
+    // 👆 ------------------------------ 👆
 
     return (
       <div
@@ -172,14 +188,14 @@ export const MiniatureCanvas: React.FC<MiniatureCanvasProps> = React.memo(
         }}
       >
         <svg
-          viewBox={viewBox}
-          preserveAspectRatio="xMidYMid meet"
+          viewBox={viewBox} // <--- Usa a lente gigante aqui
+          preserveAspectRatio="xMidYMid meet" // <--- Garante que o TODO apareça sem cortar
           style={{ width: "100%", height: "100%", display: "block" }}
         >
-          {/* Sistema de Coordenadas CNC (Y invertido para cima) */}
-          <g transform={`translate(0, ${binHeight}) scale(1, -1)`}>
+          {/* 👇 ALTERAÇÃO: O Transform usa a altura da Lente para alinhar a chapa embaixo 👇 */}
+          <g transform={`translate(0, ${lensHeight}) scale(1, -1)`}>
             
-            {/* Chapa (Borda) */}
+            {/* Chapa (Borda) - Continua usando o tamanho real dela (menor se for retalho) */}
             <rect
               x="0"
               y="0"
@@ -190,6 +206,22 @@ export const MiniatureCanvas: React.FC<MiniatureCanvasProps> = React.memo(
               strokeWidth={strokeWidth}
               vectorEffect="non-scaling-stroke"
             />
+            {/* 👇 4. INSERÇÃO: Renderiza as áreas de Retalho Útil em verde 👇 */}
+            {calculatedRemnants?.map((remnant, idx) => (
+              <rect
+                key={`remnant-${idx}`}
+                x={remnant.x}
+                y={remnant.y}
+                width={remnant.width}
+                height={remnant.height}
+                fill="rgba(40, 167, 69, 0.2)" /* Verde Translúcido */
+                stroke="#28a745"
+                strokeWidth="2"
+                strokeDasharray="8 4" /* Linha tracejada para indicar que é corte futuro */
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
+            {/* 👆 --------------------------------------------------------- 👆 */}
 
             {/* Peças Posicionadas */}
             {myParts.map((placed) => {

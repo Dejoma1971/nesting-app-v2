@@ -362,3 +362,54 @@ export const detectCollisions = (
 
   return collidingIds;
 };
+
+// --- 4. VERIFICAÇÃO RÁPIDA: LINHA DE RETALHO VS PEÇAS ---
+export const hasCropLineCollision = (
+  placedParts: PlacedPart[],
+  partsData: ImportedPart[],
+  binWidth: number,
+  binHeight: number,
+  cropLines: CropLine[]
+): boolean => {
+  if (cropLines.length === 0 || placedParts.length === 0) return false;
+
+  const partPolygons = new Map<string, Point[]>();
+  
+  // Transforma apenas as peças que estão na chapa atual
+  placedParts.forEach((placed) => {
+    const data = partsData.find((p) => p.id === placed.partId);
+    if (data) {
+      partPolygons.set(placed.uuid, getTransformedPolygon(data, placed));
+    }
+  });
+
+  // Verifica se alguma linha cruza alguma peça
+  for (const placed of placedParts) {
+    const poly = partPolygons.get(placed.uuid);
+    if (!poly) continue;
+
+    for (const line of cropLines) {
+      let q1: Point, q2: Point;
+      
+      // Projeta a linha infinita (ou do tamanho da chapa) para testar o corte
+      if (line.type === "vertical") {
+        q1 = { x: line.position, y: -1000 };
+        q2 = { x: line.position, y: binHeight + 1000 };
+      } else {
+        q1 = { x: -1000, y: line.position };
+        q2 = { x: binWidth + 1000, y: line.position };
+      }
+
+      for (let k = 0; k < poly.length; k++) {
+        const p1 = poly[k];
+        const p2 = poly[(k + 1) % poly.length];
+        
+        if (doLineSegmentsIntersect(p1, p2, q1, q2)) {
+          return true; // Bateu! Aborta tudo e retorna que tem colisão
+        }
+      }
+    }
+  }
+  
+  return false; // Caminho livre!
+};

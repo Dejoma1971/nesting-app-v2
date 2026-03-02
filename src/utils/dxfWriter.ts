@@ -266,7 +266,8 @@ export const generateDxfContent = (
   placedParts: PlacedPart[],
   allParts: ImportedPart[],
   binSize?: { width: number; height: number },
-  cropLines: CropLine[] = []
+  cropLines: CropLine[] = [],
+  remnantsWithCodes: any[] = []
 ): string => {
   let dxf = "";
 
@@ -466,6 +467,36 @@ export const generateDxfContent = (
     dxf += `0\nLINE\n8\n${layerRetalho}\n10\n${x1.toFixed(4)}\n20\n${y1.toFixed(
       4
     )}\n30\n0.0\n11\n${x2.toFixed(4)}\n21\n${y2.toFixed(4)}\n31\n0.0\n`;
+  });
+
+  // ==========================================================
+  // D. Etiquetas dos Retalhos Inteligentes (Geradas pelo Banco)
+  // ==========================================================
+  const layerEtiquetas = LAYER_CONFIG.ETIQUETAS.id;
+  
+  remnantsWithCodes.forEach(r => {
+    // Calcula o centro exato do retângulo verde
+    let cx = r.x + r.width / 2;
+    let cy = r.y + r.height / 2;
+    let rot = 0;
+
+    // Se a chapa gira no DXF (Landscape vs Portrait), o texto gira junto
+    if (shouldRotate) {
+      const t = cx;
+      cx = cy;
+      cy = t;
+      rot = -90; 
+    }
+
+    const textHeight = 40.0; // Altura ideal para ficar legível na chapa real
+
+    dxf += `0\nTEXT\n8\n${layerEtiquetas}\n`;
+    dxf += `10\n${cx.toFixed(4)}\n20\n${cy.toFixed(4)}\n30\n0.0\n`; // Ponto base
+    dxf += `40\n${textHeight.toFixed(1)}\n`; // Tamanho
+    dxf += `1\n${r.codigo}\n`; // O código que veio do banco (Ex: RET-8965)
+    dxf += `50\n${rot}\n`; // Rotação
+    dxf += `72\n1\n73\n2\n`; // 72=1 (Centro H), 73=2 (Meio V)
+    dxf += `11\n${cx.toFixed(4)}\n21\n${cy.toFixed(4)}\n31\n0.0\n`; // Ponto de Alinhamento
   });
 
   dxf += "0\nENDSEC\n0\nEOF\n";

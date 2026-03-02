@@ -13,6 +13,7 @@ interface MaterialItem {
 interface ThicknessItem {
   id: number;
   valor: string;
+  valor_mm?: number;
   origem: "padrao" | "custom";
 }
 
@@ -49,12 +50,14 @@ export const MaterialConfigModal: React.FC<MaterialConfigModalProps> = ({
   // Estados de Adição
   const [newItemName, setNewItemName] = useState("");
   const [newItemDensity, setNewItemDensity] = useState("7.85");
+  const [newItemThicknessMm, setNewItemThicknessMm] = useState(""); // <--- NOVO: Valor em mm
   const [loading, setLoading] = useState(false);
 
   // Estados de Edição
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
   const [editDensity, setEditDensity] = useState("");
+  const [editThicknessMm, setEditThicknessMm] = useState(""); // <--- NOVO: Edição do valor em mm
 
   // Estado para Hover
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
@@ -101,11 +104,18 @@ export const MaterialConfigModal: React.FC<MaterialConfigModalProps> = ({
           newItemDensity,
         );
       } else {
-        await EngineeringService.addCustomThickness(user.token, newItemName);
+        // --- NOVO: Valida e envia o milímetro ---
+        if (!newItemThicknessMm) {
+          alert("Preencha o valor real em milímetros.");
+          setLoading(false);
+          return;
+        }
+        await EngineeringService.addCustomThickness(user.token, newItemName, newItemThicknessMm);
       }
       onUpdate();
       await loadData();
       setNewItemName("");
+      setNewItemThicknessMm("");
     } catch (error: any) {
       alert("Erro: " + error.message);
     } finally {
@@ -142,6 +152,7 @@ export const MaterialConfigModal: React.FC<MaterialConfigModalProps> = ({
       setEditDensity(item.densidade ? item.densidade.toString() : "7.85");
     } else {
       setEditName(item.valor);
+      setEditThicknessMm(item.valor_mm ? item.valor_mm.toString() : "");
     }
   };
 
@@ -149,6 +160,7 @@ export const MaterialConfigModal: React.FC<MaterialConfigModalProps> = ({
     setEditingId(null);
     setEditName("");
     setEditDensity("");
+    setEditThicknessMm("");
   };
 
   const saveEditing = async () => {
@@ -163,10 +175,18 @@ export const MaterialConfigModal: React.FC<MaterialConfigModalProps> = ({
           editDensity,
         );
       } else {
+        // --- NOVO: Valida e envia o mm na edição ---
+        if (!editThicknessMm) {
+          alert("Preencha o valor em milímetros.");
+          setLoading(false);
+          return;
+        }
+        // 👇 CORREÇÃO AQUI: Faltava passar o editThicknessMm como 4º parâmetro!
         await EngineeringService.updateCustomThickness(
           user.token,
           editingId,
           editName,
+          editThicknessMm
         );
       }
       onUpdate();
@@ -374,7 +394,7 @@ export const MaterialConfigModal: React.FC<MaterialConfigModalProps> = ({
                   value={newItemName}
                   onChange={(e) => setNewItemName(e.target.value)}
                   placeholder={
-                    activeTab === "materials" ? "Novo: Titânio" : "Nova: 2.50mm"
+                    activeTab === "materials" ? "Novo: Titânio" : "Ex Nome: Chapa #22"
                   }
                   style={inputStyle}
                 />
@@ -388,6 +408,18 @@ export const MaterialConfigModal: React.FC<MaterialConfigModalProps> = ({
                     style={inputStyle}
                   />
                 )}
+                {/* --- NOVO: CAMPO DE MILÍMETROS --- */}
+                {activeTab === "thicknesses" && (
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={newItemThicknessMm}
+                    onChange={(e) => setNewItemThicknessMm(e.target.value)}
+                    placeholder="Valor Real (mm): Ex 0.80"
+                    style={inputStyle}
+                  />
+                )}
+                {/* --------------------------------- */}
                 <button
                   onClick={handleAdd}
                   disabled={loading}
@@ -629,9 +661,20 @@ export const MaterialConfigModal: React.FC<MaterialConfigModalProps> = ({
                         <input
                           value={editName}
                           onChange={(e) => setEditName(e.target.value)}
-                          style={editInputStyle}
+                          style={{ ...editInputStyle, flex: 2 }}
+                          placeholder="Nome"
                           autoFocus
                         />
+                        {/* --- NOVO: INPUT DE EDIÇÃO DE MILÍMETRO --- */}
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={editThicknessMm}
+                          onChange={(e) => setEditThicknessMm(e.target.value)}
+                          style={{ ...editInputStyle, flex: 1 }}
+                          placeholder="mm"
+                        />
+                        {/* ----------------------------------------- */}
                         <button
                           onClick={saveEditing}
                           style={{
@@ -661,7 +704,7 @@ export const MaterialConfigModal: React.FC<MaterialConfigModalProps> = ({
                       </div>
                     ) : (
                       <>
-                        <div>
+                        <div style={{ display: "flex", flexDirection: "column" }}>
                           <span
                             style={{
                               fontWeight: "bold",
@@ -671,18 +714,26 @@ export const MaterialConfigModal: React.FC<MaterialConfigModalProps> = ({
                             }}
                           >
                             {t.valor}
+                            {t.origem === "padrao" && (
+                              <span
+                                style={{
+                                  fontSize: "9px",
+                                  color: "#007bff",
+                                  marginLeft: "5px",
+                                }}
+                              >
+                                (Padrão)
+                              </span>
+                            )}
                           </span>
-                          {t.origem === "padrao" && (
-                            <span
-                              style={{
-                                fontSize: "9px",
-                                color: "#007bff",
-                                marginLeft: "5px",
-                              }}
-                            >
-                              (Padrão)
+                          {/* --- MOSTRAR O VALOR EM MILÍMETROS --- */}
+                          {/* 👇 CORREÇÃO AQUI: Verifica != null para cobrir null e undefined */}
+                          {t.valor_mm != null && (
+                            <span style={{ fontSize: "10px", opacity: 0.7 }}>
+                              Real: {t.valor_mm} mm
                             </span>
                           )}
+                          {/* ------------------------------------------ */}
                         </div>
                         {/* ⬇️ O BOTÃO DE EXCLUIR AGORA DEPENDE DE 'canEdit' (ADMIN) ⬇️ */}
                         {canEdit && (

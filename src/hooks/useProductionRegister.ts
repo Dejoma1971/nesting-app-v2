@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { PlacedPart } from '../utils/nestingCore';
 import type { ImportedPart } from '../components/types';
+import type { EngineeringStatsData } from '../components/EngineeringStatsModal';
 
 interface User {
   token?: string;
@@ -9,24 +10,13 @@ interface User {
   id?: string;
 }
 
-// Interface para as métricas calculadas no NestingBoard (currentEfficiencies)
-interface MetricasEficiencia {
-  real: string;        // "59,1"
-  consumption: string; // "85,7"
-  remnantHeight: string; // "1500"
-  remnantArea: string;   // "1.50"
-}
-
 interface RegisterProps {
   nestingResult: PlacedPart[];
   currentBinIndex: number;
   parts: ImportedPart[];
-  cropLines: unknown[]; 
   user: User;
-  motor: "guillotine" | "true-shape" | "wise" | "true-shape-v2"; // Atualizei os motores
-  binWidth: number;   // Necessário para salvar dimensões
-  binHeight: number;  // Necessário para salvar dimensões
-  metricas: MetricasEficiencia; // <--- NOVO: Recebe os dados do rodapé
+  motor: string;
+  stats: EngineeringStatsData; // <--- AGORA ELE RECEBE O PACOTE DE ENGENHARIA COMPLETO!
 }
 
 interface ExtendedPart extends ImportedPart {
@@ -51,10 +41,8 @@ export const useProductionRegister = () => {
     parts,
     user,
     motor,
-    binWidth,
-    binHeight,
-    metricas
-  }: RegisterProps) => {
+    stats
+  }: RegisterProps): Promise<{ success: boolean; message: string; producaoId?: number }> => {
     
     const partsInBin = nestingResult.filter(p => p.binId === currentBinIndex);
     if (partsInBin.length === 0) return { success: false, message: "Mesa vazia." };
@@ -72,26 +60,18 @@ export const useProductionRegister = () => {
       });
 
       const itensAgrupados = Object.values(itensParaSalvar.reduce((acc, item) => {
-        if (!acc[item.id]) {
-          acc[item.id] = { ...item, qtd: 0 };
-        }
+        if (!acc[item.id]) acc[item.id] = { ...item, qtd: 0 };
         acc[item.id].qtd += 1;
         return acc;
       }, {} as Record<string, typeof itensParaSalvar[0]>));
 
-      // Conversão de String "59,1" para Number 59.1
-      const aproveitamentoNum = parseFloat(metricas.real.replace(',', '.')) || 0;
-      const consumoNum = parseFloat(metricas.consumption.replace(',', '.')) || 0;
-      const retalhoLinearNum = parseInt(metricas.remnantHeight) || 0;
-      const areaRetalhoNum = parseFloat(metricas.remnantArea.replace(',', '.')) || 0;
-
+      // Assinatura usando as áreas para garantir unicidade
       const signaturePayload = JSON.stringify({
         itens: itensAgrupados.map(i => `${i.id}-${i.qtd}`).sort(),
         motor,
         binIndex: currentBinIndex,
         empresa: user?.empresa_id,
-        // Adicionamos as métricas na assinatura para evitar salvar 2x se os valores mudarem
-        metrics: `${aproveitamentoNum}-${consumoNum}` 
+        metrics: `${stats.netPartsArea}-${stats.effectiveArea}` 
       });
       
       const signature = await generateSignature(signaturePayload);
@@ -108,14 +88,9 @@ export const useProductionRegister = () => {
         },
         body: JSON.stringify({
           chapaIndex: currentBinIndex,
-          aproveitamento: aproveitamentoNum, // GLOBAL
-          consumo: consumoNum,               // CONSUMO
-          retalhoLinear: retalhoLinearNum,   // SOBRA Y
-          areaRetalho: areaRetalhoNum,       // SOBRA M2
-          larguraChapa: binWidth,
-          alturaChapa: binHeight,
-          itens: itensAgrupados,
           motor: motor,
+          stats: stats, // <--- ENVIANDO TUDO PRO BACKEND
+          itens: itensAgrupados,
           nestingSignature: signature 
         })
       });
@@ -125,13 +100,14 @@ export const useProductionRegister = () => {
       if (!response.ok) {
         if (data.error && data.error.includes("Duplicate")) {
              setLastSavedSignature(signature);
-             return { success: true, message: "Produção já sincronizada." };
+             return { success: true, message: "Produção já sincronizada.", producaoId: data.producaoId };
         }
         throw new Error(data.error || "Erro ao salvar");
       }
 
       setLastSavedSignature(signature);
-      return { success: true, message: "Produção registrada com sucesso!" };
+      // ♻️ RETORNANDO O ID DE PRODUÇÃO COM SUCESSO!
+      return { success: true, message: "Produção registrada com sucesso!", producaoId: data.producaoId };
 
     } catch (error) {
       console.error(error);
@@ -141,8 +117,5 @@ export const useProductionRegister = () => {
     }
   }, [lastSavedSignature]);
 
-  return {
-    registerProduction,
-    isSaving
-  };
+  return { registerProduction, isSaving };
 };

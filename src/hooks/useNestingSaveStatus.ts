@@ -65,9 +65,32 @@ export const useNestingSaveStatus = (allParts: PlacedPart[]) => {
     setSavedBins({});
   }, []);
 
+  // --- INSERÇÃO: FUNÇÃO PARA DESLOCAR OS STATUS QUANDO UMA CHAPA É APAGADA ---
+  const removeAndShiftSavedBins = useCallback((deletedIndex: number) => {
+    setSavedBins((prev) => {
+      const newState: Record<number, string> = {};
+      
+      for (const key in prev) {
+        const numKey = Number(key);
+        if (numKey < deletedIndex) {
+          // As chapas anteriores à que foi salva ficam intactas
+          newState[numKey] = prev[numKey];
+        } else if (numKey > deletedIndex) {
+          // As chapas posteriores "escorregam" um índice para trás
+          newState[numKey - 1] = prev[numKey];
+        }
+        // A chapa salva (numKey === deletedIndex) é simplesmente descartada da memória
+      }
+      
+      return newState;
+    });
+  }, []);
+  // -------------------------------------------------------------------------
+
   return {
     isBinSaved,
     markBinAsSaved,
     resetAllSaveStatus,
+    removeAndShiftSavedBins, // <--- EXPORTE A NOVA FUNÇÃO AQUI
   };
 };

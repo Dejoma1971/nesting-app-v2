@@ -19,6 +19,7 @@ interface NestingParams {
   quantities: Record<string, number>;
   binWidth: number;
   binHeight: number;
+  customBinSizes?: Record<number, { width: number; height: number }>; // <--- FASE 3: Dicionário de Retalhos
   margin: number;
   gap: number;
   rotationStep: number;
@@ -183,6 +184,8 @@ interface BinState {
   id: number;
   geometries: PartGeometry[];
   areaUsed: number;
+  width: number;  // <--- INSERÇÃO
+  height: number; // <--- INSERÇÃO
 }
 
 self.onmessage = (e: MessageEvent<NestingParams>) => {
@@ -191,6 +194,7 @@ self.onmessage = (e: MessageEvent<NestingParams>) => {
     quantities,
     binWidth,
     binHeight,
+    customBinSizes,
     margin,
     gap,
     rotationStep,
@@ -223,10 +227,16 @@ self.onmessage = (e: MessageEvent<NestingParams>) => {
 
   // --- MUDANÇA AQUI: Array de Chapas Abertas ---
   const openBins: BinState[] = [];
-  // Inicializa a primeira chapa
-  openBins.push({ id: 0, geometries: [], areaUsed: 0 });
+  
+  // FASE 3: Inicializa a primeira chapa (Lê do mapa ou usa o padrão)
+  const size0 = customBinSizes && customBinSizes[0];
+  openBins.push({ 
+      id: 0, geometries: [], areaUsed: 0,
+      width: size0 ? size0.width : binWidth,
+      height: size0 ? size0.height : binHeight
+  });
 
-  const binArea = binWidth * binHeight;
+ 
   const stepX = Math.max(gap, 5);
   const stepY = Math.max(gap, 5);
 
@@ -235,44 +245,38 @@ self.onmessage = (e: MessageEvent<NestingParams>) => {
   for (let r = 0; r < 360; r += rotationStep) rotations.push(r);
 
   // 3. Função Auxiliar de Tentativa de Encaixe (Agora recebe as geometrias da chapa alvo)
+  // 👇 A FUNÇÃO AGORA RECEBE A CHAPA INTEIRA (targetBin) 👇
   const tryToPlaceInBin = (
-    targetBinGeometries: PartGeometry[],
-    currentBinAreaUsed: number,
+    targetBin: BinState, 
     partId: string
   ): { x: number; y: number; r: number; geom: PartGeometry } | null => {
     
-    // Otimização: Se a chapa já estiver muito cheia, ignora (economiza CPU)
-    if ((currentBinAreaUsed / binArea) * 100 >= targetEfficiency) return null;
+    const binArea = targetBin.width * targetBin.height; // <--- Usa área local
+    if ((targetBin.areaUsed / binArea) * 100 >= targetEfficiency) return null;
 
     const baseGeom = baseGeometries.get(partId)!;
     const originalPart = parts.find((p) => p.id === partId);
-
-    // Verifica trava de rotação
     const allowedRotations = originalPart?.isRotationLocked ? [0] : rotations;
 
-    // Loop de Posição
+    // 👇 LOOP AGORA USA targetBin.width e targetBin.height 👇
     for (const r of allowedRotations) {
-      for (let y = margin; y < binHeight - margin; y += stepY) {
-        for (let x = margin; x < binWidth - margin; x += stepX) {
+      for (let y = margin; y < targetBin.height - margin; y += stepY) {
+        for (let x = margin; x < targetBin.width - margin; x += stepX) {
           
-          // Transforma
           const candidateGeom = transformGeometry(baseGeom, x, y, r);
 
-          // Limites da Mesa
           if (
-            candidateGeom.bounds.maxX > binWidth - margin ||
-            candidateGeom.bounds.maxY > binHeight - margin ||
+            candidateGeom.bounds.maxX > targetBin.width - margin ||
+            candidateGeom.bounds.maxY > targetBin.height - margin ||
             candidateGeom.bounds.minX < margin ||
             candidateGeom.bounds.minY < margin
           ) {
             continue;
           }
 
-          // Colisão com peças JÁ colocadas nesta chapa
           let colides = false;
-          // Fase Broad (Caixa rápida) - Opcional se checkCollision já faz isso, mas ajuda a explicitar
-          for (const placedGeom of targetBinGeometries) {
-             // checkCollision já faz a verificação de Caixa primeiro, então chamamos direto
+          // 👇 Verificação aponta para as geometrias desta chapa local 👇
+          for (const placedGeom of targetBin.geometries) {
              if (checkCollision(candidateGeom, placedGeom)) {
                colides = true;
                break;
@@ -299,7 +303,7 @@ self.onmessage = (e: MessageEvent<NestingParams>) => {
 
     // TENTA EM TODAS AS CHAPAS ABERTAS (First Fit)
     for (const bin of openBins) {
-      const result = tryToPlaceInBin(bin.geometries, bin.areaUsed, partId);
+     const result = tryToPlaceInBin(bin, partId);
 
       if (result) {
         // Sucesso! Salva nesta chapa
@@ -322,16 +326,23 @@ self.onmessage = (e: MessageEvent<NestingParams>) => {
       }
     }
 
-    // Se não coube em NENHUMA chapa existente, cria uma nova
-    if (!placed) {
+    // Se não coube em NENHUMA chapa existente, vai criando chapas novas até caber 
+    // ou até falhar na chapa gigante padrão
+    while (!placed) {
       const newBinId = openBins.length;
-      const newBin: BinState = { id: newBinId, geometries: [], areaUsed: 0 };
+      
+      const customSize = customBinSizes && customBinSizes[newBinId];
+      const newBin: BinState = { 
+          id: newBinId, geometries: [], areaUsed: 0,
+          width: customSize ? customSize.width : binWidth, 
+          height: customSize ? customSize.height : binHeight 
+      };
       openBins.push(newBin);
 
-      // Tenta colocar na nova chapa (deve caber, a menos que a peça seja maior que a mesa)
-      const result = tryToPlaceInBin(newBin.geometries, newBin.areaUsed, partId);
+      const result = tryToPlaceInBin(newBin, partId);
 
       if (result) {
+        // Sucesso! Coube na chapa recém-criada
         const uuid = `${partId}_${placedParts.length}`;
         placedParts.push({
           uuid,
@@ -345,17 +356,25 @@ self.onmessage = (e: MessageEvent<NestingParams>) => {
         result.geom.uuid = uuid;
         newBin.geometries.push(result.geom);
         newBin.areaUsed += baseGeometries.get(partId)!.area;
+        placed = true;
       } else {
-        // Se falhar numa mesa vazia, a peça é grande demais
-        failedParts.push(partId);
+        // Falhou numa chapa recém-criada vazia.
+        if (!customSize) {
+          // Se NÃO era um retalho (ou seja, falhou na chapa gigante padrão vazia),
+          // então é fisicamente impossível. Agora sim desistimos!
+          failedParts.push(partId);
+          break; // Sai do while
+        }
+        // Se ERA um retalho, o while continua e ele cria a PRÓXIMA chapa da fila!
       }
     }
   }
 
   // Calcula eficiência média ou total
   // (Aqui enviamos um valor aproximado da última chapa ou média, mas o frontend calcula o real)
+  // Calcula a área total disponível baseada no tamanho específico de cada chapa
+  const totalAreaAvailable = openBins.reduce((acc, bin) => acc + (bin.width * bin.height), 0);
   const totalAreaUsed = openBins.reduce((acc, bin) => acc + bin.areaUsed, 0);
-  const totalAreaAvailable = openBins.length * binArea;
 
   self.postMessage({
     placed: placedParts,

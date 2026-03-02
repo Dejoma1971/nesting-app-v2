@@ -11,6 +11,7 @@ import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
 import type { AppTheme } from "../styles/theme";
 import type { CropLine } from "../hooks/useSheetManager";
+import { type RemnantRect } from "../utils/remnantDetector";
 import { getOBBCorners } from "../utils/obbUtil";
 import { useCanvasPan } from "../hooks/useCanvasPan";
 
@@ -84,6 +85,9 @@ interface InteractiveCanvasProps {
     x: number,
     y: number,
   ) => void;
+  // --- INSERÇÃO: AVISAR QUE VAI RECEBER OS RETALHOS ---
+  calculatedRemnants?: RemnantRect[];
+  // ----------------------------------------------------
 }
 
 interface BoundingBoxCache {
@@ -595,13 +599,27 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   // --- INSERÇÃO 2: RECEBENDO AS PROPS ---
   isTrimMode = false,
   onCropLineClick,
+  // --- INSERÇÃO: RECEBER A VARIÁVEL AQUI ---
+  calculatedRemnants = [],
+  // -----------------------------------------
   // --------------------------------------
 }) => {
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
 
   const [dragMode, setDragMode] = useState<
-    "none" | "pan" | "parts" | "label" | "rotate" | "cropline"
+    "none" | "pan" | "parts" | "label" | "rotate" | "cropline" | "select"
   >("none");
+
+  // ⬇️ --- NOVA INSERÇÃO: ESTADO DA SELEÇÃO CAD --- ⬇️
+  const [selectionBox, setSelectionBox] = useState({
+    startX: 0,
+    startY: 0,
+    currentX: 0,
+    currentY: 0,
+    active: false,
+  });
+  // ⬆️ -------------------------------------------- ⬆️
+
   const [draggingLabel, setDraggingLabel] = useState<{
     partId: string;
     type: "white" | "pink";
@@ -634,6 +652,67 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     initialX: 0,
     initialY: 0,
   });
+
+  // ⬇️ --- LUGAR CORRETO DO PART_TRANSFORMS --- ⬇️
+  const partTransforms = useMemo(() => {
+    const transforms: Record<string, any> = {};
+    placedParts.forEach((placed) => {
+      const part = parts.find((p) => p.id === placed.partId);
+      if (!part) return;
+
+      const cachedBox = boundingBoxCache[placed.partId];
+      let box;
+      if (cachedBox) {
+        box = cachedBox;
+      } else {
+        box = calculateBoundingBox(part.entities, part.blocks);
+        const newBox = {
+          ...box,
+          centerX: box.minX + box.width / 2,
+          centerY: box.minY + box.height / 2,
+        };
+        requestAnimationFrame(() => {
+          setBoundingBoxCache((prev) => ({ ...prev, [placed.partId]: newBox }));
+        });
+        box = newBox;
+      }
+
+      const { occupiedW, occupiedH } = calculateRotatedDimensions(
+        part.width,
+        part.height,
+        placed.rotation,
+      );
+
+      transforms[placed.uuid] = {
+        centerX: box.centerX,
+        centerY: box.centerY,
+        occupiedW: occupiedW,
+        occupiedH: occupiedH,
+        rawWidth: occupiedW,
+        rawHeight: occupiedH,
+      };
+    });
+    return transforms;
+  }, [placedParts, parts, boundingBoxCache]);
+  // ⬆️ ---------------------------------------- ⬆️
+
+  // ⬇️ --- COFRE DE DADOS PARA A SELEÇÃO CAD --- ⬇️
+  const selectionDataRef = useRef({
+    placedParts,
+    partTransforms,
+    parts,
+    selectedPartIds,
+  });
+  useEffect(() => {
+    // Mantém o cofre sempre atualizado de forma silenciosa, sem reiniciar os eventos do mouse!
+    selectionDataRef.current = {
+      placedParts,
+      partTransforms,
+      parts,
+      selectedPartIds,
+    };
+  }, [placedParts, partTransforms, parts, selectedPartIds]);
+  // ⬆️ ---------------------------------------------------- ⬆️
 
   const getSVGPoint = useCallback((clientX: number, clientY: number) => {
     const svgElement = svgContainerRef.current?.querySelector("svg");
@@ -774,50 +853,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   );
   // ----------------------------------------------
 
-  const partTransforms = useMemo(() => {
-    const transforms: Record<string, any> = {};
-    placedParts.forEach((placed) => {
-      const part = parts.find((p) => p.id === placed.partId);
-      if (!part) return;
-
-      const cachedBox = boundingBoxCache[placed.partId];
-      let box;
-      if (cachedBox) {
-        box = cachedBox;
-      } else {
-        box = calculateBoundingBox(part.entities, part.blocks);
-        const newBox = {
-          ...box,
-          centerX: box.minX + box.width / 2,
-          centerY: box.minY + box.height / 2,
-        };
-        requestAnimationFrame(() => {
-          setBoundingBoxCache((prev) => ({ ...prev, [placed.partId]: newBox }));
-        });
-        box = newBox;
-      }
-
-      // --- AQUI ESTÁ A CORREÇÃO ---
-      // Calculamos a caixa envolvente exata usando a função trigonométrica
-      // (Certifique-se de que a função 'calculateRotatedDimensions' foi adicionada no topo do arquivo)
-      const { occupiedW, occupiedH } = calculateRotatedDimensions(
-        part.width,
-        part.height,
-        placed.rotation,
-      );
-
-      transforms[placed.uuid] = {
-        centerX: box.centerX,
-        centerY: box.centerY,
-        occupiedW: occupiedW, // Valor correto calculado
-        occupiedH: occupiedH, // Valor correto calculado
-        rawWidth: occupiedW,
-        rawHeight: occupiedH,
-      };
-    });
-    return transforms;
-  }, [placedParts, parts, boundingBoxCache]);
-
   const handleDoubleClickPart = useCallback(
     (e: React.MouseEvent, uuid: string) => {
       e.preventDefault();
@@ -839,11 +874,34 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   const handleMouseDownPart = useCallback(
     (e: React.MouseEvent, uuid: string) => {
       e.stopPropagation();
-      if (!selectedPartIds.includes(uuid)) return;
-      if (strategy !== "guillotine" && e.button === 0) {
+
+      if (e.button !== 0) return; // Garante que só funciona com o botão esquerdo
+
+      const isCtrl = e.ctrlKey || e.metaKey;
+      let currentSelection = [...selectedPartIds];
+
+      // --- 1. LÓGICA DE SELEÇÃO (Com um clique apenas) ---
+      if (!currentSelection.includes(uuid)) {
+        // Se a peça não estava selecionada, seleciona
+        if (isCtrl) {
+          currentSelection.push(uuid); // Adiciona à seleção múltipla
+        } else {
+          currentSelection = [uuid]; // Seleção única
+        }
+        onPartSelect(currentSelection, false);
+      } else if (isCtrl) {
+        // Se já estava selecionada e clicou com Ctrl, desmarca
+        currentSelection = currentSelection.filter((id) => id !== uuid);
+        onPartSelect(currentSelection, false);
+        return; // Aborta o arraste se apenas desmarcou
+      }
+
+      // --- 2. LÓGICA DE ARRASTE ---
+      if (strategy !== "guillotine") {
         e.preventDefault();
         setDragMode("parts");
-        draggingIdsRef.current = selectedPartIds;
+        // Usa a currentSelection que acabou de ser calculada
+        draggingIdsRef.current = currentSelection;
         currentDragDeltaRef.current = { dx: 0, dy: 0 };
         const svgPos = getSVGPoint(e.clientX, e.clientY);
         dragRef.current = {
@@ -856,7 +914,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         };
       }
     },
-    [strategy, selectedPartIds, getSVGPoint],
+    [strategy, selectedPartIds, getSVGPoint, onPartSelect], // <-- Dependências atualizadas
   );
 
   const handleLabelDown = useCallback(
@@ -1110,6 +1168,22 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
           onLabelDrag(draggingLabel.partId, draggingLabel.type, dx, -dy);
           dragRef.current.startSvgX = currentSvgPos.x;
           dragRef.current.startSvgY = currentSvgPos.y;
+
+          // ⬇️ --- INSERÇÃO 3-A: ATUALIZA O DESENHO DA CAIXA AO ARRASTAR --- ⬇️
+        } else if (dragMode === "select") {
+          // --- CÁLCULO DAS COORDENADAS REAIS DA CHAPA ---
+          const currentT = transformRef.current;
+          const visualX = (currentSvgPos.x - currentT.x) / currentT.k;
+          const visualY = (currentSvgPos.y - currentT.y) / currentT.k;
+          const binX = visualX;
+          const binY = binHeight - visualY; // Inverte o Y para o padrão CNC
+
+          setSelectionBox((prev) => ({
+            ...prev,
+            currentX: binX,
+            currentY: binY,
+          }));
+          // ⬆️ --------------------------------------------------------- ⬆️
         } else if (dragMode === "parts") {
           // 1. Calcula o deslocamento bruto do mouse (em coordenadas SVG)
           const rawDx = currentSvgPos.x - dragRef.current.startSvgX;
@@ -1164,10 +1238,145 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     };
 
     // REMOVER 'e' ou 'e: MouseEvent' dos parênteses
-    const handleWindowMouseUp = () => {
+    // ⬇️ --- GARANTA QUE A FUNÇÃO RECEBE (e: MouseEvent) --- ⬇️
+    const handleWindowMouseUp = (e: MouseEvent) => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       setSnapLines([]);
 
+      // ⬇️ --- INSERÇÃO: LÓGICA MATEMÁTICA DE SELEÇÃO OBB (CORRIGIDA) --- ⬇️
+      if (dragMode === "select") {
+        const svgPos = getSVGPoint(e.clientX, e.clientY);
+        const currentT = transformRef.current;
+        const currentX = (svgPos.x - currentT.x) / currentT.k;
+        const currentY = binHeight - (svgPos.y - currentT.y) / currentT.k;
+
+        const startX = dragRef.current.initialX;
+        const startY = dragRef.current.initialY;
+
+        setSelectionBox((prev) => ({ ...prev, active: false }));
+
+        if (
+          Math.abs(currentX - startX) > 2 ||
+          Math.abs(currentY - startY) > 2
+        ) {
+          const selMinX = Math.min(startX, currentX);
+          const selMaxX = Math.max(startX, currentX);
+          const selMinY = Math.min(startY, currentY);
+          const selMaxY = Math.max(startY, currentY);
+
+          const isCrossing = currentX < startX;
+          const newlySelected: string[] = [];
+
+          const selCorners = [
+            { x: selMinX, y: selMinY },
+            { x: selMaxX, y: selMinY },
+            { x: selMaxX, y: selMaxY },
+            { x: selMinX, y: selMaxY },
+          ];
+          const selAxes = [
+            { x: 1, y: 0 },
+            { x: 0, y: 1 },
+          ];
+
+          // 🌟 A MÁGICA AQUI: Lemos os dados de forma segura sem quebrar o arraste
+          const {
+            placedParts: currentPlaced,
+            partTransforms: currentTransforms,
+            parts: currentParts,
+            selectedPartIds: currentSelected,
+          } = selectionDataRef.current;
+
+          currentPlaced.forEach((placed) => {
+            const part = currentParts.find((p) => p.id === placed.partId);
+            const partInfo = currentTransforms[placed.uuid];
+            if (!part || !partInfo) return;
+
+            const cx = placed.x + partInfo.occupiedW / 2;
+            const cy = placed.y + partInfo.occupiedH / 2;
+            const w2 = part.width / 2;
+            const h2 = part.height / 2;
+
+            const rad = (placed.rotation * Math.PI) / 180;
+            const cos = Math.cos(rad);
+            const sin = Math.sin(rad);
+
+            const corners = [
+              { x: cx + -w2 * cos + -h2 * sin, y: cy - -w2 * sin + -h2 * cos },
+              { x: cx + w2 * cos + -h2 * sin, y: cy - w2 * sin + -h2 * cos },
+              { x: cx + w2 * cos + h2 * sin, y: cy - w2 * sin + h2 * cos },
+              { x: cx + -w2 * cos + h2 * sin, y: cy - -w2 * sin + h2 * cos },
+            ];
+
+            let isSelected = false;
+
+            if (!isCrossing) {
+              isSelected = corners.every(
+                (c) =>
+                  c.x >= selMinX &&
+                  c.x <= selMaxX &&
+                  c.y >= selMinY &&
+                  c.y <= selMaxY,
+              );
+            } else {
+              const partAxes = [
+                {
+                  x: corners[1].x - corners[0].x,
+                  y: corners[1].y - corners[0].y,
+                },
+                {
+                  x: corners[3].x - corners[0].x,
+                  y: corners[3].y - corners[0].y,
+                },
+              ];
+
+              const axes = [...selAxes, ...partAxes];
+              let overlap = true;
+
+              for (const axis of axes) {
+                if (axis.x === 0 && axis.y === 0) continue;
+                let minA = Infinity,
+                  maxA = -Infinity;
+                for (const p of selCorners) {
+                  const proj = p.x * axis.x + p.y * axis.y;
+                  if (proj < minA) minA = proj;
+                  if (proj > maxA) maxA = proj;
+                }
+                let minB = Infinity,
+                  maxB = -Infinity;
+                for (const p of corners) {
+                  const proj = p.x * axis.x + p.y * axis.y;
+                  if (proj < minB) minB = proj;
+                  if (proj > maxB) maxB = proj;
+                }
+                if (maxA < minB || maxB < minA) {
+                  overlap = false;
+                  break;
+                }
+              }
+              isSelected = overlap;
+            }
+            if (isSelected) newlySelected.push(placed.uuid);
+          });
+
+          const isMulti = e.ctrlKey || e.metaKey || e.shiftKey;
+          if (isMulti) {
+            onPartSelect(
+              Array.from(new Set([...currentSelected, ...newlySelected])),
+              false,
+            );
+          } else {
+            onPartSelect(newlySelected, false);
+          }
+        } else {
+          // ⬇️ --- CORREÇÃO: UM CLIQUE SIMPLES NO FUNDO LIMPA A SELEÇÃO --- ⬇️
+          // Se o usuário apenas clicou (não arrastou a caixa) e não está segurando Ctrl/Shift, limpa tudo!
+          if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+            onPartSelect([], false);
+          }
+          // ⬆️ ----------------------------------------------------------- ⬆️
+        }
+      }
+      // ⬆️ ----------------------------------------------------------- ⬆️
       if (dragMode === "parts") {
         const finalDx = currentDragDeltaRef.current.dx;
         const finalDy = currentDragDeltaRef.current.dy;
@@ -1183,6 +1392,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       }
 
       setDragMode("none");
+      setSelectionBox((prev) => ({ ...prev, active: false }));
       setDraggingLabel(null);
       setDraggingLine(null);
       draggingIdsRef.current = [];
@@ -1209,6 +1419,7 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     onCropLineMove,
     binWidth,
     binHeight,
+    onPartSelect, // Mantemos apenas a função, removemos as listas pesadas
   ]);
 
   const handleNativeDrop = useCallback(
@@ -1278,9 +1489,14 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
         background: "transparent",
         display: "flex",
         flexDirection: "column",
-        // AQUI VAMOS ALTERAR O CURSOR
+        // ⬇️ --- CORREÇÃO: CURSOR CROSSHAIR PARA SELEÇÃO CAD --- ⬇️
         cursor:
-          dragMode !== "none" ? "grabbing" : isPanning ? "grabbing" : "default",
+          dragMode === "select"
+            ? "crosshair"
+            : dragMode !== "none" || isPanning
+              ? "grabbing"
+              : "default",
+        // ⬆️ ---------------------------------------------------- ⬆️
         overflow: "hidden",
         width: "100%",
         height: "100%",
@@ -1288,7 +1504,38 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       // AQUI VAMOS INSERIR OS HANDLERS
       onMouseDown={(e) => {
         handleMouseDownContainer();
-        panHandlers.onMouseDown(e); // <--- LIGA O PAN AQUI
+
+        // ⬇️ --- REGRA DO PAN (BOTÃO DO MEIO) --- ⬇️
+        if (e.button === 1) {
+          e.preventDefault();
+          panHandlers.onMouseDown(e);
+        }
+        // ⬇️ --- REGRA DA SELEÇÃO CAD (BOTÃO ESQUERDO) --- ⬇️
+        else if (e.button === 0) {
+          e.preventDefault();
+          const svgPos = getSVGPoint(e.clientX, e.clientY);
+
+          // --- CÁLCULO DAS COORDENADAS REAIS DA CHAPA ---
+          const currentT = transformRef.current;
+          const visualX = (svgPos.x - currentT.x) / currentT.k;
+          const visualY = (svgPos.y - currentT.y) / currentT.k;
+          const binX = visualX;
+          const binY = binHeight - visualY; // Inverte o Y para o padrão CNC
+
+          setDragMode("select");
+          setSelectionBox({
+            startX: binX,
+            startY: binY,
+            currentX: binX,
+            currentY: binY,
+            active: true,
+          });
+
+          // ⬇️ --- CORREÇÃO: GRAVANDO O PONTO INICIAL PARA A MATEMÁTICA --- ⬇️
+          dragRef.current.initialX = binX;
+          dragRef.current.initialY = binY;
+        }
+        // ⬆️ --------------------------------------------------------- ⬆️
       }}
       onMouseMove={panHandlers.onMouseMove} // Novo
       onMouseUp={panHandlers.onMouseUp} // Novo
@@ -1422,6 +1669,22 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                 vectorEffect="non-scaling-stroke"
                 style={{ pointerEvents: "all" }}
               />
+              {/* --- INSERÇÃO: PINTURA DOS RETALHOS INTELIGENTES --- */}
+              {calculatedRemnants.map((remnant) => (
+                <rect
+                  key={remnant.id}
+                  x={remnant.x}
+                  y={remnant.y}
+                  width={remnant.width}
+                  height={remnant.height}
+                  fill="rgba(40, 167, 69, 0.3)"
+                  stroke="rgba(40, 167, 69, 0.8)"
+                  strokeWidth={2}
+                  strokeDasharray="5,5"
+                  style={{ pointerEvents: "none" }}
+                />
+              ))}
+              {/* ------------------------------------------------- */}
 
               {/* CORREÇÃO: Mostra a margem sempre que ela for maior que 0, independente do Debug */}
               {margin > 0 && (
@@ -1470,7 +1733,6 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
 
               {/* --- RENDERIZAÇÃO DAS LINHAS DE RETALHO (ATUALIZADO PARA TRIM) --- */}
               {cropLines.map((line) => {
-                const strokeW = 2;
                 const hitW = 20;
 
                 // LÓGICA DO CURSOR: Se Trim ativo, vira alvo (crosshair). Se não, mover.
@@ -1547,11 +1809,9 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                       y1={y1}
                       x2={x2}
                       y2={y2}
-                      stroke={line.isSelected ? "#ff0000" : "#00ff3cff"} // Exemplo: muda cor se selecionado
-                      strokeWidth={strokeW}
-                      // --- ADICIONE ESTA LINHA: ---
+                      stroke={line.isSelected ? "#ff0000" : "#00ff3cff"}
+                      strokeWidth={2}
                       strokeLinecap="square"
-                      // ----------------------------
                       vectorEffect="non-scaling-stroke"
                       style={{ pointerEvents: "none" }}
                     />
@@ -1573,6 +1833,44 @@ export const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
                   style={{ pointerEvents: "none" }}
                 />
               ))}
+              {/* ⬇️ --- INSERÇÃO: RENDERIZAÇÃO DA CAIXA DE SELEÇÃO --- ⬇️ */}
+              {selectionBox.active &&
+                (() => {
+                  const { startX, startY, currentX, currentY } = selectionBox;
+                  const x = Math.min(startX, currentX);
+                  const y = Math.min(startY, currentY);
+                  const width = Math.abs(currentX - startX);
+                  const height = Math.abs(currentY - startY);
+
+                  // Lógica CAD: Direita para Esquerda = Crossing (Verde). Esquerda para Direita = Window (Azul).
+                  const isCrossing = currentX < startX;
+                  const strokeColor = isCrossing
+                    ? "rgba(40, 167, 69, 0.8)"
+                    : "rgba(0, 123, 255, 0.8)";
+                  const fillColor = isCrossing
+                    ? "rgba(40, 167, 69, 0.2)"
+                    : "rgba(0, 123, 255, 0.2)";
+
+                  return (
+                    <rect
+                      x={x}
+                      y={y}
+                      width={width}
+                      height={height}
+                      fill={fillColor}
+                      stroke={strokeColor}
+                      strokeWidth={1 / transform.k} // Mantém linha fina independente do zoom
+                      strokeDasharray={
+                        isCrossing
+                          ? `${5 / transform.k},${5 / transform.k}`
+                          : "none"
+                      }
+                      vectorEffect="non-scaling-stroke"
+                      style={{ pointerEvents: "none" }} // Não interfere no clique
+                    />
+                  );
+                })()}
+              {/* ⬆️ --------------------------------------------------- ⬆️ */}
             </g>
           </g>
         </svg>

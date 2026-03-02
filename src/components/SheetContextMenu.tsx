@@ -12,6 +12,14 @@ interface SheetContextMenuProps {
   // --- INSERÇÃO: Propriedade para a função de corte ---
   onTrim?: () => void; 
   // ---------------------------------------------------
+  onDefineRemnants: () => void;
+  hasPlacedParts: boolean;
+  // --- NOVAS PROPS DA TRAVA DE RETALHO ---
+  canDefineRemnants: boolean;
+  remnantTooltip: string;
+  // --- NOVAS PROPS PARA LIMPEZA ---
+  hasCalculatedRemnants?: boolean;
+  onClearRemnants?: () => void;
 }
 
 export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
@@ -23,7 +31,13 @@ export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
   onAddCropLine,
   onDeleteLine,
   // --- INSERÇÃO: Recebendo a função ---
-  onTrim 
+  onTrim,
+  onDefineRemnants,
+  hasPlacedParts,
+  canDefineRemnants, 
+  remnantTooltip,
+  hasCalculatedRemnants,
+  onClearRemnants
   // ------------------------------------
 }) => {
   
@@ -106,6 +120,47 @@ export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
                 >
                     <span style={{ color: '#007bff', fontWeight:'bold' }}>—</span> Add Linha Horizontal (Y)
                 </button>
+
+               {/* --- INSERÇÃO: BOTÃO DEFINIR RETALHOS (BLINDADO) --- */}
+                {hasPlacedParts && (
+                  <button 
+                      style={{
+                          ...itemStyle,
+                          opacity: canDefineRemnants ? 1 : 0.4,
+                          cursor: canDefineRemnants ? 'pointer' : 'not-allowed'
+                      }} 
+                      onClick={() => { 
+                          if (canDefineRemnants) {
+                              onDefineRemnants(); 
+                              onClose(); 
+                          }
+                      }}
+                      onMouseEnter={(e) => {
+                          if (canDefineRemnants) e.currentTarget.style.background = 'rgba(40, 167, 69, 0.2)';
+                      }}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      title={remnantTooltip}
+                  >
+                      <span style={{ fontSize: '14px' }}>🟩</span> Definir Retalhos
+                  </button>
+                )}      
+
+                {/* 👇 NOVA INSERÇÃO: BOTÃO LIMPAR RETALHOS 👇 */}
+                {hasCalculatedRemnants && onClearRemnants && (
+                  <button 
+                      style={itemStyle} 
+                      onClick={() => { 
+                          onClearRemnants(); 
+                          onClose(); 
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(220, 53, 69, 0.2)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      title="Remove a área verde de retalho para adicionar mais peças"
+                  >
+                      <span style={{ fontSize: '14px' }}>❌</span> Limpar Retalhos
+                  </button>
+                )}
+                {/* 👆 ===================================== 👆 */}          
 
                 <div style={{ height: '1px', backgroundColor: '#444', margin: '5px 0' }} />
                 <button 

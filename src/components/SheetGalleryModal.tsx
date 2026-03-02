@@ -4,6 +4,17 @@ import type { ImportedPart } from "./types";
 import type { PlacedPart } from "../utils/nestingCore";
 import type { AppTheme } from "../styles/theme";
 
+import type { RemnantRect } from "../utils/remnantDetector";
+
+// 👇 INSERÇÃO: Adicione a interface do retalho
+interface DBRemnant {
+  id: string;
+  codigo: string;
+  largura: number;
+  altura: number;
+  area_m2: number;
+}
+
 interface SheetGalleryModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -12,6 +23,14 @@ interface SheetGalleryModalProps {
   onSelectBin: (index: number) => void;
   binWidth: number;
   binHeight: number;
+  // 👇 --- INSERÇÃO DAS NOVAS PROPS --- 👇
+  firstBinWidth?: number;
+  firstBinHeight?: number;
+  // 👆 -------------------------------- 👆
+  // 👇 SUBSTITUA AS PROPS ANTIGAS POR ESTA:
+  selectedRemnants?: Record<number, DBRemnant>;
+  // 👆 --------------------------------------
+  calculatedRemnants?: (RemnantRect & { binId: number })[];
   parts: ImportedPart[];
   nestingResult: PlacedPart[];
   theme: AppTheme;
@@ -37,7 +56,7 @@ const calculateEfficiency = (
 
   return (usedArea / binArea) * 100;
 };
-export const SheetGalleryModal: React.FC<SheetGalleryModalProps> = ({
+export const SheetGalleryModal = ({
   isOpen,
   onClose,
   totalBins,
@@ -45,13 +64,13 @@ export const SheetGalleryModal: React.FC<SheetGalleryModalProps> = ({
   onSelectBin,
   binWidth,
   binHeight,
-  parts,
-  nestingResult,
-  theme,
-}) => {
+  selectedRemnants, // <--- Nossa nova propriedade
+  calculatedRemnants = [],
+  parts, // <--- Faltava isto! (Peças originais)
+  nestingResult, // <--- Faltava isto! (Peças posicionadas)
+  theme, // <--- Faltava isto! (Cores)
+}: SheetGalleryModalProps) => {
   if (!isOpen) return null;
-
-  const binArea = binWidth * binHeight;
 
   // Estilos Inline baseados no Tema
   const overlayStyle: React.CSSProperties = {
@@ -93,17 +112,11 @@ export const SheetGalleryModal: React.FC<SheetGalleryModalProps> = ({
 
   const gridStyle: React.CSSProperties = {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", // Responsivo
+    gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", // Responsivo
     gap: "20px",
     padding: "20px",
     overflowY: "auto",
     flex: 1,
-  };
-
-  const cardStyle: React.CSSProperties = {
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px",
   };
 
   return (
@@ -134,28 +147,63 @@ export const SheetGalleryModal: React.FC<SheetGalleryModalProps> = ({
         {/* GRID DE MINIATURAS */}
         <div style={gridStyle}>
           {Array.from({ length: totalBins }).map((_, index) => {
+            // 1. Cálculos de proporção e área
+            // 1. Cálculos de proporção e área
+            // 1. Cálculos de proporção e área independentes por chapa
+            const remnant = selectedRemnants ? selectedRemnants[index] : null;
+            const currentW = remnant ? Number(remnant.largura) : binWidth;
+            const currentH = remnant ? Number(remnant.altura) : binHeight;
+
+            const currentBinArea = currentW * currentH;
+
+            // 2. Estatísticas
+            const partsCount = nestingResult.filter(
+              (p) => p.binId === index,
+            ).length;
             const efficiency = calculateEfficiency(
               index,
               nestingResult,
               parts,
-              binArea,
-            ).toFixed(1);
+              currentBinArea,
+            );
+            const isLowEfficiency = Number(efficiency) < 70;
 
-            // Verifica se esta chapa tem poucas peças (potencial desperdício)
-            const partsCount = nestingResult.filter(
-              (p) => p.binId === index,
-            ).length;
-            const isLowEfficiency = Number(efficiency) < 50;
+            // 3. Estilo dinâmico do Cartão (Substitui o cardStyle que dava erro)
+            const inlineCardStyle: React.CSSProperties = {
+              display: "flex",
+              flexDirection: "column",
+              gap: "10px",
+              background: theme.canvasBg,
+              border:
+                currentBinIndex === index
+                  ? "2px solid #007bff"
+                  : `1px solid ${theme.border}`,
+              borderRadius: "8px",
+              padding: "10px",
+              cursor: "pointer",
+              transition: "all 0.2s",
+              boxShadow:
+                currentBinIndex === index
+                  ? "0 0 10px rgba(0,123,255,0.3)"
+                  : "none",
+              opacity: currentBinIndex === index ? 1 : 0.6,
+            };
 
             return (
-              <div key={index} style={cardStyle}>
-                <div style={{ height: "180px", width: "100%" }}>
+              <div key={index} style={inlineCardStyle}>
+                {/* ÁREA DA MINIATURA (Agora com 32vh para caberem 2 linhas perfeitas!) */}
+                <div
+                  style={{ height: "32vh", minHeight: "250px", width: "100%" }}
+                >
                   <MiniatureCanvas
                     binId={index}
-                    binWidth={binWidth}
-                    binHeight={binHeight}
+                    binWidth={currentW}
+                    binHeight={currentH}
+                    globalMaxWidth={binWidth} // Trava a câmera no tamanho máximo
+                    globalMaxHeight={binHeight} // Trava a câmera no tamanho máximo
                     parts={parts}
                     placedParts={nestingResult}
+                    calculatedRemnants={calculatedRemnants.filter((r) => r.binId === index)}
                     theme={theme}
                     isSelected={currentBinIndex === index}
                     onClick={() => {
@@ -165,7 +213,7 @@ export const SheetGalleryModal: React.FC<SheetGalleryModalProps> = ({
                   />
                 </div>
 
-                {/* Rodapé do Card */}
+                {/* RODAPÉ DO CARD (Informações de Eficiência) */}
                 <div
                   style={{
                     display: "flex",

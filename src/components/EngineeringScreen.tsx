@@ -13,6 +13,7 @@ import type { EngineeringScreenProps, ImportedPart } from "./types";
 import { useEngineeringLogic } from "../hooks/useEngineeringLogic"; // Ajuste o caminho se necessário (ex: ../hooks/)
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
 import { FaPuzzlePiece } from "react-icons/fa";
+import { calculatePartNetArea } from "../utils/areaCalculator";
 
 import { PartViewerModalOptimized } from "../components/PartViewerModalOptimized";
 
@@ -288,13 +289,58 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
   const [dontShowAgain, setDontShowAgain] = useState(false);
 
   const handleCutNowClick = () => {
-    // --- CORREÇÃO 2: Validação de mesa vazia ---
+    // --- 1. Validação de mesa vazia ---
     if (parts.length === 0) {
       alert("Adicione peças antes de cortar!");
       return;
     }
-    // -------------------------------------------
 
+    // =================================================================
+    // --- 2. AUDITORIA: MATERIAL, ESPESSURA E REGRA DO BLOCO ---
+    // =================================================================
+    const errorReport: string[] = [];
+
+    parts.forEach((p: any, index: number) => {
+      const issues: string[] = [];
+
+      // A) Valida Material e Espessura (Mínimo obrigatório para nesting)
+      if (!p.material || String(p.material).trim() === "") issues.push("Material");
+      if (!p.espessura || String(p.espessura).trim() === "") issues.push("Espessura");
+
+      // B) Valida se a regra do Insert/Block foi obedecida
+      const entityCount = p.entities ? p.entities.length : 0;
+      if (entityCount === 0) {
+        issues.push("Desenho Vazio");
+      } else if (entityCount > 1) {
+        issues.push("Geometria não convertida em Bloco");
+      }
+
+      // Se encontrou alguma pendência, adiciona ao relatório
+      if (issues.length > 0) {
+        errorReport.push(`• Linha ${index + 1} (${p.name}): ${issues.join(", ")}`);
+      }
+    });
+
+    // SE HOUVER ERROS, MOSTRA O ALERTA E TRAVA A IDA PARA A MESA
+    if (errorReport.length > 0) {
+      const maxErrorsToShow = 10;
+      const shownErrors = errorReport.slice(0, maxErrorsToShow).join("\n");
+      const remaining = errorReport.length - maxErrorsToShow;
+
+      let msg = `⚠️ NESTING BLOQUEADO\n\nPara o corte rápido, é obrigatório definir Material e Espessura, além de converter a geometria em Bloco.\n\nErros encontrados:\n${shownErrors}`;
+
+      if (remaining > 0) {
+        msg += `\n\n...e mais ${remaining} peças.`;
+      }
+
+      msg += `\n\nSOLUÇÃO:\n1. Clique no botão amarelo "📦 Insert/Block" para adequar a geometria.\n2. Preencha Material e Espessura no lote.`;
+
+      alert(msg);
+      return; // <--- Trava a execução e impede de ir para a mesa!
+    }
+    // =================================================================
+
+    // --- 3. Se passou na auditoria, segue o fluxo normal ---
     const skip = localStorage.getItem("skipCutNowWarning");
 
     if (skip === "true") {
@@ -569,6 +615,11 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         // Se por acaso estiver vazio, garante pelo menos o nome do usuário logado.
         part.autor = batchDefaults.autor || user?.name || "Desconhecido";
         // ⬆️ ---------------------------------------------------- ⬆️
+
+        // --- NOVO: GARANTE O CÁLCULO DA ÁREA LÍQUIDA ANTES DE SALVAR ---
+        // Se a peça não tiver netArea, calcula agora usando as entidades dela
+        part.netArea = part.netArea || calculatePartNetArea(part.entities) || part.grossArea;
+        // --------------------------------------------------------------
 
         const key = `${part.pedido}|${part.name}`;
         const existsInDb = duplicadasNoBanco.some(
@@ -1084,7 +1135,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           <select
             style={{
               ...inputStyle,
-              width: "160px",
+              width: "150px",
               background: theme.inputBg,
               color: theme.text,
             }}
@@ -1129,7 +1180,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           <select
             style={{
               ...inputStyle,
-              width: "220px",
+              width: "180px",
               background: theme.inputBg,
               color: theme.text,
             }}
@@ -1205,7 +1256,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           <select
             style={{
               ...inputStyle,
-              width: "170px",
+              width: "140px",
               background: theme.inputBg,
               color: theme.text,
             }}
@@ -1223,21 +1274,58 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           </select>
         </div>
 
-        <div
-          style={{
-            ...inputGroupStyle,
-            // ⬇️ --- ALTERAÇÃO: CENTRALIZAR NO ESPAÇO LIVRE --- ⬇️
-            marginLeft: "auto",
-            marginRight: "auto",
-            // ⬆️ ---------------------------------------------- ⬆️
-          }}
-        >
+        {/* ⬇️ --- NOVA INSERÇÃO: QUANTIDADE EM MASSA --- ⬇️ */}
+        <div style={inputGroupStyle}>
+          <label style={labelStyle}>
+            QTD.{" "}
+            <button
+              style={applyButtonStyle}
+              onClick={() =>
+                executeWithSessionConfirmation(
+                  "applyAll",
+                  selectedIds.length > 0
+                    ? `Deseja aplicar esta QUANTIDADE nas ${selectedIds.length} peças selecionadas?`
+                    : "Deseja aplicar esta QUANTIDADE a todas as peças?",
+                  () => {
+                    // Aplica a quantidade baseada na seleção
+                    applyToAll("quantity", selectedIds, true);
+                    // Limpa o campo para voltar ao normal (opcional, mas mantém o padrão dos outros)
+                    handleDefaultChange("quantity", ""); 
+                  },
+                )
+              }
+            >
+              {selectedIds.length > 0 ? "Aplicar Seleção" : "Aplicar Todos"}
+            </button>
+          </label>
+          <input
+            type="number"
+            min="1"
+            style={{
+              ...inputStyle,
+              width: "80px", // Um pouco menor, pois é apenas um número
+            }}
+            value={(batchDefaults as any).quantity || ""}
+            onChange={(e) => {
+              // Convertendo para número para garantir que o state armazene corretamente a Qtd.
+              const val = e.target.value === "" ? "" : Number(e.target.value);
+              handleDefaultChange("quantity", val);
+            }}
+            placeholder="Ex: 10"
+          />
+        </div>
+        {/* ⬆️ ------------------------------------------ ⬆️ */}
+
+        <div style={inputGroupStyle}>
           <label style={labelStyle}>
             AUTOR{" "}
             {/* Botão removido, pois a aplicação agora é automática no salvamento */}
           </label>
           <input
-            style={inputStyle}
+            style={{
+              ...inputStyle,
+              fontSize: "11px", // ⬅️ ADICIONE ESTA LINHA AQUI (Ajuste para 10px ou 11px conforme preferir)
+            }}
             // Garante que mostre o nome do usuário como padrão se o batchDefaults ainda não estiver pronto
             value={batchDefaults.autor !== undefined ? batchDefaults.autor : (user?.name || "")}
             onChange={(e) => handleDefaultChange("autor", e.target.value)}
@@ -1256,7 +1344,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
             fontWeight: "bold",
             alignSelf: "center",
             // --- ALTERAÇÃO AQUI ---
-            marginLeft: "0", // Removemos o "auto" daqui
+            marginLeft: "auto", // Removemos o "auto" daqui
             // ----------------------
           }}
         >
@@ -1761,7 +1849,7 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                   Qtd.
                 </th>
                 <th style={tableHeaderStyle}>Dimensões</th>
-                <th style={tableHeaderStyle}>Área (m²)</th>
+                <th style={tableHeaderStyle}>Área Líq.(m²)</th>
                 <th style={tableHeaderStyle} title="Complexidade da peça">
                   Entity
                 </th>
@@ -2002,7 +2090,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
                         opacity: 0.7,
                       }}
                     >
-                      {(part.grossArea / 1000000).toFixed(4)}
+                      {/* Calcula a área líquida na hora da exibição caso o part.netArea ainda não exista */}
+                      {((part.netArea || calculatePartNetArea(part.entities) || part.grossArea) / 1000000).toFixed(4)}
                     </td>
                     <td
                       style={{

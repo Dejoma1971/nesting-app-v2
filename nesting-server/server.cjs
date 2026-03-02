@@ -500,30 +500,77 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
     }
 
     // =================================================================
-    // 2. SUBSTITUIÇÃO CIRÚRGICA (PARA RETRABALHOS E EDIÇÕES)
+    // 2. VALIDAÇÃO RIGOROSA E SUBSTITUIÇÃO CIRÚRGICA
     // =================================================================
-    // Regra: Se a peça NÃO é Normal (é uma correção), devemos "aposentar"
-    // a versão anterior dela (se estiver Aguardando) para não duplicar no Nesting.
-
-    const pecasCorrecao = parts.filter(
-      (p) => p.tipo_producao && p.tipo_producao !== "NORMAL",
+    // Filtramos tudo que não for NORMAL
+    const pecasEspeciais = parts.filter(
+      (p) => p.tipo_producao && p.tipo_producao.toUpperCase() !== "NORMAL",
     );
 
-    // Processamos uma a uma para garantir a precisão (Nome + Pedido)
-    for (const p of pecasCorrecao) {
+    for (const p of pecasEspeciais) {
       if (p.pedido && p.name) {
-        // "Mata" a peça antiga específica daquele pedido que ainda não foi produzida
-        await connection.query(
-          `UPDATE pecas_engenharia 
-           SET status = 'SUBSTITUIDO' 
-           WHERE empresa_id = ? 
-             AND pedido = ? 
-             AND nome_arquivo = ? 
-             AND status = 'AGUARDANDO'`,
-          [empresaId, p.pedido, p.name],
-        );
+        // Agora pegamos EXATAMENTE o value enviado pelo frontend
+        const tipoReq = p.tipo_producao.toUpperCase().trim();
+
+        // --- TRAVA PARA EDIÇÃO DE CADASTRO (Lendo com Underline!) ---
+        if (tipoReq === "EDITAR_CADASTRO") {
+          // 1. Verifica qual é o status atual da peça no banco de dados
+          const [statusCheck] = await connection.query(
+            `SELECT status FROM pecas_engenharia 
+             WHERE empresa_id = ? AND pedido = ? AND nome_arquivo = ?
+             ORDER BY data_cadastro DESC LIMIT 1`,
+            [empresaId, p.pedido, p.name],
+          );
+
+          if (statusCheck.length > 0) {
+            const statusAtual = statusCheck[0].status.toUpperCase();
+
+            // Se a peça já passou do estágio de planejamento, BLOQUEIA a edição!
+            if (statusAtual === "EM PRODUÇÃO" || statusAtual === "CONCLUÍDO") {
+              await connection.rollback();
+              connection.release();
+
+              // Devolve um erro 409 que será lido pelo 'alert' do seu EngineeringScreen.tsx
+              return res.status(409).json({
+                error: "Edição Bloqueada",
+                message: `A peça "${p.name}" já foi enviada para corte (Status: ${statusAtual}).\n\nA "Edição de Cadastro" é permitida apenas para peças que ainda estão aguardando.\nPara repor o material desta peça, altere o Tipo de Produção para "Erro de Processo", "Erro de Projeto", etc.`,
+              });
+            }
+          }
+
+          // 2. Se passou pela trava (está AGUARDANDO), deleta a antiga para a nova tomar o lugar
+          await connection.query(
+            `DELETE FROM pecas_engenharia 
+             WHERE empresa_id = ? AND pedido = ? AND nome_arquivo = ? AND status = 'AGUARDANDO'`,
+            [empresaId, p.pedido, p.name],
+          );
+        }
+
+        // --- LÓGICA DO RETRABALHO ---
+        // Se for RETRABALHO_PERDA, RETRABALHO_PROCESSO, ERRO_ENGENHARIA ou ERRO_COMERCIAL,
+        // ele não entra no if acima. Não apaga a antiga e simplesmente insere a nova no Passo 4.
       }
     }
+
+    // const pecasCorrecao = parts.filter(
+    //   (p) => p.tipo_producao && p.tipo_producao !== "NORMAL",
+    // );
+
+    // // Processamos uma a uma para garantir a precisão (Nome + Pedido)
+    // for (const p of pecasCorrecao) {
+    //   if (p.pedido && p.name) {
+    //     // "Mata" a peça antiga específica daquele pedido que ainda não foi produzida
+    //     await connection.query(
+    //       `UPDATE pecas_engenharia
+    //        SET status = 'SUBSTITUIDO'
+    //        WHERE empresa_id = ?
+    //          AND pedido = ?
+    //          AND nome_arquivo = ?
+    //          AND status = 'AGUARDANDO'`,
+    //       [empresaId, p.pedido, p.name],
+    //     );
+    //   }
+    // }
 
     // =================================================================
     // 3. VERIFICAÇÕES DE PLANO (TRIAL / LIMITES)
@@ -568,7 +615,7 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
     const sql = `
       INSERT INTO pecas_engenharia 
       (id, usuario_id, empresa_id, nome_arquivo, pedido, op, material, espessura, autor, quantidade, cliente, 
-      largura, altura, area_bruta, geometria, blocos_def, status, tipo_producao, is_rotation_locked)
+      largura, altura, area_bruta, area_liquida, geometria, blocos_def, status, tipo_producao, is_rotation_locked)
       VALUES ?
     `;
 
@@ -587,6 +634,7 @@ app.post("/api/pecas", authenticateToken, async (req, res) => {
       p.width,
       p.height,
       p.grossArea,
+      p.netArea || p.grossArea,
       JSON.stringify(p.entities),
       JSON.stringify(p.blocks || {}),
       "AGUARDANDO", // Sempre entra como AGUARDANDO (a antiga virou SUBSTITUIDO)
@@ -653,12 +701,18 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
 
   if (!pedido) return res.status(400).json({ error: "Falta pedido." });
 
-  const pedidosArray = pedido.split(",").map((p) => p.trim()).filter(Boolean);
+  const pedidosArray = pedido
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
   let opsArray = [];
-  
+
   if (op) {
     const opDecoded = decodeURIComponent(op);
-    opsArray = opDecoded.split(",").map((o) => o.trim()).filter(Boolean);
+    opsArray = opDecoded
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean);
   }
 
   const safeJsonParse = (content, fallback = {}) => {
@@ -717,7 +771,7 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
 
     // 4. O FILTRO SALVADOR: Agora filtramos o status *após* descobrir qual é a versão real
     const rowsFiltradas = Object.values(pecasUnicas).filter(
-      (row) => row.status === 'AGUARDANDO'
+      (row) => row.status === "AGUARDANDO",
     );
 
     // 5. MAPEAMENTO E RETORNO
@@ -734,6 +788,7 @@ app.get("/api/pecas/buscar", authenticateToken, async (req, res) => {
       width: Number(row.largura),
       height: Number(row.altura),
       grossArea: Number(row.area_bruta),
+      netArea: Number(row.area_liquida) || Number(row.area_bruta),
       entities: safeJsonParse(row.geometria, []),
       blocks: safeJsonParse(row.blocos_def, {}),
       dataCadastro: row.data_cadastro,
@@ -1132,67 +1187,58 @@ app.get("/api/dashboard/stats", authenticateToken, async (req, res) => {
 
 // [server.cjs] - Atualização da rota /api/producao/registrar
 
-app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
-  // RECEBENDO OS NOVOS DADOS DO FRONTEND
-  const {
-    chapaIndex,
-    aproveitamento, // Este será o Global (Real)
-    consumo, // NOVO: Consumo %
-    retalhoLinear, // NOVO: mm
-    areaRetalho, // NOVO: m²
-    itens,
-    motor,
-    larguraChapa,
-    alturaChapa,
-  } = req.body;
+// [server.cjs] - Atualização da rota /api/producao/registrar
 
+app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
+  // RECEBENDO O PACOTE RICO DO FRONTEND
+  const { chapaIndex, motor, stats, itens, nestingSignature } = req.body;
   const usuarioId = req.user.id;
   const empresaId = req.user.empresa_id;
 
   if (!itens || itens.length === 0)
     return res.status(400).json({ error: "Nenhum item informado." });
+  
+  if (!stats) 
+    return res.status(400).json({ error: "Métricas de engenharia ausentes." });
 
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
 
-    let materialReal = "Desconhecido";
-    let espessuraReal = 0;
+    // 1. CÁLCULO DAS PORCENTAGENS BASEADAS NO PACOTE DA ENGENHARIA
+    const aproveitamento = stats.totalBinArea > 0 ? (stats.netPartsArea / stats.totalBinArea) * 100 : 0;
+    const consumo = stats.totalBinArea > 0 ? (stats.effectiveArea / stats.totalBinArea) * 100 : 0;
+    
+    // 2. CONVERSÕES DIMENSIONAIS
+    const areaRetalhoM2 = stats.retalhoArea / 1000000; // Transformando mm² em m²
+    const retalhoLinearY = Math.max(0, stats.binHeight - stats.effectiveHeight);
 
-    const [pecaRows] = await connection.query(
-      "SELECT material, espessura FROM pecas_engenharia WHERE id = ? AND empresa_id = ?",
-      [itens[0].id, empresaId],
-    );
-    if (pecaRows.length > 0) {
-      materialReal = pecaRows[0].material;
-      espessuraReal = pecaRows[0].espessura || "0";
-    }
-
-    // INSERT ATUALIZADO COM OS NOVOS CAMPOS
+    // 3. INSERT MESTRE (Sem selects lentos, salva os dados diretos da Engenharia)
     const [result] = await connection.query(
       `INSERT INTO producao_historico 
-       (empresa_id, usuario_id, data_producao, chapa_index, aproveitamento, densidade, material, espessura, motor, largura_chapa, altura_chapa, consumo_chapa, retalho_linear, area_retalho) 
-       VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (empresa_id, usuario_id, data_producao, chapa_index, aproveitamento, densidade, material, espessura, motor, nesting_signature, largura_chapa, altura_chapa, consumo_chapa, retalho_linear, area_retalho) 
+       VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         empresaId,
         usuarioId,
         chapaIndex,
-        aproveitamento, // Global
-        7.85, // Densidade do MATERIAL (Aço), não do arranjo
-        materialReal,
-        espessuraReal,
+        aproveitamento,
+        stats.densidade,    // Veio limpo do banco via frontend
+        stats.material,     // Nome real do material
+        stats.espessura,    // Valor em milímetros exato (já formatado com ponto!)
         motor || "Smart Nest",
-        larguraChapa || 0,
-        alturaChapa || 0,
-        consumo || 0, // NOVO
-        retalhoLinear || 0, // NOVO
-        areaRetalho || 0, // NOVO
+        nestingSignature || null,
+        stats.binWidth,
+        stats.binHeight,
+        consumo,
+        retalhoLinearY,
+        areaRetalhoM2,
       ],
     );
 
-    // ... O restante do código (INSERT producao_itens, UPDATE status, commit) permanece igual ...
     const producaoId = result.insertId;
 
+    // 4. INSERT DOS ITENS (Filhos)
     const values = itens.map((item) => [
       producaoId,
       item.id,
@@ -1205,26 +1251,49 @@ app.post("/api/producao/registrar", authenticateToken, async (req, res) => {
       [values],
     );
 
-    const idsParaAtualizar = itens.map((i) => i.id);
-    if (idsParaAtualizar.length > 0) {
-      await connection.query(
-        "UPDATE pecas_engenharia SET status = 'EM PRODUÇÃO' WHERE id IN (?) AND empresa_id = ?",
-        [idsParaAtualizar, empresaId],
+    // 5. ATUALIZAR STATUS DAS PEÇAS ORIGINAIS (COM DESCONTO PARCIAL)
+    for (const item of itens) {
+      // a) Pega a meta total da peça (quantas a engenharia pediu)
+      const [pecaRows] = await connection.query(
+        "SELECT quantidade FROM pecas_engenharia WHERE id = ? AND empresa_id = ?",
+        [item.id, empresaId]
       );
+
+      if (pecaRows.length > 0) {
+        const metaTotal = Number(pecaRows[0].quantidade) || 1;
+
+        // b) Soma todas as peças que já foram cortadas desta ID (incluindo a que acabou de ser inserida no Passo 4)
+        const [prodRows] = await connection.query(
+          "SELECT SUM(quantidade) as total_produzido FROM producao_itens WHERE peca_original_id = ?",
+          [item.id]
+        );
+        const totalProduzido = Number(prodRows[0].total_produzido) || 0;
+
+        // c) Se já produziu tudo (ou mais), muda o status para tirar da fila de arranjo.
+        if (totalProduzido >= metaTotal) {
+          await connection.query(
+            "UPDATE pecas_engenharia SET status = 'EM PRODUÇÃO' WHERE id = ? AND empresa_id = ?",
+            [item.id, empresaId]
+          );
+        }
+      }
     }
 
     await connection.commit();
+    
+    // 6. SUCESSO! DEVOLVENDO O ID PARA VINCULAR O RETALHO
     res.json({
       message: "Produção registrada!",
-      detalhes: { material: materialReal, espessura: espessuraReal, motor },
+      producaoId: producaoId, 
+      detalhes: { material: stats.material, espessura: stats.espessura, motor },
     });
+
   } catch (error) {
-    // ... (Bloco catch permanece igual) ...
     await connection.rollback();
-    console.error(error);
+    console.error("Erro ao registrar produção:", error);
     if (error.code === "ER_DUP_ENTRY")
-      return res.status(409).json({ error: "Duplicate entry" });
-    res.status(500).json({ error: "Erro ao salvar." });
+      return res.status(409).json({ error: "Duplicate entry", producaoId: null });
+    res.status(500).json({ error: "Erro ao salvar histórico." });
   } finally {
     connection.release();
   }
@@ -1319,56 +1388,80 @@ app.delete("/api/materials/:id", authenticateToken, async (req, res) => {
 // ROTAS DE ESPESSURAS (COMPARTILHADO NA EQUIPE)
 // ==========================================
 
+// ==========================================
+// ROTAS DE ESPESSURAS (COMPARTILHADO NA EQUIPE)
+// ==========================================
+
 app.get("/api/thicknesses", authenticateToken, async (req, res) => {
   try {
     const empresaId = req.user.empresa_id;
 
+    // --- LÓGICA DE ORDENAÇÃO INTELIGENTE ---
+    // 1º: valor_mm IS NULL -> Joga os que não têm milímetro (antigos) para o final da lista
+    // 2º: valor_mm ASC -> Ordena do menor para o maior (ex: 0.80, 0.90, 1.20, 3.17)
+    // 3º: valor ASC -> Se dois tiverem o mesmo milímetro, desempata pelo nome alfabético
     const query = `
-        SELECT id, valor, 'padrao' as origem FROM espessuras_padrao
+        SELECT id, valor, valor_mm, 'padrao' as origem FROM espessuras_padrao
         UNION ALL
-        SELECT id, valor, 'custom' as origem FROM espessuras_personalizadas 
-        WHERE empresa_id = ? ORDER BY valor ASC`; // Ordenar por valor fica melhor visualmente
+        SELECT id, valor, valor_mm, 'custom' as origem FROM espessuras_personalizadas 
+        WHERE empresa_id = ? 
+        ORDER BY (valor_mm IS NULL), valor_mm ASC, valor ASC`; 
 
     const [results] = await db.query(query, [empresaId]);
     res.json(results);
   } catch (err) {
+    console.error("❌ Erro no GET /api/thicknesses:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
 app.post("/api/thicknesses", authenticateToken, async (req, res) => {
-  const { value } = req.body;
+  console.log("📥 DADOS RECEBIDOS DO FRONTEND (CRIAR):", req.body);
+  const { value, value_mm } = req.body;
   const usuarioId = req.user.id;
   const empresaId = req.user.empresa_id;
 
   if (!value) return res.status(400).json({ error: "Valor obrigatório" });
 
   try {
+    // BLINDAGEM: Troca vírgula por ponto e converte para número
+    const mmLimpo = value_mm
+      ? parseFloat(String(value_mm).replace(",", "."))
+      : null;
+
     const [result] = await db.query(
-      "INSERT INTO espessuras_personalizadas (usuario_id, empresa_id, valor) VALUES (?, ?, ?)",
-      [usuarioId, empresaId, value],
+      "INSERT INTO espessuras_personalizadas (usuario_id, empresa_id, valor, valor_mm) VALUES (?, ?, ?, ?)",
+      [usuarioId, empresaId, value, mmLimpo],
     );
-    res.json({ id: result.insertId, valor: value });
+    res.json({ id: result.insertId, valor: value, valor_mm: mmLimpo });
   } catch (err) {
+    console.error("❌ Erro no POST /api/thicknesses:", err); // <--- LOG PARA DEBUG
     res.status(500).json({ error: "Erro ao salvar espessura" });
   }
 });
 
 app.put("/api/thicknesses/:id", authenticateToken, async (req, res) => {
-  const { value } = req.body;
+  console.log("📥 DADOS RECEBIDOS DO FRONTEND (EDITAR):", req.body);
+  const { value, value_mm } = req.body;
   const empresaId = req.user.empresa_id;
 
   try {
+    // BLINDAGEM: Troca vírgula por ponto e converte para número
+    const mmLimpo = value_mm
+      ? parseFloat(String(value_mm).replace(",", "."))
+      : null;
+
     const [result] = await db.query(
-      "UPDATE espessuras_personalizadas SET valor = ? WHERE id = ? AND empresa_id = ?",
-      [value, req.params.id, empresaId],
+      "UPDATE espessuras_personalizadas SET valor = ?, valor_mm = ? WHERE id = ? AND empresa_id = ?",
+      [value, mmLimpo, req.params.id, empresaId],
     );
 
     if (result.affectedRows === 0)
       return res.status(404).json({ error: "Não encontrado" });
 
-    res.json({ message: "Atualizado" });
+    res.json({ message: "Atualizado", valor_mm: mmLimpo });
   } catch (err) {
+    console.error("❌ Erro no PUT /api/thicknesses:", err); // <--- LOG PARA DEBUG
     res.status(500).json({ error: err.message });
   }
 });
@@ -1440,6 +1533,242 @@ app.get("/api/fix-database", async (req, res) => {
 });
 
 // ==========================================
+// ROTAS DE RETALHOS (ESTOQUE INTELIGENTE)
+// ==========================================
+
+// 1. LISTAR RETALHOS DISPONÍVEIS (Alerta "Eco-Smart" com Bloqueio de Concorrência)
+app.get("/api/retalhos/disponiveis", authenticateToken, async (req, res) => {
+  const empresaId = req.user.empresa_id;
+  const usuarioId = req.user.id; // <-- Adicionamos o ID do usuário
+  const { material, espessura_mm } = req.query;
+
+  // TOLERÂNCIA: Retalhos bloqueados há mais de 2 minutos são considerados livres
+  const LOCK_TIMEOUT_MINUTES = 2;
+
+  try {
+    // A MÁGICA AQUI: Oculta retalhos que estão bloqueados por OUTROS usuários ativamente
+    let sql = `
+      SELECT * FROM retalhos_estoque 
+      WHERE empresa_id = ? 
+        AND status = 'DISPONIVEL'
+        AND (
+          locked_by IS NULL 
+          OR locked_by = ? 
+          OR locked_at <= DATE_SUB(NOW(), INTERVAL ? MINUTE)
+        )
+    `;
+    const params = [empresaId, usuarioId, LOCK_TIMEOUT_MINUTES];
+
+    if (material) {
+      sql += ` AND material = ?`;
+      params.push(material);
+    }
+
+    if (espessura_mm) {
+      const espLimpa = parseFloat(String(espessura_mm).replace(',', '.'));
+      sql += ` AND espessura_mm = ?`;
+      params.push(espLimpa);
+    }
+
+    sql += ` ORDER BY area_m2 ASC`;
+    const [rows] = await db.query(sql, params);
+    res.json(rows);
+  } catch (error) {
+    console.error("❌ Erro ao buscar retalhos:", error);
+    res.status(500).json({ error: "Erro ao buscar estoque de retalhos." });
+  }
+});
+
+// --- BLOQUEAR RETALHO (CHECK-ON-CLICK) ---
+app.post("/api/retalhos/lock", authenticateToken, async (req, res) => {
+  const { retalhosIds } = req.body; // Array de IDs de retalhos (pois a Fila aceita múltiplos)
+  const usuarioId = req.user.id;
+  const empresaId = req.user.empresa_id;
+  
+  // Mesma tolerância de 2 minutos dos pedidos
+  const TOLERANCIA_MINUTOS = 2;
+
+  if (!retalhosIds || !Array.isArray(retalhosIds) || retalhosIds.length === 0) {
+    return res.status(400).json({ error: "IDs dos retalhos obrigatórios." });
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 1. VERIFICAÇÃO INTELIGENTE (SEM FOR UPDATE)
+    // Verifica se existe alguém (que NÃO seja eu) usando um desses retalhos RECENTEMENTE (< 2 min)
+    const checkSql = `
+      SELECT u.nome, re.locked_at, re.codigo 
+      FROM retalhos_estoque re
+      JOIN usuarios u ON re.locked_by = u.id
+      WHERE re.empresa_id = ? 
+        AND re.id IN (?)
+        AND re.locked_by IS NOT NULL 
+        AND re.locked_by != ? 
+        AND re.locked_at > DATE_SUB(NOW(), INTERVAL ? MINUTE)
+      LIMIT 1
+    `;
+    const params = [empresaId, retalhosIds, usuarioId, TOLERANCIA_MINUTOS];
+    const [lockedRows] = await connection.query(checkSql, params);
+
+    // 2. SE ALGUÉM ESTIVER USANDO, RETORNA ERRO (MAS NÃO TRAVA O BANCO)
+    if (lockedRows.length > 0) {
+      await connection.rollback();
+      const usuarioBloqueador = lockedRows[0].nome || "Desconhecido";
+      const retalhoCodigo = lockedRows[0].codigo;
+      const horarioBloqueio = new Date(lockedRows[0].locked_at).toLocaleTimeString();
+      
+      return res.status(409).json({
+        error: "Bloqueado",
+        message: `O retalho ${retalhoCodigo} está em uso por ${usuarioBloqueador} (desde ${horarioBloqueio}).`,
+      });
+    }
+
+    // 3. CAMINHO LIVRE: REALIZA O BLOQUEIO OU RENOVAÇÃO
+    const updateSql = `
+      UPDATE retalhos_estoque 
+      SET locked_by = ?, locked_at = NOW()
+      WHERE empresa_id = ? AND id IN (?)
+    `;
+    await connection.query(updateSql, [usuarioId, empresaId, retalhosIds]);
+    
+    await connection.commit();
+    res.json({ message: "Sessão do(s) retalho(s) iniciada/renovada." });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Erro ao bloquear retalho:", error);
+    res.status(500).json({ error: "Erro técnico ao reservar retalho." });
+  } finally {
+    connection.release();
+  }
+});
+
+// --- DESBLOQUEAR RETALHO ---
+app.post("/api/retalhos/unlock", authenticateToken, async (req, res) => {
+  const { retalhosIds } = req.body;
+  const usuarioId = req.user.id;
+  const empresaId = req.user.empresa_id;
+
+  try {
+    let sql = `
+      UPDATE retalhos_estoque 
+      SET locked_by = NULL, locked_at = NULL
+      WHERE empresa_id = ? AND locked_by = ?
+    `;
+    const params = [empresaId, usuarioId];
+
+    // Se mandar IDs específicos, solta só eles. Se vier vazio, solta TODOS desse usuário.
+    if (retalhosIds && Array.isArray(retalhosIds) && retalhosIds.length > 0) {
+      sql += ` AND id IN (?)`;
+      params.push(retalhosIds);
+    }
+
+    await db.query(sql, params);
+    res.json({ message: "Retalho(s) desbloqueado(s) com sucesso." });
+  } catch (error) {
+    console.error("Erro ao desbloquear retalho:", error);
+    res.status(500).json({ error: "Erro ao liberar retalho." });
+  }
+});
+
+// 2. SALVAR NOVOS RETALHOS (Gatilho: Salvar DXF)
+app.post("/api/retalhos", authenticateToken, async (req, res) => {
+  const { retalhos } = req.body;
+  const empresaId = req.user.empresa_id;
+  const usuarioId = req.user.id;
+
+  if (!retalhos || !Array.isArray(retalhos) || retalhos.length === 0) {
+    return res.status(400).json({ error: "Nenhum retalho enviado." });
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const sql = `
+      INSERT INTO retalhos_estoque 
+      (id, empresa_id, usuario_id, codigo, material, espessura_mm, largura, altura, origem_producao_id, status)
+      VALUES ?
+    `;
+
+    // 1. Criamos um array vazio para guardar o que o banco gerou
+    const retalhosCriados = [];
+
+    const values = retalhos.map((r) => {
+      // Blindagem matemática: garante que todos os números venham com ponto
+      const espLimpa = parseFloat(String(r.espessura_mm).replace(',', '.')) || 0;
+      const largLimpa = parseFloat(String(r.largura).replace(',', '.')) || 0;
+      const altLimpa = parseFloat(String(r.altura).replace(',', '.')) || 0;
+
+      // 2. Extraímos a geração do código para uma variável separada
+      const codigoDefinitivo = r.codigo || `RET-${Math.floor(Math.random() * 10000)}`;
+
+      // 3. Guardamos a informação para devolver ao React
+      retalhosCriados.push({
+        codigo: codigoDefinitivo,
+        largura: largLimpa,
+        altura: altLimpa
+      });
+
+      // ATENÇÃO: O colchete de abertura e as vírgulas devem estar exatos aqui
+      return [
+        crypto.randomUUID(),
+        empresaId,
+        usuarioId,
+        codigoDefinitivo, // Usamos a variável aqui
+        r.material || 'Desconhecido',
+        espLimpa,
+        largLimpa,
+        altLimpa,
+        r.origem_producao_id || null,
+        'DISPONIVEL'
+      ];
+    });
+
+    const [result] = await connection.query(sql, [values]);
+    await connection.commit();
+
+    res.status(201).json({
+      message: "Retalhos salvos no estoque com sucesso!",
+      count: result.affectedRows,
+      retalhos: retalhosCriados // 4. AQUI ESTÁ A MÁGICA: Devolvemos a lista ao React!
+    });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error("❌ Erro ao salvar retalhos:", error);
+    res.status(500).json({ error: "Erro interno ao guardar retalhos." });
+  } finally {
+    connection.release();
+  }
+});
+
+// 3. MARCAR RETALHO COMO USADO (Baixa no Estoque)
+app.put("/api/retalhos/:id/usar", authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const empresaId = req.user.empresa_id;
+
+  try {
+    const [result] = await db.query(
+      `UPDATE retalhos_estoque 
+       SET status = 'USADO', used_at = NOW() 
+       WHERE id = ? AND empresa_id = ? AND status = 'DISPONIVEL'`,
+      [id, empresaId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Retalho não encontrado ou já utilizado." });
+    }
+
+    res.json({ message: "Retalho baixado do estoque com sucesso!" });
+  } catch (error) {
+    console.error("❌ Erro ao usar retalho:", error);
+    res.status(500).json({ error: "Erro técnico ao atualizar retalho." });
+  }
+});
+
+// ==========================================
 // 5. SERVIR O FRONTEND (REACT/VITE)
 // ==========================================
 
@@ -1478,7 +1807,7 @@ app.delete("/api/pedidos/:pedido", authenticateToken, async (req, res) => {
     // 1. VERIFICA STATUS DAS PEÇAS DESSE PEDIDO
     const [rows] = await connection.query(
       `SELECT status FROM pecas_engenharia WHERE empresa_id = ? AND pedido = ?`,
-      [empresaId, pedido]
+      [empresaId, pedido],
     );
 
     if (rows.length === 0) {
@@ -1488,39 +1817,40 @@ app.delete("/api/pedidos/:pedido", authenticateToken, async (req, res) => {
 
     // Verifica se existe alguma peça que NÃO esteja 'AGUARDANDO'
     // (ex: 'EM PRODUÇÃO', 'CONCLUÍDO', 'SUBSTITUIDO')
-    const temPecasEmProducao = rows.some(r => r.status !== 'AGUARDANDO');
+    const temPecasEmProducao = rows.some((r) => r.status !== "AGUARDANDO");
 
     // 2. APLICA A REGRA DE NEGÓCIO
     // Se tiver peças em produção e o usuário NÃO for admin, bloqueia.
-    if (temPecasEmProducao && userCargo !== 'admin') {
+    if (temPecasEmProducao && userCargo !== "admin") {
       await connection.rollback();
       return res.status(403).json({
         error: "Permissão Negada",
-        message: "Este pedido possui itens em produção ou concluídos. Apenas Administradores podem excluí-lo."
+        message:
+          "Este pedido possui itens em produção ou concluídos. Apenas Administradores podem excluí-lo.",
       });
     }
 
     // 3. EXECUTA A EXCLUSÃO
-    // Nota: Dependendo das suas chaves estrangeiras (Foreign Keys), 
+    // Nota: Dependendo das suas chaves estrangeiras (Foreign Keys),
     // isso pode apagar o histórico de produção (cascade) ou dar erro.
     // Assumindo que queremos limpar o cadastro atual:
     await connection.query(
       "DELETE FROM pecas_engenharia WHERE empresa_id = ? AND pedido = ?",
-      [empresaId, pedido]
+      [empresaId, pedido],
     );
 
     await connection.commit();
     res.json({ message: `Pedido ${pedido} excluído com sucesso.` });
-
   } catch (error) {
     await connection.rollback();
     console.error("Erro ao excluir pedido:", error);
     // Tratamento para erro de Foreign Key (caso tenha histórico travado)
     if (error.code && error.code.includes("ROW_IS_REFERENCED")) {
-       return res.status(409).json({ 
-         error: "Não é possível excluir", 
-         message: "Este pedido já possui histórico de produção vinculado e não pode ser apagado totalmente." 
-       });
+      return res.status(409).json({
+        error: "Não é possível excluir",
+        message:
+          "Este pedido já possui histórico de produção vinculado e não pode ser apagado totalmente.",
+      });
     }
     res.status(500).json({ error: "Erro interno ao excluir pedido." });
   } finally {
