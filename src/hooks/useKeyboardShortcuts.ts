@@ -96,25 +96,23 @@ export const useKeyboardShortcuts = ({
       else if (keyStr === "arrowleft") dx = -moveStep;
       else if (keyStr === "arrowright") dx = moveStep;
       
-      // Rotação Fixa ABSOLUTA (Garante leitura de teclados BR e Americanos)
+      // Rotação Fixa ABSOLUTA
       else if (
-        keyStr === "9" ||
-        keyStr === ")" ||
-        keyStr === "(" ||
-        codeStr === "digit9" ||
-        codeStr === "numpad9"
+        keyStr === "9" || keyStr === ")" || keyStr === "(" || codeStr === "digit9" || codeStr === "numpad9"
       ) {
         dRot = e.ctrlKey || e.metaKey ? -90 : 90;
         isFixedRot = true;
       } else if (
-        keyStr === "4" ||
-        keyStr === "$" ||
-        codeStr === "digit4" ||
-        codeStr === "numpad4"
+        keyStr === "8" || keyStr === "*" || codeStr === "digit8" || codeStr === "numpad8"
+      ) {
+        dRot = 180; // 180 graus (inverter)
+        isFixedRot = true; // Garante que não faça movimento contínuo
+      } else if (
+        keyStr === "4" || keyStr === "$" || codeStr === "digit4" || codeStr === "numpad4"
       ) {
         dRot = e.ctrlKey || e.metaKey ? -45 : 45;
         isFixedRot = true;
-      } 
+      }
       
       // Rotação Fina
       else if (codeStr === "keye") {

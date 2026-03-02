@@ -111,6 +111,11 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({
             Rotação Absoluta
           </h4>
           <div style={rowStyle}>
+            <span>Girar exatos 180º (Inverter)</span>
+            <div><span style={kbdStyle}>Shift</span> + <span style={kbdStyle}>8</span></div>
+          </div>
+          
+          <div style={rowStyle}>
             <span>Girar exatos 90º</span>
             <div>
               <span style={kbdStyle}>Shift</span> +{" "}
