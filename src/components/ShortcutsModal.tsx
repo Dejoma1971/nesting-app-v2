@@ -40,7 +40,7 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({
       style={{
         position: "fixed",
         top: 5,
-        left: 0,        
+        left: 0,
         width: "100%",
         height: "100%",
         backgroundColor: "rgba(0,0,0,0.6)",
@@ -59,7 +59,7 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({
           borderRadius: "8px",
           width: "400px",
           // ⬇️ --- CORREÇÃO: ALTURA MÁXIMA E ROLAGEM INTERNA --- ⬇️
-          maxHeight: "85vh", 
+          maxHeight: "85vh",
           overflowY: "auto",
           // ⬆️ ------------------------------------------------ ⬆️
           border: `1px solid ${theme.border}`,
@@ -68,72 +68,157 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "15px" }}>
-          <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "8px" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            marginBottom: "15px",
+          }}
+        >
+          <h3
+            style={{
+              margin: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
             ⌨️ Teclas de Atalho CAD
           </h3>
           <button
             onClick={onClose}
-            style={{ background: "transparent", border: "none", color: theme.text, cursor: "pointer", fontSize: "18px" }}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: theme.text,
+              cursor: "pointer",
+              fontSize: "18px",
+            }}
           >
             ✕
           </button>
         </div>
 
         <div style={{ fontSize: "13px" }}>
-          <h4 style={{ margin: "15px 0 5px 0", opacity: 0.7, textTransform: "uppercase", fontSize: "11px" }}>Rotação Absoluta</h4>
+          <h4
+            style={{
+              margin: "15px 0 5px 0",
+              opacity: 0.7,
+              textTransform: "uppercase",
+              fontSize: "11px",
+            }}
+          >
+            Rotação Absoluta
+          </h4>
           <div style={rowStyle}>
             <span>Girar exatos 90º</span>
-            <div><span style={kbdStyle}>Shift</span> + <span style={kbdStyle}>9</span></div>
+            <div>
+              <span style={kbdStyle}>Shift</span> +{" "}
+              <span style={kbdStyle}>9</span>
+            </div>
           </div>
           <div style={rowStyle}>
             <span>Girar exatos -90º</span>
-            <div><span style={kbdStyle}>Shift</span> + <span style={kbdStyle}>Ctrl</span> + <span style={kbdStyle}>9</span></div>
+            <div>
+              <span style={kbdStyle}>Shift</span> +{" "}
+              <span style={kbdStyle}>Ctrl</span> +{" "}
+              <span style={kbdStyle}>9</span>
+            </div>
           </div>
           <div style={rowStyle}>
             <span>Girar exatos 45º</span>
-            <div><span style={kbdStyle}>Shift</span> + <span style={kbdStyle}>4</span></div>
+            <div>
+              <span style={kbdStyle}>Shift</span> +{" "}
+              <span style={kbdStyle}>4</span>
+            </div>
           </div>
           <div style={rowStyle}>
             <span>Girar exatos -45º</span>
-            <div><span style={kbdStyle}>Shift</span> + <span style={kbdStyle}>Ctrl</span> + <span style={kbdStyle}>4</span></div>
+            <div>
+              <span style={kbdStyle}>Shift</span> +{" "}
+              <span style={kbdStyle}>Ctrl</span> +{" "}
+              <span style={kbdStyle}>4</span>
+            </div>
           </div>
 
-          <h4 style={{ margin: "15px 0 5px 0", opacity: 0.7, textTransform: "uppercase", fontSize: "11px" }}>Rotação Fina</h4>
+          <h4
+            style={{
+              margin: "15px 0 5px 0",
+              opacity: 0.7,
+              textTransform: "uppercase",
+              fontSize: "11px",
+            }}
+          >
+            Rotação Fina
+          </h4>
           <div style={rowStyle}>
             <span>Girar 1 passo à Esquerda</span>
-            <div><span style={kbdStyle}>Shift</span> + <span style={kbdStyle}>E</span></div>
+            <div>
+              <span style={kbdStyle}>Shift</span> +{" "}
+              <span style={kbdStyle}>E</span>
+            </div>
           </div>
           <div style={rowStyle}>
             <span>Girar 1 passo à Direita</span>
-            <div><span style={kbdStyle}>Shift</span> + <span style={kbdStyle}>D</span></div>
+            <div>
+              <span style={kbdStyle}>Shift</span> +{" "}
+              <span style={kbdStyle}>D</span>
+            </div>
           </div>
           <div style={rowStyle}>
             <span>Girar contínuo à Esquerda (Segurar)</span>
-            <div><span style={kbdStyle}>Shift</span> + <span style={kbdStyle}>Ctrl</span> + <span style={kbdStyle}>E</span></div>
+            <div>
+              <span style={kbdStyle}>Shift</span> +{" "}
+              <span style={kbdStyle}>Ctrl</span> +{" "}
+              <span style={kbdStyle}>E</span>
+            </div>
           </div>
           <div style={rowStyle}>
             <span>Girar contínuo à Direita (Segurar)</span>
-            <div><span style={kbdStyle}>Shift</span> + <span style={kbdStyle}>Ctrl</span> + <span style={kbdStyle}>D</span></div>
+            <div>
+              <span style={kbdStyle}>Shift</span> +{" "}
+              <span style={kbdStyle}>Ctrl</span> +{" "}
+              <span style={kbdStyle}>D</span>
+            </div>
           </div>
 
-          <h4 style={{ margin: "15px 0 5px 0", opacity: 0.7, textTransform: "uppercase", fontSize: "11px" }}>Ações Gerais</h4>
+          <h4
+            style={{
+              margin: "15px 0 5px 0",
+              opacity: 0.7,
+              textTransform: "uppercase",
+              fontSize: "11px",
+            }}
+          >
+            Ações Gerais
+          </h4>
           <div style={rowStyle}>
             <span>Devolver Peça</span>
-            <div><span style={kbdStyle}>Delete</span></div>
+            <div>
+              <span style={kbdStyle}>Delete</span>
+            </div>
           </div>
           <div style={{ ...rowStyle, borderBottom: "none" }}>
             <span>Desfazer Ação</span>
-            <div><span style={kbdStyle}>Ctrl</span> + <span style={kbdStyle}>Z</span></div>
+            <div>
+              <span style={kbdStyle}>Ctrl</span> +{" "}
+              <span style={kbdStyle}>Z</span>
+            </div>
           </div>
         </div>
 
         <button
           onClick={onClose}
           style={{
-            width: "100%", padding: "10px", marginTop: "20px",
-            background: "#007bff", color: "white", border: "none",
-            borderRadius: "4px", cursor: "pointer", fontWeight: "bold"
+            width: "100%",
+            padding: "10px",
+            marginTop: "20px",
+            background: "#007bff",
+            color: "white",
+            border: "none",
+            borderRadius: "4px",
+            cursor: "pointer",
+            fontWeight: "bold",
           }}
         >
           Entendi
