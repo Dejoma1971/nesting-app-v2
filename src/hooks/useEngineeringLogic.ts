@@ -8,8 +8,8 @@ import type {
   BatchDefaults,
   EngineeringScreenProps,
   ImportedPart,
-  CustomMaterial,
-  CustomThickness,
+  // CustomMaterial,
+  // CustomThickness,
 } from "../components/types";
 import {
   processFileToParts,
@@ -70,7 +70,6 @@ export const useEngineeringLogic = ({
     quantity: "",
     autor: "",
     tipo_producao: "NORMAL",
-    
   });
 
   // CORREÇÃO: Inicia vazio para não mostrar dados de Trial (estáticos) enquanto carrega
@@ -82,7 +81,8 @@ export const useEngineeringLogic = ({
     if (!user || !user.token) return;
 
     // 1. LER A PREFERÊNCIA DO USUÁRIO (NOVO)
-    const hideStandard = localStorage.getItem("nesting_hide_standard") === "true";
+    const hideStandard =
+      localStorage.getItem("nesting_hide_standard") === "true";
 
     try {
       // 1. Verifica Status da Assinatura
@@ -103,44 +103,79 @@ export const useEngineeringLogic = ({
         const [mats, thicks] = await Promise.all([
           EngineeringService.getCustomMaterials(user.token),
           EngineeringService.getCustomThicknesses(user.token),
-        ]); 
+        ]);
 
-        // ⬇️ --- LÓGICA DE FILTRO (AGORA FORA DO PROMISE.ALL) --- ⬇️
+        // BLINDAGEM: Garante que sejam arrays antes de qualquer operação
+        const materialsArray = Array.isArray(mats) ? mats : [];
+        const thicknessesArray = Array.isArray(thicks) ? thicks : [];
 
-        // 2. Tipagem Forte: Dizemos que é o Tipo Importado E tem 'origem'
-        const typedMats = mats ? (mats as (CustomMaterial & { origem: string })[]) : [];
-        const typedThicks = thicks ? (thicks as (CustomThickness & { origem: string })[]) : [];
-
-        // ---------------- MATERIAIS ----------------
-        let finalMaterials: string[] = [];
-
+        let filteredMats = [];
         if (hideStandard) {
-          // SE OCULTAR: Filtra apenas os que têm origem 'custom'
-          finalMaterials = typedMats
-            .filter((m) => m.origem === 'custom')
-            .map((m) => m.nome);
+          // O filter agora nunca falhará
+          filteredMats = materialsArray
+            .filter((z: any) => z && z.origem === "custom")
+            .map((z: any) => z.nome);
         } else {
-          // SE MOSTRAR: Junta Estáticos + Todos do Banco (Padrão e Custom)
-          const apiNames = typedMats.map((m) => m.nome);
-          finalMaterials = Array.from(new Set([...STATIC_MATERIALS, ...apiNames]));
+          const customNames = materialsArray.map((se: any) => se.nome);
+          filteredMats = Array.from(
+            new Set([...STATIC_MATERIALS, ...customNames]),
+          );
         }
-        setMaterialList(finalMaterials);
+        setMaterialList(filteredMats);
 
-        // ---------------- ESPESSURAS ----------------
-        let finalThicknesses: string[] = [];
-
+        let filteredThicks = [];
         if (hideStandard) {
-          // SE OCULTAR: Apenas customizados
-          finalThicknesses = typedThicks
-            .filter((t) => t.origem === 'custom')
-            .map((t) => t.valor);
+          filteredThicks = thicknessesArray
+            .filter((z: any) => z && z.origem === "custom")
+            .map((z: any) => z.valor);
         } else {
-          // SE MOSTRAR: Estáticos + Todos do Banco
-          const apiValues = typedThicks.map((t) => t.valor);
-          finalThicknesses = Array.from(new Set([...STATIC_THICKNESS, ...apiValues]));
+          const customValues = thicknessesArray.map((se: any) => se.valor);
+          filteredThicks = Array.from(
+            new Set([...STATIC_THICKNESS, ...customValues]),
+          );
         }
-        setThicknessList(finalThicknesses);
-        
+        setThicknessList(filteredThicks);
+        // const [mats, thicks] = await Promise.all([
+        //   EngineeringService.getCustomMaterials(user.token),
+        //   EngineeringService.getCustomThicknesses(user.token),
+        // ]);
+
+        // // ⬇️ --- LÓGICA DE FILTRO (AGORA FORA DO PROMISE.ALL) --- ⬇️
+
+        // // 2. Tipagem Forte: Dizemos que é o Tipo Importado E tem 'origem'
+        // const typedMats = mats ? (mats as (CustomMaterial & { origem: string })[]) : [];
+        // const typedThicks = thicks ? (thicks as (CustomThickness & { origem: string })[]) : [];
+
+        // // ---------------- MATERIAIS ----------------
+        // let finalMaterials: string[] = [];
+
+        // if (hideStandard) {
+        //   // SE OCULTAR: Filtra apenas os que têm origem 'custom'
+        //   finalMaterials = typedMats
+        //     .filter((m) => m.origem === 'custom')
+        //     .map((m) => m.nome);
+        // } else {
+        //   // SE MOSTRAR: Junta Estáticos + Todos do Banco (Padrão e Custom)
+        //   const apiNames = typedMats.map((m) => m.nome);
+        //   finalMaterials = Array.from(new Set([...STATIC_MATERIALS, ...apiNames]));
+        // }
+        // setMaterialList(finalMaterials);
+
+        // // ---------------- ESPESSURAS ----------------
+        // let finalThicknesses: string[] = [];
+
+        // if (hideStandard) {
+        //   // SE OCULTAR: Apenas customizados
+        //   finalThicknesses = typedThicks
+        //     .filter((t) => t.origem === 'custom')
+        //     .map((t) => t.valor);
+        // } else {
+        //   // SE MOSTRAR: Estáticos + Todos do Banco
+        //   const apiValues = typedThicks.map((t) => t.valor);
+        //   finalThicknesses = Array.from(new Set([...STATIC_THICKNESS, ...apiValues]));
+        // }
+        // setThicknessList(finalThicknesses);
+
         // ⬆️ -------------------------------------------------------- ⬆️
       }
     } catch (err) {
