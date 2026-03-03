@@ -76,73 +76,89 @@ export const useEngineeringLogic = ({
   const [materialList, setMaterialList] = useState<string[]>([]);
   const [thicknessList, setThicknessList] = useState<string[]>([]);
 
+  // ⬇️ --- NOVOS STATES (ADICIONE AQUI) --- ⬇️
+  const [rawMaterials, setRawMaterials] = useState<any[]>([]);
+  const [rawThicknesses, setRawThicknesses] = useState<any[]>([]);
+  const [hideStandard, setHideStandard] = useState(
+    localStorage.getItem("nesting_hide_standard") === "true",
+  );
+  // ⬆️ ------------------------------------ ⬆️
+
   // --- NOVA FUNÇÃO: REFRESH DATA (Busca dados sem recarregar a página) ---
   const refreshData = useCallback(async () => {
     if (!user || !user.token) return;
 
-    // 1. LER A PREFERÊNCIA DO USUÁRIO
-    const hideStandard = localStorage.getItem("nesting_hide_standard") === "true";
+    // Atualiza o state reativo na mesma hora que a função é chamada (ao fechar o modal)
+    setHideStandard(localStorage.getItem("nesting_hide_standard") === "true");
 
     try {
-      // 1. Verifica Status da Assinatura
-      const subData = await EngineeringService.getSubscriptionStatus(user.token);
+      const subData = await EngineeringService.getSubscriptionStatus(
+        user.token,
+      );
       const isUserTrial = subData.status === "trial";
-      setIsTrial(isUserTrial); // Atualiza o state da tela (trava botões, etc)
+      setIsTrial(isUserTrial);
 
-      // =================================================================
-      // 🛑 REGRA DO TRIAL: Usa lista estática e aborta a busca no banco
-      // =================================================================
+      // REGRA DO TRIAL
       if (isUserTrial) {
-        setMaterialList(STATIC_MATERIALS);
-        setThicknessList(STATIC_THICKNESS);
-        return; // O 'return' faz a função parar aqui. Ele ignora o banco e o filtro!
+        // Formata a lista estática simulando como o banco entregaria
+        setRawMaterials(
+          STATIC_MATERIALS.map((nome) => ({ nome, origem: "padrao" })),
+        );
+        setRawThicknesses(
+          STATIC_THICKNESS.map((valor) => ({ valor, origem: "padrao" })),
+        );
+        return;
       }
 
-      // =================================================================
-      // 🟢 REGRA DO ASSINANTE: Busca no banco e respeita o filtro
-      // =================================================================
+      // REGRA DO ASSINANTE
       const [mats, thicks] = await Promise.all([
         EngineeringService.getCustomMaterials(user.token),
         EngineeringService.getCustomThicknesses(user.token),
       ]);
 
-      // BLINDAGEM: Garante que sejam arrays antes de qualquer operação
-      const materialsArray = Array.isArray(mats) ? mats : [];
-      const thicknessesArray = Array.isArray(thicks) ? thicks : [];
-
-      // --- FILTRO DE MATERIAIS ---
-      let filteredMats = [];
-      if (hideStandard) {
-        // Se ocultar os padrões, pega apenas os que têm origem 'custom' do banco
-        filteredMats = materialsArray
-          .filter((z: any) => z && z.origem === "custom")
-          .map((z: any) => z.nome);
-      } else {
-        // Usa EXATAMENTE o que veio do banco (que já inclui os padrões via UNION ALL)
-        filteredMats = materialsArray.map((z: any) => z.nome);
-      }
-      setMaterialList(filteredMats);
-
-      // --- FILTRO DE ESPESSURAS ---
-      let filteredThicks = [];
-      if (hideStandard) {
-        // Se ocultar os padrões, pega apenas os que têm origem 'custom' do banco
-        filteredThicks = thicknessesArray
-          .filter((z: any) => z && z.origem === "custom")
-          .map((z: any) => z.valor);
-      } else {
-        // Usa EXATAMENTE o que veio do banco
-        filteredThicks = thicknessesArray.map((z: any) => z.valor);
-      }
-      setThicknessList(filteredThicks);
-
+      setRawMaterials(Array.isArray(mats) ? mats : []);
+      setRawThicknesses(Array.isArray(thicks) ? thicks : []);
     } catch (err) {
       console.error("Erro ao atualizar dados do banco:", err);
-      // Fallback de segurança: Só usa a lista estática se o servidor cair ou der erro 500
-      setMaterialList((prev) => (prev.length === 0 ? STATIC_MATERIALS : prev));
-      setThicknessList((prev) => (prev.length === 0 ? STATIC_THICKNESS : prev));
+      setRawMaterials(
+        STATIC_MATERIALS.map((nome) => ({ nome, origem: "padrao" })),
+      );
+      setRawThicknesses(
+        STATIC_THICKNESS.map((valor) => ({ valor, origem: "padrao" })),
+      );
     }
   }, [user]);
+
+  // ⬇️ --- EFEITO MÁGICO DE REATIVIDADE E BLINDAGEM --- ⬇️
+  useEffect(() => {
+    let newMats: any[] = [];
+    let newThicks: any[] = [];
+
+    if (isTrial) {
+      // 1. REGRA DO TRIAL: Ignora o botão de ocultar e injeta a lista estática
+      newMats = STATIC_MATERIALS;
+      newThicks = STATIC_THICKNESS;
+    } else {
+      // 2. REGRA DO ASSINANTE: Aplica o filtro se ele pediu para ocultar
+      if (hideStandard) {
+        newMats = rawMaterials
+          .filter((m) => m && m.origem === "custom")
+          .map((m) => m.nome || m.name);
+        newThicks = rawThicknesses
+          .filter((t) => t && t.origem === "custom")
+          .map((t) => t.valor || t.value);
+      } else {
+        newMats = rawMaterials.map((m) => m.nome || m.name);
+        newThicks = rawThicknesses.map((t) => t.valor || t.value);
+      }
+    }
+
+    // 3. O SEGREDO DO REACT: O 'Set' remove qualquer duplicidade (ex: dois "20")
+    // Isso impede que a interface trave na hora de desenhar a lista
+    setMaterialList(Array.from(new Set(newMats.filter(Boolean))));
+    setThicknessList(Array.from(new Set(newThicks.filter(Boolean))));
+  }, [rawMaterials, rawThicknesses, hideStandard, isTrial]);
+  // ⬆️ ------------------------------------------------ ⬆️
 
   // --- EFFECT: Carrega dados ao iniciar (ou mudar usuário) ---
   useEffect(() => {
