@@ -588,8 +588,9 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         nome: p.name,
       }));
 
+      // 👇 CORREÇÃO: URL relativa para ambiente de produção
       const resVerify = await fetch(
-        "http://localhost:3001/api/pecas/verificar-existencia",
+        "/api/pecas/verificar-existencia",
         {
           method: "POST",
           headers: {
@@ -611,13 +612,10 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
         if (!part.tipo_producao) part.tipo_producao = "NORMAL";
 
         // ⬇️ --- CORREÇÃO AQUI: APLICAÇÃO AUTOMÁTICA DO AUTOR --- ⬇️
-        // Pega o valor que está no campo superior e injeta em todas as peças.
-        // Se por acaso estiver vazio, garante pelo menos o nome do usuário logado.
         part.autor = batchDefaults.autor || user?.name || "Desconhecido";
         // ⬆️ ---------------------------------------------------- ⬆️
 
         // --- NOVO: GARANTE O CÁLCULO DA ÁREA LÍQUIDA ANTES DE SALVAR ---
-        // Se a peça não tiver netArea, calcula agora usando as entidades dela
         part.netArea = part.netArea || calculatePartNetArea(part.entities) || part.grossArea;
         // --------------------------------------------------------------
 
@@ -626,8 +624,6 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
           (d: any) => d.pedido === part.pedido && d.nome_arquivo === part.name,
         );
 
-        // Se for NORMAL e já existir, prepara para renomear (Versionamento)
-        // Se for RETRABALHO/EDIÇÃO, mantém o nome para substituir o antigo
         const isNormal = part.tipo_producao === "NORMAL";
         const shouldRenameDb = isNormal && existsInDb;
         const localCount = nameTracker[key] || 0;
@@ -650,7 +646,8 @@ export const EngineeringScreen: React.FC<EngineeringScreenProps> = (props) => {
       });
 
       // 5. Envia para o servidor
-      const resSave = await fetch("http://localhost:3001/api/pecas", {
+      // 👇 CORREÇÃO: URL relativa para ambiente de produção
+      const resSave = await fetch("/api/pecas", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

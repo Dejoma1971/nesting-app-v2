@@ -72,13 +72,23 @@ export const MaterialConfigModal: React.FC<MaterialConfigModalProps> = ({
     try {
       if (activeTab === "materials") {
         const data = await EngineeringService.getCustomMaterials(user.token);
-        setMaterials(data as unknown as MaterialItem[]);
+        
+        // CORREÇÃO: Blindagem com Array.isArray
+        const safeData = Array.isArray(data) ? data : [];
+        setMaterials(safeData as MaterialItem[]);
+        
       } else {
         const data = await EngineeringService.getCustomThicknesses(user.token);
-        setThicknesses(data as unknown as ThicknessItem[]);
+        
+        // CORREÇÃO: Blindagem com Array.isArray
+        const safeData = Array.isArray(data) ? data : [];
+        setThicknesses(safeData as ThicknessItem[]);
       }
     } catch (error) {
-      console.error(error);
+      console.error("Erro ao carregar dados no Modal:", error);
+      // Fallback: limpa as listas para não travar o .map()
+      setMaterials([]);
+      setThicknesses([]);
     } finally {
       setLoading(false);
     }

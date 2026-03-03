@@ -80,108 +80,53 @@ export const useEngineeringLogic = ({
   const refreshData = useCallback(async () => {
     if (!user || !user.token) return;
 
-    // 1. LER A PREFERÊNCIA DO USUÁRIO (NOVO)
-    const hideStandard =
-      localStorage.getItem("nesting_hide_standard") === "true";
+    // 1. LER A PREFERÊNCIA DO USUÁRIO
+    const hideStandard = localStorage.getItem("nesting_hide_standard") === "true";
 
     try {
-      // 1. Verifica Status da Assinatura
-      const subData = await EngineeringService.getSubscriptionStatus(
-        user.token,
-      );
+      // 1. Verifica Status da Assinatura (Apenas para controle de UI, não para bloquear dados)
+      const subData = await EngineeringService.getSubscriptionStatus(user.token);
+      setIsTrial(subData.status === "trial");
 
-      if (subData.status === "trial") {
-        // MODO TRIAL: Carrega listas estáticas
-        setIsTrial(true);
-        setMaterialList(STATIC_MATERIALS);
-        setThicknessList(STATIC_THICKNESS);
+      // 2. BUSCA OS DADOS INCONDICIONALMENTE DO BANCO DE DADOS
+      const [mats, thicks] = await Promise.all([
+        EngineeringService.getCustomMaterials(user.token),
+        EngineeringService.getCustomThicknesses(user.token),
+      ]);
+
+      // BLINDAGEM: Garante que sejam arrays antes de qualquer operação
+      const materialsArray = Array.isArray(mats) ? mats : [];
+      const thicknessesArray = Array.isArray(thicks) ? thicks : [];
+
+      // --- FILTRO DE MATERIAIS ---
+      let filteredMats = [];
+      if (hideStandard) {
+        // Se ocultar os padrões, pega apenas os que têm origem 'custom' do banco
+        filteredMats = materialsArray
+          .filter((z: any) => z && z.origem === "custom")
+          .map((z: any) => z.nome);
       } else {
-        // MODO ASSINANTE: Busca do Banco
-        setIsTrial(false);
-
-        // 1. BUSCA OS DADOS (Feche o Promise.all aqui!)
-        const [mats, thicks] = await Promise.all([
-          EngineeringService.getCustomMaterials(user.token),
-          EngineeringService.getCustomThicknesses(user.token),
-        ]);
-
-        // BLINDAGEM: Garante que sejam arrays antes de qualquer operação
-        const materialsArray = Array.isArray(mats) ? mats : [];
-        const thicknessesArray = Array.isArray(thicks) ? thicks : [];
-
-        let filteredMats = [];
-        if (hideStandard) {
-          // O filter agora nunca falhará
-          filteredMats = materialsArray
-            .filter((z: any) => z && z.origem === "custom")
-            .map((z: any) => z.nome);
-        } else {
-          const customNames = materialsArray.map((se: any) => se.nome);
-          filteredMats = Array.from(
-            new Set([...STATIC_MATERIALS, ...customNames]),
-          );
-        }
-        setMaterialList(filteredMats);
-
-        let filteredThicks = [];
-        if (hideStandard) {
-          filteredThicks = thicknessesArray
-            .filter((z: any) => z && z.origem === "custom")
-            .map((z: any) => z.valor);
-        } else {
-          const customValues = thicknessesArray.map((se: any) => se.valor);
-          filteredThicks = Array.from(
-            new Set([...STATIC_THICKNESS, ...customValues]),
-          );
-        }
-        setThicknessList(filteredThicks);
-        // const [mats, thicks] = await Promise.all([
-        //   EngineeringService.getCustomMaterials(user.token),
-        //   EngineeringService.getCustomThicknesses(user.token),
-        // ]);
-
-        // // ⬇️ --- LÓGICA DE FILTRO (AGORA FORA DO PROMISE.ALL) --- ⬇️
-
-        // // 2. Tipagem Forte: Dizemos que é o Tipo Importado E tem 'origem'
-        // const typedMats = mats ? (mats as (CustomMaterial & { origem: string })[]) : [];
-        // const typedThicks = thicks ? (thicks as (CustomThickness & { origem: string })[]) : [];
-
-        // // ---------------- MATERIAIS ----------------
-        // let finalMaterials: string[] = [];
-
-        // if (hideStandard) {
-        //   // SE OCULTAR: Filtra apenas os que têm origem 'custom'
-        //   finalMaterials = typedMats
-        //     .filter((m) => m.origem === 'custom')
-        //     .map((m) => m.nome);
-        // } else {
-        //   // SE MOSTRAR: Junta Estáticos + Todos do Banco (Padrão e Custom)
-        //   const apiNames = typedMats.map((m) => m.nome);
-        //   finalMaterials = Array.from(new Set([...STATIC_MATERIALS, ...apiNames]));
-        // }
-        // setMaterialList(finalMaterials);
-
-        // // ---------------- ESPESSURAS ----------------
-        // let finalThicknesses: string[] = [];
-
-        // if (hideStandard) {
-        //   // SE OCULTAR: Apenas customizados
-        //   finalThicknesses = typedThicks
-        //     .filter((t) => t.origem === 'custom')
-        //     .map((t) => t.valor);
-        // } else {
-        //   // SE MOSTRAR: Estáticos + Todos do Banco
-        //   const apiValues = typedThicks.map((t) => t.valor);
-        //   finalThicknesses = Array.from(new Set([...STATIC_THICKNESS, ...apiValues]));
-        // }
-        // setThicknessList(finalThicknesses);
-
-        // ⬆️ -------------------------------------------------------- ⬆️
+        // Usa EXATAMENTE o que veio do banco (que já inclui os padrões via UNION ALL do server.cjs)
+        filteredMats = materialsArray.map((z: any) => z.nome);
       }
+      setMaterialList(filteredMats);
+
+      // --- FILTRO DE ESPESSURAS ---
+      let filteredThicks = [];
+      if (hideStandard) {
+        // Se ocultar os padrões, pega apenas os que têm origem 'custom' do banco
+        filteredThicks = thicknessesArray
+          .filter((z: any) => z && z.origem === "custom")
+          .map((z: any) => z.valor);
+      } else {
+        // Usa EXATAMENTE o que veio do banco
+        filteredThicks = thicknessesArray.map((z: any) => z.valor);
+      }
+      setThicknessList(filteredThicks);
+
     } catch (err) {
-      console.error("Erro ao atualizar dados:", err);
-      // Em caso de erro de conexão, garante que as listas tenham algo
-      // CORREÇÃO: Usamos 'prev' para não criar dependência e evitar loop infinito
+      console.error("Erro ao atualizar dados do banco:", err);
+      // Fallback de segurança: Só usa a lista estática se o servidor cair ou der erro 500
       setMaterialList((prev) => (prev.length === 0 ? STATIC_MATERIALS : prev));
       setThicknessList((prev) => (prev.length === 0 ? STATIC_THICKNESS : prev));
     }
