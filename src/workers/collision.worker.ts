@@ -43,6 +43,8 @@ interface CropLine {
   id: string;
   type: "horizontal" | "vertical";
   position: number;
+  min?: number; // <--- ADICIONADO
+  max?: number; // <--- ADICIONADO
 }
 
 interface WorkerData {
@@ -479,7 +481,7 @@ self.onmessage = (e: MessageEvent<WorkerData>) => {
     }
   });
 
-  // --- 2.1 CHECK DE LINHAS DE RETALHO (NOVO) ---
+  // --- 2.1 CHECK DE LINHAS DE RETALHO (ATUALIZADO PARA TRIM E TRUE SHAPE) ---
   if (cropLines && cropLines.length > 0) {
     placedParts.forEach((placed) => {
       // Se já colidiu (ex: fora da mesa), pula para economizar
@@ -491,16 +493,41 @@ self.onmessage = (e: MessageEvent<WorkerData>) => {
       for (const line of cropLines) {
         let q1: Point, q2: Point;
 
-        // Define o segmento da linha de retalho
+        // Define o segmento da linha respeitando os limites (min/max) aplicados pelo Trim
         if (line.type === "vertical") {
-          q1 = { x: line.position, y: 0 };
-          q2 = { x: line.position, y: binHeight };
+          const yMin = line.min !== undefined ? line.min : 0;
+          const yMax = line.max !== undefined ? line.max : binHeight;
+          q1 = { x: line.position, y: yMin };
+          q2 = { x: line.position, y: yMax };
         } else {
-          q1 = { x: 0, y: line.position };
-          q2 = { x: binWidth, y: line.position };
+          const xMin = line.min !== undefined ? line.min : 0;
+          const xMax = line.max !== undefined ? line.max : binWidth;
+          q1 = { x: xMin, y: line.position };
+          q2 = { x: xMax, y: line.position };
         }
 
-        // Verifica intersecção com todas as arestas da peça (externo e furos)
+        // ==========================================
+        // OTIMIZAÇÃO: Broad Phase (Bounding Box)
+        // Se a "caixa" da linha passar longe da "caixa" da peça, ignora a matemática complexa!
+        // ==========================================
+        const lineMinX = Math.min(q1.x, q2.x);
+        const lineMaxX = Math.max(q1.x, q2.x);
+        const lineMinY = Math.min(q1.y, q2.y);
+        const lineMaxY = Math.max(q1.y, q2.y);
+
+        if (
+          geom.bounds.maxX < lineMinX ||
+          geom.bounds.minX > lineMaxX ||
+          geom.bounds.maxY < lineMinY ||
+          geom.bounds.minY > lineMaxY
+        ) {
+          continue; // Passou longe, vai para a próxima linha
+        }
+
+        // ==========================================
+        // NARROW PHASE: True Shape Intersect
+        // Verifica a colisão EXATA entre o segmento da linha e o CONTORNO REAL da peça (e furos)
+        // ==========================================
         const allLoops = [geom.outer, ...geom.holes];
         let hitLine = false;
 
@@ -509,6 +536,7 @@ self.onmessage = (e: MessageEvent<WorkerData>) => {
             const p1 = loop[k];
             const p2 = loop[(k + 1) % loop.length];
 
+            // A matemática do doLineSegmentsIntersect garante precisão absoluta
             if (doLineSegmentsIntersect(p1, p2, q1, q2)) {
               hitLine = true;
               break loopCheck;
@@ -523,7 +551,6 @@ self.onmessage = (e: MessageEvent<WorkerData>) => {
       }
     });
   }
-
   // 3. CHECK PEÇA x PEÇA
   for (let i = 0; i < placedParts.length; i++) {
     for (let j = i + 1; j < placedParts.length; j++) {

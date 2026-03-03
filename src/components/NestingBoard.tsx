@@ -6114,12 +6114,9 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   let remnantTooltip =
                     "Calcula e destaca as áreas de retalho úteis (>0,3m²)";
 
-                  if (isDraftMode) {
+                 if (isDraftMode) {
                     remnantTooltip =
                       "⛔ Bloqueado: Gestão de retalhos desativada no Modo Local.";
-                  } else if (cropLines.length === 0) {
-                    remnantTooltip =
-                      "Adicione pelo menos uma linha de corte primeiro.";
                   } else if (lineCollision) {
                     remnantTooltip =
                       "⚠️ Bloqueado: Colisão detectada na chapa!";
