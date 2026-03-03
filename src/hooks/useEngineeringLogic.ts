@@ -84,11 +84,23 @@ export const useEngineeringLogic = ({
     const hideStandard = localStorage.getItem("nesting_hide_standard") === "true";
 
     try {
-      // 1. Verifica Status da Assinatura (Apenas para controle de UI, não para bloquear dados)
+      // 1. Verifica Status da Assinatura
       const subData = await EngineeringService.getSubscriptionStatus(user.token);
-      setIsTrial(subData.status === "trial");
+      const isUserTrial = subData.status === "trial";
+      setIsTrial(isUserTrial); // Atualiza o state da tela (trava botões, etc)
 
-      // 2. BUSCA OS DADOS INCONDICIONALMENTE DO BANCO DE DADOS
+      // =================================================================
+      // 🛑 REGRA DO TRIAL: Usa lista estática e aborta a busca no banco
+      // =================================================================
+      if (isUserTrial) {
+        setMaterialList(STATIC_MATERIALS);
+        setThicknessList(STATIC_THICKNESS);
+        return; // O 'return' faz a função parar aqui. Ele ignora o banco e o filtro!
+      }
+
+      // =================================================================
+      // 🟢 REGRA DO ASSINANTE: Busca no banco e respeita o filtro
+      // =================================================================
       const [mats, thicks] = await Promise.all([
         EngineeringService.getCustomMaterials(user.token),
         EngineeringService.getCustomThicknesses(user.token),
@@ -106,7 +118,7 @@ export const useEngineeringLogic = ({
           .filter((z: any) => z && z.origem === "custom")
           .map((z: any) => z.nome);
       } else {
-        // Usa EXATAMENTE o que veio do banco (que já inclui os padrões via UNION ALL do server.cjs)
+        // Usa EXATAMENTE o que veio do banco (que já inclui os padrões via UNION ALL)
         filteredMats = materialsArray.map((z: any) => z.nome);
       }
       setMaterialList(filteredMats);
