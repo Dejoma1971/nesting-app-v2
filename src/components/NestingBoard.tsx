@@ -432,6 +432,12 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   const [isRemnantModalOpen, setIsRemnantModalOpen] = useState(false);
   const [isRemnantPulsing, setIsRemnantPulsing] = useState(false);
 
+  // 👇 1. INSERÇÃO AQUI: Memória de inversão do retalho
+  const [remnantInvertMap, setRemnantInvertMap] = useState<
+    Record<number, boolean>
+  >({});
+  // 👆 ====================================================
+
   // =========================================================
   const [showOnlySelected, setShowOnlySelected] = useState(false);
   // =========================================================
@@ -1715,164 +1721,183 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
   // =================================================================
   // --- CÁLCULO INTELIGENTE E AUTO-GERADOR DE LINHAS (CONTORNO) ---
   // =================================================================
-  const handleCalculateRemnants = useCallback(() => {
-    if (currentPlacedParts.length === 0) {
-      alert("Não há peças na chapa para calcular retalhos.");
-      setSheetMenu(null);
-      return;
-    }
+  const handleCalculateRemnants = useCallback(
+    (toggleInvert?: boolean) => {
+      const isToggle = toggleInvert === true;
 
-    const binW = activeBinWidth;
-    const binH = activeBinHeight;
-
-    // 1. Extrai a geometria das peças reais da mesa
-    const realPartLoops = currentPlacedParts
-      .map((placed) => {
-        const original = parts.find((p) => p.id === placed.partId);
-        if (!original) return [];
-        const dims = calculateRotatedDimensions(
-          original.width,
-          original.height,
-          placed.rotation,
-        );
-
-        // CORREÇÃO 1: Usamos metade do gap, para a linha de corte passar exatamente no MEIO do espaço entre a peça e o retalho
-        const safeGap = gap ? gap / 2 : 0;
-
-        return [
-          { x: placed.x - safeGap, y: placed.y - safeGap },
-          { x: placed.x + dims.width + safeGap, y: placed.y - safeGap },
-          {
-            x: placed.x + dims.width + safeGap,
-            y: placed.y + dims.height + safeGap,
-          },
-          { x: placed.x - safeGap, y: placed.y + dims.height + safeGap },
-        ];
-      })
-      .filter((loop) => loop.length > 0);
-
-    // CORREÇÃO 2: Adicionamos o número '2' no final. Isso manda a matriz usar "pixels" de 2mm
-    // em vez de 20mm, garantindo precisão absoluta e impedindo que a área verde invada a peça.
-    const optimalRemnants = findSmartRemnants(
-      binW,
-      binH,
-      realPartLoops,
-      0.3,
-      2,
-      2,
-    );
-
-    if (optimalRemnants.length === 0) {
-      alert(
-        "Nenhum retalho com área útil superior a 0,3m² foi encontrado neste arranjo.",
-      );
-    } else {
-      // 1. Carimba a chapa atual nos novos retalhos encontrados
-      const taggedRemnants = optimalRemnants.map((r) => ({
-        ...r,
-        binId: currentBinIndex,
-      }));
-
-      // 2. Salva mantendo os retalhos das outras chapas intactos
-      setCalculatedRemnants((prev) => [
-        ...prev.filter((r) => r.binId !== currentBinIndex),
-        ...taggedRemnants,
-      ]);
-
-      // 3. AUTO-GERADOR DE LINHAS DE CORTE (CONTORNO INTERNO)
-      const newCropLines: any[] = [];
-      const safeId = () =>
-        crypto.randomUUID
-          ? crypto.randomUUID()
-          : Math.random().toString(36).substring(2);
-
-      optimalRemnants.forEach((remnant) => {
-        const TOLERANCE = 2; // Tolerância ajustada para a nova resolução fina
-
-        // Verifica quais bordas estão "soltas" no meio da chapa (precisam de corte)
-        const hasInternalBottom = remnant.y > TOLERANCE;
-        const hasInternalTop =
-          Math.abs(remnant.y + remnant.height - binH) > TOLERANCE;
-        const hasInternalLeft = remnant.x > TOLERANCE;
-        const hasInternalRight =
-          Math.abs(remnant.x + remnant.width - binW) > TOLERANCE;
-
-        // Linha Horizontal na Base do retalho
-        if (hasInternalBottom) {
-          newCropLines.push({
-            id: safeId(),
-            type: "horizontal",
-            position: remnant.y,
-            min: remnant.x,
-            max: remnant.x + remnant.width,
-            binId: currentBinIndex,
-            isAutoRemnant: true, // <--- ADICIONE AQUI
-          });
-        }
-        // Linha Horizontal no Topo do retalho
-        if (hasInternalTop) {
-          newCropLines.push({
-            id: safeId(),
-            type: "horizontal",
-            position: remnant.y + remnant.height,
-            min: remnant.x,
-            max: remnant.x + remnant.width,
-            binId: currentBinIndex,
-            isAutoRemnant: true, // <--- ADICIONE AQUI
-          });
-        }
-        // Linha Vertical na Esquerda do retalho
-        if (hasInternalLeft) {
-          newCropLines.push({
-            id: safeId(),
-            type: "vertical",
-            position: remnant.x,
-            min: remnant.y,
-            max: remnant.y + remnant.height,
-            binId: currentBinIndex,
-            isAutoRemnant: true, // <--- ADICIONE AQUI
-          });
-        }
-        // Linha Vertical na Direita do retalho
-        if (hasInternalRight) {
-          newCropLines.push({
-            id: safeId(),
-            type: "vertical",
-            position: remnant.x + remnant.width,
-            min: remnant.y,
-            max: remnant.y + remnant.height,
-            binId: currentBinIndex,
-            isAutoRemnant: true, // <--- ADICIONE AQUI
-          });
-        }
-      });
-
-      // 4. Injeta as linhas exatas na chapa atual
-      if (setCropLines) {
-        setCropLines((prev) => {
-          const otherBinsLines = prev.filter(
-            (l) => l.binId !== currentBinIndex,
-          );
-          return [...otherBinsLines, ...newCropLines];
-        });
+      if (currentPlacedParts.length === 0) {
+        alert("Não há peças na chapa para calcular retalhos.");
+        setSheetMenu(null);
+        return;
       }
 
-      console.log(
-        `♻️ Eco-Smart: ${optimalRemnants.length} retalho(s) detectado(s) e ${newCropLines.length} linhas geradas.`,
-      );
-    }
+      const binW = activeBinWidth;
+      const binH = activeBinHeight;
 
-    setSheetMenu(null);
-  }, [
-    currentPlacedParts,
-    activeBinWidth,
-    activeBinHeight,
-    parts,
-    setCalculatedRemnants,
-    gap,
-    setCropLines,
-    currentBinIndex,
-  ]);
+      // 1. Extrai a geometria das peças reais da mesa
+      const realPartLoops = currentPlacedParts
+        .map((placed) => {
+          const original = parts.find((p) => p.id === placed.partId);
+          if (!original) return [];
+          const dims = calculateRotatedDimensions(
+            original.width,
+            original.height,
+            placed.rotation,
+          );
+
+          // CORREÇÃO 1: Usamos metade do gap, para a linha de corte passar exatamente no MEIO do espaço entre a peça e o retalho
+          const safeGap = gap ? gap / 2 : 0;
+
+          return [
+            { x: placed.x - safeGap, y: placed.y - safeGap },
+            { x: placed.x + dims.width + safeGap, y: placed.y - safeGap },
+            {
+              x: placed.x + dims.width + safeGap,
+              y: placed.y + dims.height + safeGap,
+            },
+            { x: placed.x - safeGap, y: placed.y + dims.height + safeGap },
+          ];
+        })
+        .filter((loop) => loop.length > 0);
+
+      // 👇 2.2 INSERÇÃO AQUI: Lógica para saber qual direção usar
+      const currentInvert = remnantInvertMap[currentBinIndex] || false;
+      const applyInvert = isToggle ? !currentInvert : currentInvert;
+
+      if (isToggle) {
+        setRemnantInvertMap((prev) => ({
+          ...prev,
+          [currentBinIndex]: applyInvert,
+        }));
+      }
+      // 👆 ==========================================================
+
+      // CORREÇÃO 2: Adicionamos o número '2' no final. Isso manda a matriz usar "pixels" de 2mm
+      // em vez de 20mm, garantindo precisão absoluta e impedindo que a área verde invada a peça.
+      const optimalRemnants = findSmartRemnants(
+        binW,
+        binH,
+        realPartLoops,
+        0.3,
+        2,
+        2,
+        applyInvert, // 👇 2.3 INSERÇÃO AQUI: Envia a nova regra para a matemática
+      );
+
+      if (optimalRemnants.length === 0) {
+        alert(
+          "Nenhum retalho com área útil superior a 0,3m² foi encontrado neste arranjo.",
+        );
+      } else {
+        // 1. Carimba a chapa atual nos novos retalhos encontrados
+        const taggedRemnants = optimalRemnants.map((r) => ({
+          ...r,
+          binId: currentBinIndex,
+        }));
+
+        // 2. Salva mantendo os retalhos das outras chapas intactos
+        setCalculatedRemnants((prev) => [
+          ...prev.filter((r) => r.binId !== currentBinIndex),
+          ...taggedRemnants,
+        ]);
+
+        // 3. AUTO-GERADOR DE LINHAS DE CORTE (CONTORNO INTERNO)
+        const newCropLines: any[] = [];
+        const safeId = () =>
+          crypto.randomUUID
+            ? crypto.randomUUID()
+            : Math.random().toString(36).substring(2);
+
+        optimalRemnants.forEach((remnant) => {
+          const TOLERANCE = 2; // Tolerância ajustada para a nova resolução fina
+
+          // Verifica quais bordas estão "soltas" no meio da chapa (precisam de corte)
+          const hasInternalBottom = remnant.y > TOLERANCE;
+          const hasInternalTop =
+            Math.abs(remnant.y + remnant.height - binH) > TOLERANCE;
+          const hasInternalLeft = remnant.x > TOLERANCE;
+          const hasInternalRight =
+            Math.abs(remnant.x + remnant.width - binW) > TOLERANCE;
+
+          // Linha Horizontal na Base do retalho
+          if (hasInternalBottom) {
+            newCropLines.push({
+              id: safeId(),
+              type: "horizontal",
+              position: remnant.y,
+              min: remnant.x,
+              max: remnant.x + remnant.width,
+              binId: currentBinIndex,
+              isAutoRemnant: true, // <--- ADICIONE AQUI
+            });
+          }
+          // Linha Horizontal no Topo do retalho
+          if (hasInternalTop) {
+            newCropLines.push({
+              id: safeId(),
+              type: "horizontal",
+              position: remnant.y + remnant.height,
+              min: remnant.x,
+              max: remnant.x + remnant.width,
+              binId: currentBinIndex,
+              isAutoRemnant: true, // <--- ADICIONE AQUI
+            });
+          }
+          // Linha Vertical na Esquerda do retalho
+          if (hasInternalLeft) {
+            newCropLines.push({
+              id: safeId(),
+              type: "vertical",
+              position: remnant.x,
+              min: remnant.y,
+              max: remnant.y + remnant.height,
+              binId: currentBinIndex,
+              isAutoRemnant: true, // <--- ADICIONE AQUI
+            });
+          }
+          // Linha Vertical na Direita do retalho
+          if (hasInternalRight) {
+            newCropLines.push({
+              id: safeId(),
+              type: "vertical",
+              position: remnant.x + remnant.width,
+              min: remnant.y,
+              max: remnant.y + remnant.height,
+              binId: currentBinIndex,
+              isAutoRemnant: true, // <--- ADICIONE AQUI
+            });
+          }
+        });
+
+        // 4. Injeta as linhas exatas na chapa atual
+        if (setCropLines) {
+          setCropLines((prev) => {
+            const otherBinsLines = prev.filter(
+              (l) => l.binId !== currentBinIndex,
+            );
+            return [...otherBinsLines, ...newCropLines];
+          });
+        }
+
+        console.log(
+          `♻️ Eco-Smart: ${optimalRemnants.length} retalho(s) detectado(s) e ${newCropLines.length} linhas geradas.`,
+        );
+      }
+
+      setSheetMenu(null);
+    },
+    [
+      currentPlacedParts,
+      activeBinWidth,
+      activeBinHeight,
+      parts,
+      setCalculatedRemnants,
+      gap,
+      setCropLines,
+      currentBinIndex,
+      remnantInvertMap,
+    ],
+  );
 
   useEffect(() => {
     if (selectedPartIds.length > 0) {
@@ -2636,6 +2661,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
       removeRemnantFromBin(currentBinIndex);
       setBinSize({ width: 1200, height: 3000 });
       // 👆 ========================================== 👆
+      setRemnantInvertMap({}); // 👇 3. INSERÇÃO AQUI: Limpa a direção salva
       // Limpa seleções do modal também, por garantia
       setSelectedOps([]);
       // --- INSERÇÃO: RECENTRALIZAR A CÂMERA ---
@@ -6114,7 +6140,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                   let remnantTooltip =
                     "Calcula e destaca as áreas de retalho úteis (>0,3m²)";
 
-                 if (isDraftMode) {
+                  if (isDraftMode) {
                     remnantTooltip =
                       "⛔ Bloqueado: Gestão de retalhos desativada no Modo Local.";
                   } else if (lineCollision) {
@@ -6146,7 +6172,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                       onClose={() => setSheetMenu(null)}
                       onDeleteSheet={handleDeleteSheetWrapper}
                       onAddCropLine={handleAddCropLineWrapper}
-                      onDefineRemnants={handleCalculateRemnants}
+                      onDefineRemnants={() => handleCalculateRemnants(false)}
                       hasPlacedParts={hasPartsInBin}
                       // --- INSERÇÃO DAS NOVAS PROPS AQUI ---
                       canDefineRemnants={canDefineRemnants}
@@ -6161,6 +6187,19 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
                           prev.filter((r) => r.binId !== currentBinIndex),
                         )
                       }
+                      // 👇 4.2 INSERÇÃO AQUI: O botão que inverte o retalho
+                      onInvertRemnants={() => handleCalculateRemnants(true)}
+                      // 👆 ===================================================
+                      // 👇 INSERÇÃO DA LÓGICA AQUI 👇
+                      hasCropLines={
+                        cropLines.filter((l) => l.binId === currentBinIndex)
+                          .length > 0
+                      }
+                      onDeleteAllLines={() => {
+                        setCropLines((prev) =>
+                          prev.filter((l) => l.binId !== currentBinIndex),
+                        );
+                      }}
                     />
                   );
                 })()}
@@ -6412,7 +6451,7 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         />
         {/* ------------------------------------------------------ */}
         {/* ⬇️ --- MODAL DE ATALHOS --- ⬇️ */}
-        <ShortcutsModal 
+        <ShortcutsModal
           isOpen={isShortcutsModalOpen}
           onClose={() => setIsShortcutsModalOpen(false)}
           theme={theme}

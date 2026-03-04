@@ -20,6 +20,12 @@ interface SheetContextMenuProps {
   // --- NOVAS PROPS PARA LIMPEZA ---
   hasCalculatedRemnants?: boolean;
   onClearRemnants?: () => void;
+  // 👇 2.1 INSERÇÃO: A nova propriedade
+  onInvertRemnants?: () => void;
+  // 👆 ============================
+  // 👇 INSERÇÃO AQUI: Novas props para deletar tudo
+  onDeleteAllLines?: () => void;
+  hasCropLines?: boolean;
 }
 
 export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
@@ -37,8 +43,12 @@ export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
   canDefineRemnants, 
   remnantTooltip,
   hasCalculatedRemnants,
-  onClearRemnants
-  // ------------------------------------
+  onClearRemnants,
+  // 👇 2.2 INSERÇÃO: Receber a propriedade aqui também
+  onInvertRemnants,
+  // 👆 ===============================================
+  onDeleteAllLines, // <--- Receber aqui
+  hasCropLines,     // <--- Receber aqui  
 }) => {
   
   const menuStyle: React.CSSProperties = {
@@ -160,7 +170,43 @@ export const SheetContextMenu: React.FC<SheetContextMenuProps> = ({
                       <span style={{ fontSize: '14px' }}>❌</span> Limpar Retalhos
                   </button>
                 )}
-                {/* 👆 ===================================== 👆 */}          
+                {/* 👆 ===================================== 👆 */}  
+
+                {/* 👇 INSERIR EXATAMENTE AQUI: BOTÃO LIMPAR TODAS AS LINHAS 👇 */}
+                {hasCropLines && onDeleteAllLines && (
+                  <button 
+                      style={itemStyle} 
+                      onClick={() => { 
+                          if(confirm("Deseja excluir todas as linhas de corte desta chapa?")) {
+                            onDeleteAllLines(); 
+                            onClose(); 
+                          }
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(220, 53, 69, 0.2)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      title="Remove todas as guilhotinas e trims da chapa atual"
+                  >
+                      <span style={{ fontSize: '14px' }}>🧹</span> Limpar Todas as Linhas
+                  </button>
+                )}
+                {/* 👆 ======================================================== 👆 */} 
+
+                {/* 👇 2.3 INSERÇÃO: BOTÃO INVERTER RETALHO 👇 */}
+                {hasCalculatedRemnants && onInvertRemnants && (
+                  <button 
+                      style={itemStyle} 
+                      onClick={() => { 
+                          onInvertRemnants(); 
+                          onClose(); 
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0, 123, 255, 0.2)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      title="Muda a direção principal do corte (Alterna o formato do L)"
+                  >
+                      <span style={{ fontSize: '14px' }}>🔄</span> Inverter Sentido do Retalho
+                  </button>
+                )}
+                {/* 👆 ===================================== 👆 */}       
 
                 <div style={{ height: '1px', backgroundColor: '#444', margin: '5px 0' }} />
                 <button 

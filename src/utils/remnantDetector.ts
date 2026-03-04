@@ -90,7 +90,8 @@ export const findSmartRemnants = (
   partsOuterLoops: Point[][],
   minAreaM2: number = 0.3,
   maxRects: number = 2,
-  resolution: number = 20
+  resolution: number = 20,
+  invertSearch: boolean = false
 ): RemnantRect[] => {
   
   const cols = Math.floor(binWidth / resolution);
@@ -151,8 +152,21 @@ export const findSmartRemnants = (
           const rectH = height * resolution;
           const areaM2 = (rectW * rectH) / 1000000;
 
-          if (areaM2 >= minAreaM2 && areaM2 > maxArea) {
-            maxArea = areaM2;
+          // 👇 1.2 INSERÇÃO AQUI: Lógica de Peso para Forçar o Sentido do Corte 👇
+          let compareScore = areaM2;
+          if (invertSearch) {
+            // Se invertido: dá um bónus matemático a retângulos mais ALTOS (Força o corte Vertical)
+            compareScore = areaM2 * (1 + (rectH / binHeight) * 5); 
+          } else {
+            // Padrão: dá um bónus matemático a retângulos mais LARGOS (Força o corte Horizontal)
+            compareScore = areaM2 * (1 + (rectW / binWidth) * 5);
+          }
+
+          // Usa o score viciado para escolher quem ganha, mas preserva a área real
+          if (areaM2 >= minAreaM2 && compareScore > maxArea) {
+            maxArea = compareScore;
+          // 👆 ================================================================= 👆
+          
             const rectY = (r - height + 1) * resolution;
             const rectX = (stack.length === 0 ? 0 : stack[stack.length - 1] + 1) * resolution;
             
