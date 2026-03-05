@@ -1,5 +1,5 @@
 // src/utils/remnantDetector.ts (ou onde preferir no seu projeto)
-import polygonClipping from 'polygon-clipping';
+import polygonClipping from "polygon-clipping";
 
 interface Point {
   x: number;
@@ -16,30 +16,34 @@ interface Point {
 export const getRawRemnant = (
   binWidth: number,
   binHeight: number,
-  partsOuterLoops: Point[][]
+  partsOuterLoops: Point[][],
 ) => {
   // 1. Criar o polígono da chapa inteira (fechando o loop no final)
-  const platePolygon: polygonClipping.Polygon = [[
-    [0, 0],
-    [binWidth, 0],
-    [binWidth, binHeight],
-    [0, binHeight],
-    [0, 0] 
-  ]];
+  const platePolygon: polygonClipping.Polygon = [
+    [
+      [0, 0],
+      [binWidth, 0],
+      [binWidth, binHeight],
+      [0, binHeight],
+      [0, 0],
+    ],
+  ];
 
   // 2. Converter os loops das peças para o formato da biblioteca
-  const partsPolygons: polygonClipping.Polygon[] = partsOuterLoops.map(loop => {
-    const ring = loop.map(p => [p.x, p.y] as [number, number]);
-    
-    // Garante que o anel está fechado (último ponto == primeiro ponto)
-    const first = ring[0];
-    const last = ring[ring.length - 1];
-    if (first[0] !== last[0] || first[1] !== last[1]) {
-      ring.push([...first]);
-    }
+  const partsPolygons: polygonClipping.Polygon[] = partsOuterLoops.map(
+    (loop) => {
+      const ring = loop.map((p) => [p.x, p.y] as [number, number]);
 
-    return [ring]; // Retorna como um Polígono sem furos
-  });
+      // Garante que o anel está fechado (último ponto == primeiro ponto)
+      const first = ring[0];
+      const last = ring[ring.length - 1];
+      if (first[0] !== last[0] || first[1] !== last[1]) {
+        ring.push([...first]);
+      }
+
+      return [ring]; // Retorna como um Polígono sem furos
+    },
+  );
 
   // 3. Fazer a subtração booleana: Chapa - Peça 1 - Peça 2...
   let rawRemnant: polygonClipping.MultiPolygon = [platePolygon];
@@ -69,13 +73,19 @@ export interface RemnantRect {
 }
 
 // Função auxiliar: Verifica se o centro de uma célula (pixel) está dentro da peça
-const isPointInPolygon = (px: number, py: number, polygon: Point[]): boolean => {
+const isPointInPolygon = (
+  px: number,
+  py: number,
+  polygon: Point[],
+): boolean => {
   let isInside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const xi = polygon[i].x, yi = polygon[i].y;
-    const xj = polygon[j].x, yj = polygon[j].y;
-    const intersect = ((yi > py) !== (yj > py)) &&
-        (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+    const xi = polygon[i].x,
+      yi = polygon[i].y;
+    const xj = polygon[j].x,
+      yj = polygon[j].y;
+    const intersect =
+      yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi;
     if (intersect) isInside = !isInside;
   }
   return isInside;
@@ -91,19 +101,23 @@ export const findSmartRemnants = (
   minAreaM2: number = 0.3,
   maxRects: number = 2,
   resolution: number = 20,
-  invertSearch: boolean = false
+  invertSearch: boolean = false,
 ): RemnantRect[] => {
-  
   const cols = Math.floor(binWidth / resolution);
   const rows = Math.floor(binHeight / resolution);
 
   // 1. Criar a matriz original
-  const grid: number[][] = Array(rows).fill(0).map(() => Array(cols).fill(1));
+  const grid: number[][] = Array(rows)
+    .fill(0)
+    .map(() => Array(cols).fill(1));
 
   // 2. Rasterização (Carimbar as peças infladas na matriz)
-  partsOuterLoops.forEach(polygon => {
-    let minX = binWidth, minY = binHeight, maxX = 0, maxY = 0;
-    polygon.forEach(p => {
+  partsOuterLoops.forEach((polygon) => {
+    let minX = binWidth,
+      minY = binHeight,
+      maxX = 0,
+      maxY = 0;
+    polygon.forEach((p) => {
       if (p.x < minX) minX = p.x;
       if (p.x > maxX) maxX = p.x;
       if (p.y < minY) minY = p.y;
@@ -118,8 +132,8 @@ export const findSmartRemnants = (
     for (let r = startRow; r <= endRow; r++) {
       for (let c = startCol; c <= endCol; c++) {
         if (grid[r][c] === 0) continue;
-        const px = c * resolution + (resolution / 2);
-        const py = r * resolution + (resolution / 2);
+        const px = c * resolution + resolution / 2;
+        const py = r * resolution + resolution / 2;
         if (isPointInPolygon(px, py, polygon)) {
           grid[r][c] = 0;
         }
@@ -146,8 +160,9 @@ export const findSmartRemnants = (
         const h = c === cols ? 0 : heights[c];
         while (stack.length > 0 && h < heights[stack[stack.length - 1]]) {
           const height = heights[stack.pop()!];
-          const width = stack.length === 0 ? c : c - stack[stack.length - 1] - 1;
-          
+          const width =
+            stack.length === 0 ? c : c - stack[stack.length - 1] - 1;
+
           const rectW = width * resolution;
           const rectH = height * resolution;
           const areaM2 = (rectW * rectH) / 1000000;
@@ -156,7 +171,7 @@ export const findSmartRemnants = (
           let compareScore = areaM2;
           if (invertSearch) {
             // Se invertido: dá um bónus matemático a retângulos mais ALTOS (Força o corte Vertical)
-            compareScore = areaM2 * (1 + (rectH / binHeight) * 5); 
+            compareScore = areaM2 * (1 + (rectH / binHeight) * 5);
           } else {
             // Padrão: dá um bónus matemático a retângulos mais LARGOS (Força o corte Horizontal)
             compareScore = areaM2 * (1 + (rectW / binWidth) * 5);
@@ -165,18 +180,20 @@ export const findSmartRemnants = (
           // Usa o score viciado para escolher quem ganha, mas preserva a área real
           if (areaM2 >= minAreaM2 && compareScore > maxArea) {
             maxArea = compareScore;
-          // 👆 ================================================================= 👆
-          
+            // 👆 ================================================================= 👆
+
             const rectY = (r - height + 1) * resolution;
-            const rectX = (stack.length === 0 ? 0 : stack[stack.length - 1] + 1) * resolution;
-            
+            const rectX =
+              (stack.length === 0 ? 0 : stack[stack.length - 1] + 1) *
+              resolution;
+
             bestRect = {
               id: `retalho-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
               x: rectX,
               y: rectY,
               width: rectW,
               height: rectH,
-              areaM2
+              areaM2,
             };
           }
         }
@@ -187,11 +204,17 @@ export const findSmartRemnants = (
     // Se encontrou um retalho válido, salva e "fura" a matriz para a próxima busca não sobrepor
     if (bestRect) {
       finalRects.push(bestRect);
-      
+
       const startCol = Math.max(0, Math.floor(bestRect.x / resolution));
-      const endCol = Math.min(cols - 1, Math.floor((bestRect.x + bestRect.width) / resolution));
+      const endCol = Math.min(
+        cols - 1,
+        Math.floor((bestRect.x + bestRect.width) / resolution),
+      );
       const startRow = Math.max(0, Math.floor(bestRect.y / resolution));
-      const endRow = Math.min(rows - 1, Math.floor((bestRect.y + bestRect.height) / resolution));
+      const endRow = Math.min(
+        rows - 1,
+        Math.floor((bestRect.y + bestRect.height) / resolution),
+      );
 
       for (let r = startRow; r <= endRow; r++) {
         for (let c = startCol; c <= endCol; c++) {

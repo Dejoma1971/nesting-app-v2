@@ -4,6 +4,10 @@ import { SidebarMenu } from "../components/SidebarMenu";
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
 import { useTheme } from "../context/ThemeContext";
 
+// 👇 INSERÇÃO: Importe o seu novo componente
+import { RemnantEntryHMI } from "../components/RemnantEntryHMI"; // Ajuste o caminho conforme a pasta onde você salvou
+// 👆 ==========================================
+
 type ScreenType =
   | "home"
   | "engineering"
@@ -19,6 +23,10 @@ interface HomeProps {
 export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
   const { isDarkMode } = useTheme();
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+
+  // 👇 INSERÇÃO: Estado para abrir a IHM de Retalhos
+  const [isRemnantHMIOpen, setIsRemnantHMIOpen] = useState(false);
+  // 👆 ==========================================
 
   // ⬇️ --- 1. CONFIGURAÇÃO DO EFEITO "EM DESENVOLVIMENTO" --- ⬇️
 
@@ -60,6 +68,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
     accentEng: "#007bff", // Azul para Engenharia
     accentNest: "#28a745", // Verde para Produção
     accentCam: "#fd7e14", // Laranja Fogo para CAM (Novo)
+    accentStock: "#17a2b8", // 👇 INSERÇÃO: Cor Ciano/Eco para o Estoque
     shadow: isDarkMode
       ? "0 4px 6px rgba(0,0,0,0.3)"
       : "0 4px 6px rgba(0,0,0,0.1)",
@@ -70,33 +79,33 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    height: "100vh",
+    minHeight: "100vh", // Muda de height para minHeight
     background: theme.bg,
     color: theme.text,
     fontFamily: "Segoe UI, Roboto, Helvetica, Arial, sans-serif",
     transition: "0.3s",
-    overflowY: "auto", // Garante scroll se a tela for pequena
-    userSelect: "none", // <--- ADICIONE ESTA LINHA
-    WebkitUserSelect: "none", // <--- E ESTA (para Safari/Chrome antigos)
+    overflowX: "hidden", // ❌ Garante que não haverá scroll lateral
+    userSelect: "none",
+    WebkitUserSelect: "none",
+    padding: "20px 0", // Dá um respiro em cima e embaixo
   };
 
   const cardsContainerStyle: React.CSSProperties = {
-    display: "flex",
-    gap: "30px",
-    marginTop: "50px",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    alignItems: "stretch", // Garante altura igual
-    maxWidth: "1200px", // Limite para não espalhar demais
-    padding: "20px",
+    display: "grid", // Mágica acontece aqui!
+    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", // Responsivo automático
+    gap: "25px", // Espaço entre os cards
+    marginTop: "40px",
+    width: "100%",
+    maxWidth: "1250px", // 👈 Limita a 3 colunas perfeitas no desktop
+    padding: "0 20px",
+    boxSizing: "border-box",
   };
 
   const cardStyle = (accentColor: string): React.CSSProperties => ({
     background: theme.cardBg,
     border: `1px solid ${theme.cardBorder}`,
     borderRadius: "12px",
-    width: "300px",
-    padding: "40px 30px",
+    padding: "25px 20px", // 👇 Reduzimos bastante o padding (era 40px 30px)
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -104,14 +113,14 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
     cursor: "pointer",
     boxShadow: theme.shadow,
     transition: "transform 0.2s, box-shadow 0.2s, background 0.2s",
-    borderTop: `5px solid ${accentColor}`,
+    borderTop: `4px solid ${accentColor}`,
     position: "relative",
+    minHeight: "260px", // Garante que todos tenham a mesma altura base
   });
-
   // Estado local para hover (apenas visual)
-  const [hoveredCard, setHoveredCard] = useState<"eng" | "nest" | "cam" | null>(
-    null,
-  );
+  const [hoveredCard, setHoveredCard] = useState<
+    "eng" | "nest" | "cam" | "stock" | null
+  >(null);
 
   return (
     <div style={containerStyle}>
@@ -159,20 +168,20 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
         >
           <div
             style={{
-              width: "80px",
-              height: "80px",
+              width: "60px",
+              height: "60px",
               background: "rgba(0, 123, 255, 0.1)",
               borderRadius: "50%",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              marginBottom: "20px",
+              marginBottom: "15px",
               color: theme.accentEng,
             }}
           >
             <svg
-              width="40"
-              height="40"
+              width="30"
+              height="30"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -187,7 +196,13 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
               <polyline points="10 9 9 9 8 9"></polyline>
             </svg>
           </div>
-          <h2 style={{ margin: "0 0 10px 0", color: theme.accentEng }}>
+          <h2
+            style={{
+              margin: "0 0 10px 0",
+              color: theme.accentEng,
+              fontSize: "1.3rem",
+            }}
+          >
             Engenharia & Cadastro
           </h2>
           <p style={{ fontSize: "0.9rem", opacity: 0.8, lineHeight: "1.5" }}>
@@ -220,20 +235,20 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
         >
           <div
             style={{
-              width: "80px",
-              height: "80px",
+              width: "60px",
+              height: "60px",
               background: "rgba(40, 167, 69, 0.1)",
               borderRadius: "50%",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              marginBottom: "20px",
+              marginBottom: "15px",
               color: theme.accentNest,
             }}
           >
             <svg
-              width="40"
-              height="40"
+              width="30"
+              height="30"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -247,7 +262,13 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
               <rect x="3" y="14" width="7" height="7"></rect>
             </svg>
           </div>
-          <h2 style={{ margin: "0 0 10px 0", color: theme.accentNest }}>
+          <h2
+            style={{
+              margin: "0 0 10px 0",
+              color: theme.accentNest,
+              fontSize: "1.3rem",
+            }}
+          >
             Mesa de Corte (Nesting)
           </h2>
           <p style={{ fontSize: "0.9rem", opacity: 0.8, lineHeight: "1.5" }}>
@@ -264,6 +285,73 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
             }}
           >
             Gerar Nesting →
+          </span>
+        </div>
+
+        {/* --- CARD 4: ESTOQUE DE RETALHOS (ECO-SMART) --- */}
+        <div
+          style={{
+            ...cardStyle(theme.accentStock),
+            transform: hoveredCard === "stock" ? "translateY(-5px)" : "none",
+            background:
+              hoveredCard === "stock" ? theme.cardHover : theme.cardBg,
+          }}
+          onMouseEnter={() => setHoveredCard("stock")}
+          onMouseLeave={() => setHoveredCard(null)}
+          onClick={() => setIsRemnantHMIOpen(true)} // Abre a IHM em tela cheia
+        >
+          <div
+            style={{
+              width: "60px",
+              height: "60px",
+              background: "rgba(23, 162, 184, 0.1)",
+              borderRadius: "50%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: "15px",
+              color: theme.accentStock,
+            }}
+          >
+            {/* Ícone de Reciclagem / Estoque */}
+            <svg
+              width="30"
+              height="30"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+              <polyline points="16 6 12 2 8 6"></polyline>
+              <line x1="12" y1="2" x2="12" y2="15"></line>
+            </svg>
+          </div>
+          <h2
+            style={{
+              margin: "0 0 10px 0",
+              color: theme.accentStock,
+              fontSize: "1.3rem",
+            }}
+          >
+            Estoque de Retalhos
+          </h2>
+          <p style={{ fontSize: "0.9rem", opacity: 0.8, lineHeight: "1.5" }}>
+            Entrada manual de material (Tablet), impressão de etiquetas e gestão
+            do Almoxarifado.
+          </p>
+          <span
+            style={{
+              marginTop: "auto",
+              paddingTop: "20px",
+              fontSize: "0.85rem",
+              fontWeight: "bold",
+              color: theme.accentStock,
+            }}
+          >
+            Acessar Terminal →
           </span>
         </div>
 
@@ -342,20 +430,26 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
 
           <div
             style={{
-              width: "80px",
-              height: "80px",
+              width: "60px",
+              height: "60px",
               background: "rgba(253, 126, 20, 0.1)",
               borderRadius: "50%",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              marginBottom: "20px",
+              marginBottom: "15px",
               color: theme.accentCam,
             }}
           >
-            <GiLaserburn size={48} color={theme.accentCam} />
+            <GiLaserburn size={36} color={theme.accentCam} />
           </div>
-          <h2 style={{ margin: "0 0 10px 0", color: theme.accentCam }}>
+          <h2
+            style={{
+              margin: "0 0 10px 0",
+              color: theme.accentCam,
+              fontSize: "1.3rem",
+            }}
+          >
             Pós-Processador
           </h2>
           <p style={{ fontSize: "0.9rem", opacity: 0.8, lineHeight: "1.5" }}>
@@ -388,6 +482,25 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       {/* SE O ESTADO FOR TRUE, MOSTRA A TELA */}
       {isTeamModalOpen && (
         <TeamManagementScreen onClose={() => setIsTeamModalOpen(false)} />
+      )}
+
+      {/* 👇 INSERÇÃO: Renderiza a IHM em Tela Cheia se o estado for true 👇 */}
+      {isRemnantHMIOpen && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            zIndex: 9999,
+          }}
+        >
+          <RemnantEntryHMI
+            theme={theme}
+            onClose={() => setIsRemnantHMIOpen(false)}
+          />
+        </div>
       )}
     </div>
   );
