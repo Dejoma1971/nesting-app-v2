@@ -1780,7 +1780,6 @@ export const NestingBoard: React.FC<NestingBoardProps> = ({
         realPartLoops,
         0.3,
         2,
-        2,
         applyInvert, // 👇 2.3 INSERÇÃO AQUI: Envia a nova regra para a matemática
       );
 

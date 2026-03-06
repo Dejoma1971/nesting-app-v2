@@ -497,7 +497,16 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
           }}
         >
           <RemnantEntryHMI
-            theme={theme}
+            theme={{
+              canvasBg: theme.bg,
+              panelBg: theme.cardBg,
+              headerBg: isDarkMode ? "#111111" : "#ffffff",
+              text: theme.text,
+              label: isDarkMode ? "#aaaaaa" : "#666666",
+              border: theme.cardBorder,
+              inputBg: isDarkMode ? "#222222" : "#f8f9fa",
+              hoverRow: theme.cardHover,
+            }}
             onClose={() => setIsRemnantHMIOpen(false)}
           />
         </div>

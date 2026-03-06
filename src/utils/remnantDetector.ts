@@ -72,159 +72,85 @@ export interface RemnantRect {
   areaM2: number;
 }
 
-// Função auxiliar: Verifica se o centro de uma célula (pixel) está dentro da peça
-const isPointInPolygon = (
-  px: number,
-  py: number,
-  polygon: Point[],
-): boolean => {
-  let isInside = false;
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const xi = polygon[i].x,
-      yi = polygon[i].y;
-    const xj = polygon[j].x,
-      yj = polygon[j].y;
-    const intersect =
-      yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi;
-    if (intersect) isInside = !isInside;
-  }
-  return isInside;
-};
-
-/**
- * Encontra os maiores retalhos retangulares usando a abordagem de Matriz (Grid).
- */
 export const findSmartRemnants = (
   binWidth: number,
   binHeight: number,
   partsOuterLoops: Point[][],
   minAreaM2: number = 0.3,
   maxRects: number = 2,
-  resolution: number = 20,
   invertSearch: boolean = false,
+  minDimension: number = 250, // Largura ou Altura mínima (mm)
+  maxAspectRatio: number = 5  // Proporção máxima permitida (ex: 1:5)
 ): RemnantRect[] => {
-  const cols = Math.floor(binWidth / resolution);
-  const rows = Math.floor(binHeight / resolution);
 
-  // 1. Criar a matriz original
-  const grid: number[][] = Array(rows)
-    .fill(0)
-    .map(() => Array(cols).fill(1));
+  let maxX = 0;
+  let maxY = 0;
 
-  // 2. Rasterização (Carimbar as peças infladas na matriz)
-  partsOuterLoops.forEach((polygon) => {
-    let minX = binWidth,
-      minY = binHeight,
-      maxX = 0,
-      maxY = 0;
-    polygon.forEach((p) => {
-      if (p.x < minX) minX = p.x;
+  partsOuterLoops.forEach(polygon => {
+    polygon.forEach(p => {
       if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y;
       if (p.y > maxY) maxY = p.y;
     });
-
-    const startCol = Math.max(0, Math.floor(minX / resolution));
-    const endCol = Math.min(cols - 1, Math.floor(maxX / resolution));
-    const startRow = Math.max(0, Math.floor(minY / resolution));
-    const endRow = Math.min(rows - 1, Math.floor(maxY / resolution));
-
-    for (let r = startRow; r <= endRow; r++) {
-      for (let c = startCol; c <= endCol; c++) {
-        if (grid[r][c] === 0) continue;
-        const px = c * resolution + resolution / 2;
-        const py = r * resolution + resolution / 2;
-        if (isPointInPolygon(px, py, polygon)) {
-          grid[r][c] = 0;
-        }
-      }
-    }
   });
+
+  const cutX = Math.min(maxX, binWidth);
+  const cutY = Math.min(maxY, binHeight);
 
   const finalRects: RemnantRect[] = [];
 
-  // 3. Loop Iterativo: Acha o maior, extrai, e repete para o próximo
-  for (let i = 0; i < maxRects; i++) {
-    let bestRect: RemnantRect | null = null;
-    let maxArea = 0;
-    const heights = Array(cols).fill(0);
-
-    // Algoritmo de Maior Retângulo (Histograma)
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        heights[c] = grid[r][c] === 1 ? heights[c] + 1 : 0;
-      }
-
-      const stack: number[] = [];
-      for (let c = 0; c <= cols; c++) {
-        const h = c === cols ? 0 : heights[c];
-        while (stack.length > 0 && h < heights[stack[stack.length - 1]]) {
-          const height = heights[stack.pop()!];
-          const width =
-            stack.length === 0 ? c : c - stack[stack.length - 1] - 1;
-
-          const rectW = width * resolution;
-          const rectH = height * resolution;
-          const areaM2 = (rectW * rectH) / 1000000;
-
-          // 👇 1.2 INSERÇÃO AQUI: Lógica de Peso para Forçar o Sentido do Corte 👇
-          let compareScore = areaM2;
-          if (invertSearch) {
-            // Se invertido: dá um bónus matemático a retângulos mais ALTOS (Força o corte Vertical)
-            compareScore = areaM2 * (1 + (rectH / binHeight) * 5);
-          } else {
-            // Padrão: dá um bónus matemático a retângulos mais LARGOS (Força o corte Horizontal)
-            compareScore = areaM2 * (1 + (rectW / binWidth) * 5);
-          }
-
-          // Usa o score viciado para escolher quem ganha, mas preserva a área real
-          if (areaM2 >= minAreaM2 && compareScore > maxArea) {
-            maxArea = compareScore;
-            // 👆 ================================================================= 👆
-
-            const rectY = (r - height + 1) * resolution;
-            const rectX =
-              (stack.length === 0 ? 0 : stack[stack.length - 1] + 1) *
-              resolution;
-
-            bestRect = {
-              id: `retalho-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-              x: rectX,
-              y: rectY,
-              width: rectW,
-              height: rectH,
-              areaM2,
-            };
-          }
-        }
-        stack.push(c);
-      }
-    }
-
-    // Se encontrou um retalho válido, salva e "fura" a matriz para a próxima busca não sobrepor
-    if (bestRect) {
-      finalRects.push(bestRect);
-
-      const startCol = Math.max(0, Math.floor(bestRect.x / resolution));
-      const endCol = Math.min(
-        cols - 1,
-        Math.floor((bestRect.x + bestRect.width) / resolution),
-      );
-      const startRow = Math.max(0, Math.floor(bestRect.y / resolution));
-      const endRow = Math.min(
-        rows - 1,
-        Math.floor((bestRect.y + bestRect.height) / resolution),
-      );
-
-      for (let r = startRow; r <= endRow; r++) {
-        for (let c = startCol; c <= endCol; c++) {
-          grid[r][c] = 0; // Oculta a área já capturada
-        }
-      }
-    } else {
-      break; // Se não encontrou mais nada maior que 0.3m², para o loop
-    }
+  if (cutX >= binWidth && cutY >= binHeight) {
+    return finalRects;
   }
 
-  return finalRects;
+  const rectATop = { width: binWidth, height: binHeight - cutY };
+  const rectARight = { width: binWidth - cutX, height: cutY };
+  const areaATop = rectATop.width * rectATop.height;
+  const areaARight = rectARight.width * rectARight.height;
+
+  const rectBRight = { width: binWidth - cutX, height: binHeight };
+  const rectBTop = { width: cutX, height: binHeight - cutY };
+  const areaBRight = rectBRight.width * rectBRight.height;
+  const areaBTop = rectBTop.width * rectBTop.height;
+
+  let scoreA = Math.max(areaATop, areaARight);
+  let scoreB = Math.max(areaBRight, areaBTop);
+
+  if (invertSearch) {
+    scoreB *= 1.5; 
+  } else {
+    scoreA *= 1.5; 
+  }
+
+  const createValidRect = (x: number, y: number, w: number, h: number, idSuffix: string): RemnantRect | null => {
+    const areaM2 = (w * h) / 1000000;
+    if (w <= 0 || h <= 0) return null;
+
+    const currentAspectRatio = Math.max(w / h, h / w);
+    
+    if (areaM2 >= minAreaM2 && w >= minDimension && h >= minDimension && currentAspectRatio <= maxAspectRatio) {
+        return {
+            id: `retalho-${Date.now()}-${idSuffix}`,
+            x, y, width: w, height: h, areaM2
+        };
+    }
+    return null;
+  };
+
+  if (scoreA >= scoreB) {
+    const top = createValidRect(0, cutY, rectATop.width, rectATop.height, 'horiz-top');
+    if (top) finalRects.push(top);
+    
+    const right = createValidRect(cutX, 0, rectARight.width, rectARight.height, 'horiz-right');
+    if (right) finalRects.push(right);
+  } else {
+    const right = createValidRect(cutX, 0, rectBRight.width, rectBRight.height, 'vert-right');
+    if (right) finalRects.push(right);
+
+    const top = createValidRect(0, cutY, rectBTop.width, rectBTop.height, 'vert-top');
+    if (top) finalRects.push(top);
+  }
+
+  return finalRects
+    .sort((a, b) => b.areaM2 - a.areaM2)
+    .slice(0, maxRects);
 };

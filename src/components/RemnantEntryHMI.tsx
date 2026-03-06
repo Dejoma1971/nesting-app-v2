@@ -1,233 +1,748 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 
-// Interfaces provisórias (depois virão do banco de dados)
-interface Material { id: string; nome: string }
-interface Espessura { id: string; valor_mm: number }
-interface RetalhoRecente { id: string; material: string; espessura: number; largura: number; altura: number; qualidade: 'A' | 'B'; hora: string }
+// ==========================================
+// MOCKS (DADOS FALSOS PARA A FASE 1)
+// ==========================================
+interface Material {
+  id: string;
+  nome: string;
+  cor: string;
+}
+interface Espessura {
+  id: string;
+  valor_mm: number;
+}
+interface Classificacao {
+  id: string;
+  nome: string;
+  cor: string;
+}
 
-// Mock de dados para testarmos o visual
 const MOCK_MATERIAIS: Material[] = [
-  { id: '1', nome: 'MDF Branco' }, { id: '2', nome: 'MDF Madeirado' },
-  { id: '3', nome: 'Compensado' }, { id: '4', nome: 'Aço Inox' }
+  { id: "1", nome: "Aço Carbono", cor: "#34495e" },
+  { id: "2", nome: "Aço Inox", cor: "#7f8c8d" },
+  { id: "3", nome: "Alumínio", cor: "#2980b9" },
+  { id: "4", nome: "Galvanizado", cor: "#8e44ad" },
+  { id: "5", nome: "Latão", cor: "#f39c12" },
+  { id: "6", nome: "Cobre", cor: "#d35400" },
+  { id: "7", nome: "Titânio", cor: "#95a5a6" },
+  { id: "8", nome: "Bronze", cor: "#e67e22" },
 ];
+
 const MOCK_ESPESSURAS: Espessura[] = [
-  { id: '1', valor_mm: 6 }, { id: '2', valor_mm: 15 },
-  { id: '3', valor_mm: 18 }, { id: '4', valor_mm: 25 }
+  { id: "1", valor_mm: 0.8 },
+  { id: "2", valor_mm: 1.2 },
+  { id: "3", valor_mm: 1.5 },
+  { id: "4", valor_mm: 2.0 },
+  { id: "5", valor_mm: 3.0 },
+  { id: "6", valor_mm: 4.75 },
+  { id: "7", valor_mm: 6.35 },
+  { id: "8", valor_mm: 8.0 },
+  { id: "9", valor_mm: 10.0 },
+  { id: "10", valor_mm: 12.5 },
+];
+
+const MOCK_CLASSIFICACAO: Classificacao[] = [
+  { id: "A", nome: "⭐ TIPO A (Perfeito)", cor: "#28a745" },
+  { id: "B", nome: "⚠️ TIPO B (Avarias)", cor: "#f39c12" },
+  { id: "C", nome: "❌ SUCATA (Retalho Morto)", cor: "#dc3545" },
 ];
 
 interface RemnantEntryHMIProps {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  theme?: any; // Usando o seu theme global
+  theme?: {
+    canvasBg: string;
+    panelBg: string;
+    headerBg: string;
+    text: string;
+    label: string;
+    border: string;
+    inputBg: string;
+    hoverRow: string;
+  };
   onClose?: () => void;
+  onOpenStock?: () => void;
 }
 
-export const RemnantEntryHMI: React.FC<RemnantEntryHMIProps> = ({ 
-  theme = { panelBg: '#1e1e1e', text: '#fff', label: '#aaa', border: '#444', inputBg: '#2d2d2d' },
-  onClose 
+export const RemnantEntryHMI: React.FC<RemnantEntryHMIProps> = ({
+  theme = {
+    canvasBg: "#0a0a0a",
+    panelBg: "#1a1a1a",
+    headerBg: "#111111",
+    text: "#ffffff",
+    label: "#aaaaaa",
+    border: "#333333",
+    inputBg: "#222222",
+    hoverRow: "#2c3e50",
+  },
+  onClose,
+  onOpenStock,
 }) => {
-  // Estados do Formulário
-  const [material, setMaterial] = useState<string>("");
-  const [espessura, setEspessura] = useState<number | null>(null);
+  const [material, setMaterial] = useState<Material | null>(null);
+  const [espessura, setEspessura] = useState<Espessura | null>(null);
+  const [classificacao, setClassificacao] = useState<Classificacao | null>(
+    null,
+  );
+
   const [largura, setLargura] = useState<string>("");
   const [altura, setAltura] = useState<string>("");
-  const [qualidade, setQualidade] = useState<'A' | 'B' | null>(null);
 
-  // Lista de Retalhos salvos na sessão (Feedback visual)
-  const [recentes, setRecentes] = useState<RetalhoRecente[]>([]);
+  const [activeDropdown, setActiveDropdown] = useState<
+    "MATERIAL" | "ESPESSURA" | "CLASSIFICACAO" | null
+  >(null);
+  const [activeInput, setActiveInput] = useState<"LARGURA" | "ALTURA" | null>(
+    null,
+  );
 
-  // Função para simular o salvamento
-  const handleSave = () => {
-    if (!material || !espessura || !largura || !altura || !qualidade) {
-      alert("Preencha todos os campos antes de salvar!");
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const scrollList = (direction: "up" | "down") => {
+    if (listRef.current) {
+      listRef.current.scrollBy({
+        top: direction === "down" ? 150 : -150,
+        behavior: "smooth",
+      });
+    }
+  };
+
+  const handleNumpad = (value: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Evita que o clique feche o teclado
+    if (!activeInput) return;
+
+    if (value === "C") {
+      if (activeInput === "LARGURA") setLargura("");
+      if (activeInput === "ALTURA") setAltura("");
       return;
     }
 
-    const novoRetalho: RetalhoRecente = {
-      id: Math.random().toString(36).substr(2, 6),
-      material: MOCK_MATERIAIS.find(m => m.id === material)?.nome || "Desconhecido",
-      espessura: espessura,
-      largura: Number(largura),
-      altura: Number(altura),
-      qualidade: qualidade,
-      hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
+    if (value === "OK") {
+      setActiveInput(null);
+      return;
+    }
 
-    // Adiciona no topo da lista
-    setRecentes([novoRetalho, ...recentes]);
-
-    // Limpa apenas as dimensões e qualidade para agilizar a próxima digitação
-    setLargura("");
-    setAltura("");
-    setQualidade(null);
+    if (activeInput === "LARGURA") setLargura((prev) => prev + value);
+    if (activeInput === "ALTURA") setAltura((prev) => prev + value);
   };
 
+  const renderDropdown = () => {
+    if (!activeDropdown) return null;
+
+    let options: {
+      id: string;
+      label: string;
+      color?: string;
+      action: () => void;
+    }[] = [];
+
+    if (activeDropdown === "MATERIAL") {
+      options = MOCK_MATERIAIS.map((m) => ({
+        id: m.id,
+        label: m.nome,
+        color: m.cor,
+        action: () => {
+          setMaterial(m);
+          setActiveDropdown(null);
+        },
+      }));
+    } else if (activeDropdown === "ESPESSURA") {
+      options = MOCK_ESPESSURAS.map((e) => ({
+        id: e.id,
+        label: `${e.valor_mm} mm`,
+        action: () => {
+          setEspessura(e);
+          setActiveDropdown(null);
+        },
+      }));
+    } else if (activeDropdown === "CLASSIFICACAO") {
+      options = MOCK_CLASSIFICACAO.map((c) => ({
+        id: c.id,
+        label: c.nome,
+        color: c.cor,
+        action: () => {
+          setClassificacao(c);
+          setActiveDropdown(null);
+        },
+      }));
+    }
+
+    return (
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: "rgba(0,0,0,0.8)",
+          zIndex: 1000,
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+        onClick={() => setActiveDropdown(null)}
+      >
+        <div
+          style={{
+            display: "flex",
+            width: "80%",
+            height: "70%",
+            background: theme.panelBg,
+            borderRadius: "15px",
+            border: `2px solid ${theme.border}`,
+            overflow: "hidden",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            style={{
+              width: "120px",
+              display: "flex",
+              flexDirection: "column",
+              background: theme.inputBg,
+              borderRight: `2px solid ${theme.border}`,
+            }}
+          >
+            <button
+              onClick={() => scrollList("up")}
+              style={{
+                flex: 1,
+                background: "transparent",
+                border: "none",
+                color: theme.text,
+                fontSize: "40px",
+                cursor: "pointer",
+                borderBottom: `2px solid ${theme.border}`,
+              }}
+            >
+              ▲
+            </button>
+            <button
+              onClick={() => scrollList("down")}
+              style={{
+                flex: 1,
+                background: "transparent",
+                border: "none",
+                color: theme.text,
+                fontSize: "40px",
+                cursor: "pointer",
+              }}
+            >
+              ▼
+            </button>
+          </div>
+
+          <div
+            ref={listRef}
+            style={{
+              flex: 1,
+              padding: "20px",
+              overflowY: "hidden",
+              display: "flex",
+              flexDirection: "column",
+              gap: "10px",
+            }}
+          >
+            <h2 style={{ margin: "0 0 15px 0", color: theme.label }}>
+              Selecione uma opção:
+            </h2>
+            {options.map((opt, index) => (
+              <button
+                key={index}
+                onClick={opt.action}
+                style={{
+                  padding: "25px",
+                  fontSize: "24px",
+                  fontWeight: "bold",
+                  textAlign: "left",
+                  background: theme.inputBg,
+                  color: theme.text,
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: "10px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "15px",
+                }}
+              >
+                {opt.color && (
+                  <div
+                    style={{
+                      width: "20px",
+                      height: "20px",
+                      borderRadius: "50%",
+                      background: opt.color,
+                    }}
+                  ></div>
+                )}
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Renderiza o Teclado Flutuante (Compacto e não quebra o layout)
+  const renderCompactNumpad = () => (
+    <div
+      style={{
+        position: "absolute",
+        left: "15px", // Fica fixo no lado esquerdo dentro do input
+        top: "50%",
+        transform: "translateY(-50%)",
+        display: "grid",
+        gridTemplateColumns: "repeat(3, 55px)",
+        gap: "5px",
+        padding: "10px",
+        background: theme.panelBg,
+        border: `2px solid ${theme.border}`,
+        borderRadius: "12px",
+        boxShadow: "0 10px 25px rgba(0,0,0,0.8)",
+        zIndex: 10,
+        animation: "fadeIn 0.2s ease",
+      }}
+    >
+      <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(-50%) scale(0.9); } to { opacity: 1; transform: translateY(-50%) scale(1); } }`}</style>
+
+      {["7", "8", "9", "4", "5", "6", "1", "2", "3"].map((num) => (
+        <button
+          key={num}
+          onClick={(e) => handleNumpad(num, e)}
+          style={{
+            height: "50px",
+            background: theme.inputBg,
+            border: `1px solid ${theme.border}`,
+            borderRadius: "8px",
+            color: theme.text,
+            fontSize: "22px",
+            fontWeight: "bold",
+            cursor: "pointer",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center", // 👈 ALINHAMENTO AQUI
+          }}
+        >
+          {num}
+        </button>
+      ))}
+
+      <button
+        onClick={(e) => handleNumpad("C", e)}
+        style={{
+          height: "50px",
+          background: "#dc3545",
+          border: "none",
+          borderRadius: "8px",
+          color: "#fff",
+          fontSize: "20px",
+          fontWeight: "bold",
+          cursor: "pointer",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center", // 👈 ALINHAMENTO AQUI
+        }}
+      >
+        C
+      </button>
+
+      <button
+        onClick={(e) => handleNumpad("0", e)}
+        style={{
+          height: "50px",
+          background: theme.inputBg,
+          border: `1px solid ${theme.border}`,
+          borderRadius: "8px",
+          color: theme.text,
+          fontSize: "22px",
+          fontWeight: "bold",
+          cursor: "pointer",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center", // 👈 ALINHAMENTO AQUI
+        }}
+      >
+        0
+      </button>
+
+      <button
+        onClick={(e) => handleNumpad("OK", e)}
+        style={{
+          height: "50px",
+          background: "#28a745",
+          border: "none",
+          borderRadius: "8px",
+          color: "#fff",
+          fontSize: "18px",
+          fontWeight: "bold",
+          cursor: "pointer",
+          display: 'flex', justifyContent: 'center', alignItems: 'center' // 👈 ALINHAMENTO AQUI
+        }}
+      >
+        OK
+      </button>
+    </div>
+  );
+
   return (
-    <div style={{
-      display: 'flex', width: '100%', height: '100vh', background: theme.panelBg, color: theme.text, fontFamily: 'system-ui, sans-serif'
-    }}>
-      {/* ========================================== */}
-      {/* LADO ESQUERDO: FORMULÁRIO IHM (TOUCH)      */}
-      {/* ========================================== */}
-      <div style={{ flex: 6, padding: '30px', display: 'flex', flexDirection: 'column', gap: '25px', overflowY: 'auto' }}>
-        
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h1 style={{ margin: 0, fontSize: '28px', color: '#17a2b8' }}>♻️ Entrada de Retalhos</h1>
+    <div
+      style={{
+        position: "fixed", // <-- GARANTE QUE CUBRA A HOME PAGE
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 9999, // <-- OPACIDADE E SOBREPOSIÇÃO
+        display: "flex",
+        flexDirection: "column",
+        background: theme.canvasBg || "#0a0a0a", // <-- FUNDO SÓLIDO GARANTIDO
+        color: theme.text,
+        fontFamily: "system-ui, sans-serif",
+        overflow: "hidden",
+      }}
+    >
+      {renderDropdown()}
+
+      {/* CABEÇALHO SUPERIOR */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          background: theme.headerBg,
+          padding: "15px 30px",
+          borderBottom: `2px solid ${theme.border}`,
+        }}
+      >
+        {/* Lado Esquerdo: Título */}
+        <h1
+          style={{
+            margin: 0,
+            fontSize: "28px",
+            color: "#28a745",
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            whiteSpace: "nowrap",
+          }}
+        >
+          ♻️ Cadastro de Retalho
+        </h1>
+
+        {/* 👇 INSERÇÃO CIRÚRGICA: OBLONGO VERDE (Padrão EngineeringScreen) 👇 */}
+        <div
+          style={{
+            flex: 1,
+            margin: "0 40px",
+            maxWidth: "500px",
+            fontSize: "12px",
+          }}
+        >
+          {/* Arte visual simulando o SubscriptionPanel */}
+          <div
+            style={{
+              background:
+                theme.canvasBg === "#0a0a0a"
+                  ? "rgba(255, 255, 255, 0.05)"
+                  : "rgba(0, 0, 0, 0.05)",
+              border: "1px solid #28a745", // Cor verde de status ativo
+              borderRadius: "20px", // O formato oblongo/pílula
+              padding: "5px 15px",
+              display: "flex",
+              alignItems: "center",
+              gap: "15px",
+              color: theme.text,
+              fontSize: "12px",
+              whiteSpace: "nowrap",
+              transition: "all 0.3s ease",
+            }}
+          >
+            <span style={{ fontWeight: "bold", color: theme.text }}>
+              Nome do Operador
+            </span>
+
+            <div
+              style={{
+                width: "1px",
+                height: "14px",
+                background:
+                  theme.canvasBg === "#0a0a0a"
+                    ? "rgba(255,255,255,0.3)"
+                    : "rgba(0,0,0,0.2)",
+              }}
+            ></div>
+
+            <span style={{ color: "#28a745", fontWeight: "bold" }}>
+              Ativo - PLANO PRO
+            </span>
+          </div>
+        </div>
+        {/* 👆 FIM DA INSERÇÃO 👆 */}
+
+        {/* Lado Direito: Botões de Ação */}
+        <div style={{ display: "flex", gap: "15px" }}>
+          <button
+            onClick={() =>
+              onOpenStock ? onOpenStock() : alert("Lista em breve")
+            }
+            style={{
+              background: "transparent",
+              color: theme.text,
+              border: `2px solid ${theme.border}`,
+              padding: "10px 20px",
+              borderRadius: "8px",
+              fontSize: "18px",
+              cursor: "pointer",
+              fontWeight: "bold",
+              whiteSpace: "nowrap",
+            }}
+          >
+            📊 Lista de Retalhos
+          </button>
           {onClose && (
-            <button onClick={onClose} style={{ background: '#dc3545', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '8px', fontSize: '18px', cursor: 'pointer' }}>
-              ✕ Fechar
+            <button
+              onClick={onClose}
+              style={{
+                background: "transparent",
+                color: "#dc3545",
+                border: "2px solid #dc3545",
+                padding: "10px 20px",
+                borderRadius: "8px",
+                fontSize: "18px",
+                cursor: "pointer",
+                fontWeight: "bold",
+              }}
+            >
+              Sair ✕
             </button>
           )}
         </div>
+      </div>
 
-        {/* LINHA 1: MATERIAL */}
-        <div>
-          <label style={{ fontSize: '16px', fontWeight: 'bold', color: theme.label, marginBottom: '10px', display: 'block' }}>1. MATERIAL</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-            {MOCK_MATERIAIS.map(m => (
-              <button
-                key={m.id}
-                onClick={() => setMaterial(m.id)}
-                style={{
-                  padding: '15px 25px', fontSize: '18px', fontWeight: 'bold', borderRadius: '12px', cursor: 'pointer', transition: '0.2s',
-                  background: material === m.id ? '#007bff' : theme.inputBg,
-                  color: material === m.id ? '#fff' : theme.text,
-                  border: `2px solid ${material === m.id ? '#007bff' : theme.border}`,
-                }}
-              >
-                {m.nome}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* LINHA 2: ESPESSURA */}
-        <div>
-          <label style={{ fontSize: '16px', fontWeight: 'bold', color: theme.label, marginBottom: '10px', display: 'block' }}>2. ESPESSURA (mm)</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-            {MOCK_ESPESSURAS.map(e => (
-              <button
-                key={e.id}
-                onClick={() => setEspessura(e.valor_mm)}
-                style={{
-                  padding: '15px 25px', fontSize: '20px', fontWeight: 'bold', borderRadius: '12px', cursor: 'pointer', transition: '0.2s',
-                  background: espessura === e.valor_mm ? '#ffc107' : theme.inputBg,
-                  color: espessura === e.valor_mm ? '#000' : theme.text,
-                  border: `2px solid ${espessura === e.valor_mm ? '#ffc107' : theme.border}`,
-                }}
-              >
-                {e.valor_mm}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* LINHA 3: DIMENSÕES */}
-        <div>
-          <label style={{ fontSize: '16px', fontWeight: 'bold', color: theme.label, marginBottom: '10px', display: 'block' }}>3. DIMENSÕES REAIS (mm)</label>
-          <div style={{ display: 'flex', gap: '20px' }}>
-            <div style={{ flex: 1 }}>
-              <input
-                type="number" inputMode="numeric" pattern="[0-9]*" placeholder="Largura (X)"
-                value={largura} onChange={(e) => setLargura(e.target.value)}
-                style={{ width: '100%', padding: '20px', fontSize: '24px', textAlign: 'center', background: theme.inputBg, color: theme.text, border: `2px solid ${theme.border}`, borderRadius: '12px' }}
-              />
-            </div>
-            <div style={{ fontSize: '30px', color: theme.label, display: 'flex', alignItems: 'center' }}>X</div>
-            <div style={{ flex: 1 }}>
-              <input
-                type="number" inputMode="numeric" pattern="[0-9]*" placeholder="Altura (Y)"
-                value={altura} onChange={(e) => setAltura(e.target.value)}
-                style={{ width: '100%', padding: '20px', fontSize: '24px', textAlign: 'center', background: theme.inputBg, color: theme.text, border: `2px solid ${theme.border}`, borderRadius: '12px' }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* LINHA 4: QUALIDADE */}
-        <div>
-          <label style={{ fontSize: '16px', fontWeight: 'bold', color: theme.label, marginBottom: '10px', display: 'block' }}>4. CONDIÇÃO / ACABAMENTO</label>
-          <div style={{ display: 'flex', gap: '20px' }}>
-            <button
-              onClick={() => setQualidade('A')}
-              style={{
-                flex: 1, padding: '25px', fontSize: '20px', fontWeight: 'bold', borderRadius: '12px', cursor: 'pointer',
-                background: qualidade === 'A' ? 'rgba(40, 167, 69, 0.2)' : theme.inputBg,
-                color: qualidade === 'A' ? '#28a745' : theme.text,
-                border: `3px solid ${qualidade === 'A' ? '#28a745' : theme.border}`,
-              }}
-            >
-              ⭐ Tipo A (Perfeito)
-            </button>
-            <button
-              onClick={() => setQualidade('B')}
-              style={{
-                flex: 1, padding: '25px', fontSize: '20px', fontWeight: 'bold', borderRadius: '12px', cursor: 'pointer',
-                background: qualidade === 'B' ? 'rgba(220, 53, 69, 0.2)' : theme.inputBg,
-                color: qualidade === 'B' ? '#dc3545' : theme.text,
-                border: `3px solid ${qualidade === 'B' ? '#dc3545' : theme.border}`,
-              }}
-            >
-              ⚠️ Tipo B (Com Avarias)
-            </button>
-          </div>
-        </div>
-
-        {/* LINHA 5: BOTÃO SALVAR */}
-        <div style={{ marginTop: '10px' }}>
+      {/* ÁREA DE TRABALHO */}
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          padding: "20px",
+          gap: "20px",
+        }}
+      >
+        {/* LINHA 1: OS SELETORES */}
+        <div style={{ display: "flex", gap: "20px", height: "120px" }}>
           <button
-            onClick={handleSave}
+            onClick={() => setActiveDropdown("MATERIAL")}
             style={{
-              width: '100%', padding: '25px', fontSize: '24px', fontWeight: 'bold', textTransform: 'uppercase',
-              background: '#28a745', color: '#fff', border: 'none', borderRadius: '12px', cursor: 'pointer',
-              boxShadow: '0 6px 0 #1e7e34'
+              flex: 1,
+              background: theme.panelBg,
+              border: `2px solid ${material ? material.cor : theme.border}`,
+              borderRadius: "12px",
+              color: theme.text,
+              fontSize: "22px",
+              fontWeight: "bold",
+              cursor: "pointer",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              alignItems: "center",
             }}
-            onMouseDown={(e) => { e.currentTarget.style.transform = 'translateY(4px)'; e.currentTarget.style.boxShadow = '0 2px 0 #1e7e34'; }}
-            onMouseUp={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 6px 0 #1e7e34'; }}
           >
-            🖨️ Cadastrar e Imprimir Etiqueta
+            <span
+              style={{
+                fontSize: "14px",
+                color: theme.label,
+                marginBottom: "5px",
+              }}
+            >
+              MATERIAL
+            </span>
+            {material ? material.nome : "CLIQUE PARA SELECIONAR"}
+          </button>
+
+          <button
+            onClick={() => setActiveDropdown("ESPESSURA")}
+            style={{
+              flex: 1,
+              background: theme.panelBg,
+              border: `2px solid ${espessura ? "#3498db" : theme.border}`,
+              borderRadius: "12px",
+              color: theme.text,
+              fontSize: "22px",
+              fontWeight: "bold",
+              cursor: "pointer",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <span
+              style={{
+                fontSize: "14px",
+                color: theme.label,
+                marginBottom: "5px",
+              }}
+            >
+              ESPESSURA (mm)
+            </span>
+            {espessura ? `${espessura.valor_mm} mm` : "CLIQUE PARA SELECIONAR"}
+          </button>
+
+          <button
+            onClick={() => setActiveDropdown("CLASSIFICACAO")}
+            style={{
+              flex: 1,
+              background: theme.panelBg,
+              border: `2px solid ${classificacao ? classificacao.cor : theme.border}`,
+              borderRadius: "12px",
+              color: theme.text,
+              fontSize: "22px",
+              fontWeight: "bold",
+              cursor: "pointer",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <span
+              style={{
+                fontSize: "14px",
+                color: theme.label,
+                marginBottom: "5px",
+              }}
+            >
+              CLASSIFICAÇÃO
+            </span>
+            {classificacao ? classificacao.nome : "CLIQUE PARA SELECIONAR"}
+          </button>
+        </div>
+
+        {/* LINHA 2: DIMENSÕES (COM TECLADO FLUTUANTE) */}
+        <div style={{ display: "flex", gap: "20px", flex: 1 }}>
+          <div
+            onClick={() => setActiveInput("LARGURA")}
+            style={{
+              flex: 1,
+              // 👇 Fundo padrão de input (theme.inputBg) vs Fundo ativo (#2c3e50)
+              background: activeInput === "LARGURA" ? "#2c3e50" : "#2a2a2a",
+              border:
+                activeInput === "LARGURA"
+                  ? "3px solid #3498db"
+                  : `2px solid ${theme.border}`,
+              borderRadius: "12px",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              alignItems: "center",
+              cursor: "pointer",
+              position: "relative",
+              // 👇 Efeito sombreado interno que faz parecer um input real "cavado" na tela
+              boxShadow:
+                activeInput === "LARGURA"
+                  ? "none"
+                  : "inset 0 4px 10px rgba(0,0,0,0.5)",
+            }}
+          >
+            {activeInput === "LARGURA" && renderCompactNumpad()}
+            <span style={{ fontSize: "18px", color: theme.label }}>
+              LARGURA (X) em mm
+            </span>
+            <span
+              style={{
+                fontSize: "60px",
+                fontWeight: "bold",
+                color: largura ? theme.text : theme.label,
+              }}
+            >
+              {largura || "0"}
+            </span>
+          </div>
+
+          <div
+            onClick={() => setActiveInput("ALTURA")}
+            style={{
+              flex: 1,
+              // 👇 Fundo padrão de input (theme.inputBg) vs Fundo ativo (#2c3e50)
+              background: activeInput === "ALTURA" ? "#2c3e50" : "#2a2a2a",
+              border:
+                activeInput === "ALTURA"
+                  ? "3px solid #3498db"
+                  : `2px solid ${theme.border}`,
+              borderRadius: "12px",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              alignItems: "center",
+              cursor: "pointer",
+              position: "relative",
+              // 👇 Efeito sombreado interno que faz parecer um input real "cavado" na tela
+              boxShadow:
+                activeInput === "ALTURA"
+                  ? "none"
+                  : "inset 0 4px 10px rgba(0,0,0,0.5)",
+            }}
+          >
+            {activeInput === "ALTURA" && renderCompactNumpad()}
+            <span style={{ fontSize: "18px", color: theme.label }}>
+              ALTURA (Y) em mm
+            </span>
+            <span
+              style={{
+                fontSize: "60px",
+                fontWeight: "bold",
+                color: altura ? theme.text : theme.label,
+              }}
+            >
+              {altura || "0"}
+            </span>
+          </div>
+        </div>
+
+        {/* LINHA 3: AÇÕES FINAIS */}
+        <div style={{ display: "flex", gap: "20px", height: "100px" }}>
+          <button
+            onClick={() => alert("Função de Impressão (Em breve)")}
+            style={{
+              flex: 1,
+              background: theme.inputBg,
+              border: `2px solid ${theme.border}`,
+              borderRadius: "12px",
+              color: theme.text,
+              fontSize: "24px",
+              fontWeight: "bold",
+              cursor: "pointer",
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              gap: "15px",
+            }}
+          >
+            🖨️ IMPRIMIR ETIQUETA
+          </button>
+
+          <button
+            onClick={() => alert("Pronto para plugar o banco de dados!")}
+            style={{
+              flex: 2,
+              background: "#28a745",
+              border: "none",
+              borderRadius: "12px",
+              color: "#fff",
+              fontSize: "28px",
+              fontWeight: "bold",
+              cursor: "pointer",
+              boxShadow: "0 6px 0 #1e7e34",
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              gap: "15px",
+            }}
+          >
+            💾 GERAR RETALHO
           </button>
         </div>
       </div>
-
-      {/* ========================================== */}
-      {/* LADO DIREITO: FEEDBACK / HISTÓRICO RÁPIDO  */}
-      {/* ========================================== */}
-      <div style={{ flex: 4, background: '#111', borderLeft: `2px solid ${theme.border}`, padding: '30px', display: 'flex', flexDirection: 'column' }}>
-        <h2 style={{ margin: '0 0 20px 0', fontSize: '22px', color: theme.label, display: 'flex', alignItems: 'center', gap: '10px' }}>
-          📋 Inserções Recentes
-        </h2>
-
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-          {recentes.length === 0 ? (
-            <div style={{ textAlign: 'center', color: '#555', marginTop: '50px', fontSize: '18px' }}>
-              Nenhum retalho inserido nesta sessão.
-            </div>
-          ) : (
-            recentes.map((r, i) => (
-              <div key={i} style={{
-                background: theme.panelBg, border: `1px solid ${theme.border}`, borderRadius: '10px', padding: '15px',
-                borderLeft: `6px solid ${r.qualidade === 'A' ? '#28a745' : '#dc3545'}`
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <span style={{ fontWeight: 'bold', fontSize: '18px' }}>{r.material} ({r.espessura}mm)</span>
-                  <span style={{ color: theme.label, fontSize: '14px' }}>{r.hora}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '22px', color: '#17a2b8', fontWeight: 'bold' }}>
-                    {r.largura} <span style={{ fontSize: '16px', color: theme.label }}>x</span> {r.altura}
-                  </span>
-                  <span style={{
-                    background: r.qualidade === 'A' ? '#28a745' : '#dc3545', color: 'white', padding: '4px 10px', borderRadius: '6px', fontWeight: 'bold', fontSize: '14px'
-                  }}>
-                    Tipo {r.qualidade}
-                  </span>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-
     </div>
   );
 };
