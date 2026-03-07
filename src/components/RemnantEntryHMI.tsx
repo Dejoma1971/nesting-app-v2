@@ -45,7 +45,7 @@ const MOCK_ESPESSURAS: Espessura[] = [
 const MOCK_CLASSIFICACAO: Classificacao[] = [
   { id: "A", nome: "⭐ TIPO A (Perfeito)", cor: "#28a745" },
   { id: "B", nome: "⚠️ TIPO B (Avarias)", cor: "#f39c12" },
-  { id: "C", nome: "❌ SUCATA (Retalho Morto)", cor: "#dc3545" },
+  // { id: "C", nome: "❌ SUCATA (Retalho Morto)", cor: "#dc3545" },
 ];
 
 interface RemnantEntryHMIProps {
@@ -93,7 +93,26 @@ export const RemnantEntryHMI: React.FC<RemnantEntryHMIProps> = ({
     null,
   );
 
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   const listRef = useRef<HTMLDivElement>(null);
+
+  const [scrollPos, setScrollPos] = useState(0);
+
+  // 👇 INSERÇÃO 1: Função para limpar todos os campos
+  const handleReset = () => {
+    setIsRefreshing(true);
+    setTimeout(() => setIsRefreshing(false), 700);
+
+    setMaterial(null);
+    setEspessura(null);
+    setClassificacao(null);
+    setLargura("");
+    setAltura("");
+    setActiveDropdown(null);
+    setActiveInput(null);
+  };
+  // 👆 ==============================================
 
   const scrollList = (direction: "up" | "down") => {
     if (listRef.current) {
@@ -192,58 +211,125 @@ export const RemnantEntryHMI: React.FC<RemnantEntryHMIProps> = ({
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div
-            style={{
-              width: "120px",
-              display: "flex",
-              flexDirection: "column",
-              background: theme.inputBg,
-              borderRight: `2px solid ${theme.border}`,
-            }}
-          >
-            <button
-              onClick={() => scrollList("up")}
+          {/* 👇 CIRURGIA 1: Esconde a barra lateral se for CLASSIFICACAO 👇 */}
+          {activeDropdown !== "CLASSIFICACAO" && (
+            <div
               style={{
-                flex: 1,
-                background: "transparent",
-                border: "none",
-                color: theme.text,
-                fontSize: "40px",
-                cursor: "pointer",
-                borderBottom: `2px solid ${theme.border}`,
+                width: "100px",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                background: theme.inputBg,
+                borderRight: `2px solid ${theme.border}`,
+                padding: "15px 0",
               }}
             >
-              ▲
-            </button>
-            <button
-              onClick={() => scrollList("down")}
-              style={{
-                flex: 1,
-                background: "transparent",
-                border: "none",
-                color: theme.text,
-                fontSize: "40px",
-                cursor: "pointer",
-              }}
-            >
-              ▼
-            </button>
-          </div>
+              <button
+                onClick={() => scrollList("up")}
+                style={{
+                  background: theme.panelBg,
+                  border: `2px solid ${theme.border}`,
+                  borderRadius: "12px",
+                  color: theme.text,
+                  fontSize: "24px",
+                  cursor: "pointer",
+                  width: "60px",
+                  height: "60px",
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
+                ▲
+              </button>
 
+              <div
+                style={{
+                  flex: 1,
+                  width: "6px",
+                  background: "rgba(0,0,0,0.2)",
+                  borderRadius: "3px",
+                  margin: "15px 0",
+                  position: "relative",
+                  border: `1px solid ${theme.border}`,
+                }}
+              >
+                <div
+                  style={{
+                    position: "absolute",
+                    top: `${scrollPos}%`,
+                    left: "50%",
+                    transform: `translate(-50%, -${scrollPos}%)`,
+                    width: "12px",
+                    height: "40px",
+                    background: "#3498db",
+                    borderRadius: "6px",
+                    transition: "top 0.1s ease-out, transform 0.1s ease-out",
+                  }}
+                ></div>
+              </div>
+
+              <button
+                onClick={() => scrollList("down")}
+                style={{
+                  background: theme.panelBg,
+                  border: `2px solid ${theme.border}`,
+                  borderRadius: "12px",
+                  color: theme.text,
+                  fontSize: "24px",
+                  cursor: "pointer",
+                  width: "60px",
+                  height: "60px",
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
+                ▼
+              </button>
+            </div>
+          )}
+
+          {/* Lado Direito: Lista */}
           <div
             ref={listRef}
+            className="no-scrollbar"
+            onScroll={(e) => {
+              const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+              const maxScroll = scrollHeight - clientHeight;
+              setScrollPos(maxScroll > 0 ? (scrollTop / maxScroll) * 100 : 0);
+            }}
             style={{
               flex: 1,
               padding: "20px",
-              overflowY: "hidden",
+              overflowY: "auto",
               display: "flex",
               flexDirection: "column",
-              gap: "10px",
+              gap: "15px",
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
+              // 👇 CIRURGIA 2: Centraliza verticalmente e horizontalmente se for CLASSIFICACAO 👇
+              justifyContent:
+                activeDropdown === "CLASSIFICACAO" ? "center" : "flex-start",
+              alignItems:
+                activeDropdown === "CLASSIFICACAO" ? "center" : "stretch",
             }}
           >
-            <h2 style={{ margin: "0 0 15px 0", color: theme.label }}>
-              Selecione uma opção:
+            <style>{`.no-scrollbar::-webkit-scrollbar { display: none; }`}</style>
+
+            <h2
+              style={{
+                margin: "0 0 15px 0",
+                color: theme.label,
+                // Centraliza o título também
+                textAlign:
+                  activeDropdown === "CLASSIFICACAO" ? "center" : "left",
+                width: "100%",
+              }}
+            >
+              Selecione a condição visual:
             </h2>
+
             {options.map((opt, index) => (
               <button
                 key={index}
@@ -252,7 +338,6 @@ export const RemnantEntryHMI: React.FC<RemnantEntryHMIProps> = ({
                   padding: "25px",
                   fontSize: "24px",
                   fontWeight: "bold",
-                  textAlign: "left",
                   background: theme.inputBg,
                   color: theme.text,
                   border: `1px solid ${theme.border}`,
@@ -261,6 +346,12 @@ export const RemnantEntryHMI: React.FC<RemnantEntryHMIProps> = ({
                   display: "flex",
                   alignItems: "center",
                   gap: "15px",
+                  // 👇 CIRURGIA 3: Deixa o botão mais elegante no centro e alinha o texto 👇
+                  width: activeDropdown === "CLASSIFICACAO" ? "80%" : "100%",
+                  justifyContent:
+                    activeDropdown === "CLASSIFICACAO"
+                      ? "center"
+                      : "flex-start",
                 }}
               >
                 {opt.color && (
@@ -270,6 +361,7 @@ export const RemnantEntryHMI: React.FC<RemnantEntryHMIProps> = ({
                       height: "20px",
                       borderRadius: "50%",
                       background: opt.color,
+                      flexShrink: 0,
                     }}
                   ></div>
                 )}
@@ -375,7 +467,9 @@ export const RemnantEntryHMI: React.FC<RemnantEntryHMIProps> = ({
           fontSize: "18px",
           fontWeight: "bold",
           cursor: "pointer",
-          display: 'flex', justifyContent: 'center', alignItems: 'center' // 👈 ALINHAMENTO AQUI
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center", // 👈 ALINHAMENTO AQUI
         }}
       >
         OK
@@ -480,23 +574,64 @@ export const RemnantEntryHMI: React.FC<RemnantEntryHMIProps> = ({
 
         {/* Lado Direito: Botões de Ação */}
         <div style={{ display: "flex", gap: "15px" }}>
+          <button 
+            onClick={handleReset} 
+            title="Limpar todos os campos"
+            style={{ 
+              background: 'transparent', 
+              color: theme.text, 
+              border: 'none', // Sem moldura
+              padding: '10px', 
+              cursor: 'pointer', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              opacity: 0.7, // Leve transparência para não roubar a atenção
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+            onMouseLeave={(e) => e.currentTarget.style.opacity = '0.7'}
+          >
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                transformOrigin: "center",
+                transformBox: "fill-box",
+                transition: "transform 0.7s ease",
+                transform: isRefreshing ? "rotate(360deg)" : "rotate(0deg)",
+              }}
+            >
+              <path d="M23 4v6h-6"></path>
+              <path d="M1 20v-6h6"></path>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+          </button>
+
           <button
             onClick={() =>
               onOpenStock ? onOpenStock() : alert("Lista em breve")
             }
             style={{
-              background: "transparent",
+              background: "#025cbd",
               color: theme.text,
-              border: `2px solid ${theme.border}`,
+              border: `2px solid #025cbd`,
               padding: "10px 20px",
               borderRadius: "8px",
               fontSize: "18px",
               cursor: "pointer",
+              boxShadow: "0 5px 0 #073361",
               fontWeight: "bold",
               whiteSpace: "nowrap",
             }}
           >
-            📊 Lista de Retalhos
+            Lista de Retalhos
           </button>
           {onClose && (
             <button
@@ -512,7 +647,7 @@ export const RemnantEntryHMI: React.FC<RemnantEntryHMIProps> = ({
                 fontWeight: "bold",
               }}
             >
-              Sair ✕
+              Sair
             </button>
           )}
         </div>
@@ -535,7 +670,7 @@ export const RemnantEntryHMI: React.FC<RemnantEntryHMIProps> = ({
             style={{
               flex: 1,
               background: theme.panelBg,
-              border: `2px solid ${material ? material.cor : theme.border}`,
+              border: `2px solid ${material ? "#3498db" : theme.border}`,
               borderRadius: "12px",
               color: theme.text,
               fontSize: "22px",
@@ -629,7 +764,7 @@ export const RemnantEntryHMI: React.FC<RemnantEntryHMIProps> = ({
               border:
                 activeInput === "LARGURA"
                   ? "3px solid #3498db"
-                  : `2px solid ${theme.border}`,
+                  : `2px solid ${largura ? "#3498db" : theme.border}`,
               borderRadius: "12px",
               display: "flex",
               flexDirection: "column",
@@ -668,7 +803,7 @@ export const RemnantEntryHMI: React.FC<RemnantEntryHMIProps> = ({
               border:
                 activeInput === "ALTURA"
                   ? "3px solid #3498db"
-                  : `2px solid ${theme.border}`,
+                  : `2px solid ${altura ? "#3498db" : theme.border}`,
               borderRadius: "12px",
               display: "flex",
               flexDirection: "column",
@@ -705,13 +840,14 @@ export const RemnantEntryHMI: React.FC<RemnantEntryHMIProps> = ({
             onClick={() => alert("Função de Impressão (Em breve)")}
             style={{
               flex: 1,
-              background: theme.inputBg,
-              border: `2px solid ${theme.border}`,
+              background: "#6f42c1",
+              border: `2px solid #6f42c1`,
               borderRadius: "12px",
               color: theme.text,
               fontSize: "24px",
               fontWeight: "bold",
               cursor: "pointer",
+              boxShadow: "0 6px 0 #3d2072",
               display: "flex",
               justifyContent: "center",
               alignItems: "center",
