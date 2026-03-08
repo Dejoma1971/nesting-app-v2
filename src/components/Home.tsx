@@ -4,9 +4,8 @@ import { SidebarMenu } from "../components/SidebarMenu";
 import { TeamManagementScreen } from "../components/TeamManagementScreen";
 import { useTheme } from "../context/ThemeContext";
 
-// 👇 INSERÇÃO: Importe o seu novo componente
-import { RemnantEntryHMI } from "../components/RemnantEntryHMI"; // Ajuste o caminho conforme a pasta onde você salvou
-// 👆 ==========================================
+import { RemnantEntryHMI } from "../components/RemnantEntryHMI";
+import { RemnantStockHMI } from "../components/RemnantStockHMI"; // 👈 INSERÇÃO
 
 type ScreenType =
   | "home"
@@ -24,9 +23,8 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
   const { isDarkMode } = useTheme();
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
 
-  // 👇 INSERÇÃO: Estado para abrir a IHM de Retalhos
-  const [isRemnantHMIOpen, setIsRemnantHMIOpen] = useState(false);
-  // 👆 ==========================================
+  // 👇 INSERÇÃO: Estado gerencia qual tela da IHM está aberta
+  const [activeRemnantModal, setActiveRemnantModal] = useState<'ENTRY' | 'STOCK' | null>(null);
 
   // ⬇️ --- 1. CONFIGURAÇÃO DO EFEITO "EM DESENVOLVIMENTO" --- ⬇️
 
@@ -298,7 +296,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
           }}
           onMouseEnter={() => setHoveredCard("stock")}
           onMouseLeave={() => setHoveredCard(null)}
-          onClick={() => setIsRemnantHMIOpen(true)} // Abre a IHM em tela cheia
+          onClick={() => setActiveRemnantModal('ENTRY')} // Inicia pelo Cadastro
         >
           <div
             style={{
@@ -484,30 +482,31 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
         <TeamManagementScreen onClose={() => setIsTeamModalOpen(false)} />
       )}
 
-      {/* 👇 INSERÇÃO: Renderiza a IHM em Tela Cheia se o estado for true 👇 */}
-      {isRemnantHMIOpen && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100vw",
-            height: "100vh",
-            zIndex: 9999,
-          }}
-        >
+      {/* 👇 RENDERIZAÇÃO DAS TELAS DO TABLET (IHM) 👇 */}
+      {activeRemnantModal === 'ENTRY' && (
+        <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", zIndex: 9999 }}>
           <RemnantEntryHMI
             theme={{
-              canvasBg: theme.bg,
-              panelBg: theme.cardBg,
-              headerBg: isDarkMode ? "#111111" : "#ffffff",
-              text: theme.text,
-              label: isDarkMode ? "#aaaaaa" : "#666666",
-              border: theme.cardBorder,
-              inputBg: isDarkMode ? "#222222" : "#f8f9fa",
-              hoverRow: theme.cardHover,
+              canvasBg: theme.bg, panelBg: theme.cardBg, headerBg: isDarkMode ? "#111111" : "#ffffff",
+              text: theme.text, label: isDarkMode ? "#aaaaaa" : "#666666", border: theme.cardBorder,
+              inputBg: isDarkMode ? "#222222" : "#f8f9fa", hoverRow: theme.cardHover,
             }}
-            onClose={() => setIsRemnantHMIOpen(false)}
+            onClose={() => setActiveRemnantModal(null)}
+            onOpenStock={() => setActiveRemnantModal('STOCK')} // 👈 GATILHO PARA A LISTA
+          />
+        </div>
+      )}
+
+      {activeRemnantModal === 'STOCK' && (
+        <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", zIndex: 9999 }}>
+          <RemnantStockHMI
+            theme={{
+              canvasBg: theme.bg, panelBg: theme.cardBg, headerBg: isDarkMode ? "#111111" : "#ffffff",
+              text: theme.text, label: isDarkMode ? "#aaaaaa" : "#666666", border: theme.cardBorder,
+              inputBg: isDarkMode ? "#222222" : "#f8f9fa", hoverRow: theme.cardHover,
+            }}
+            onClose={() => setActiveRemnantModal(null)}
+            onOpenCadastro={() => setActiveRemnantModal('ENTRY')} // 👈 GATILHO PARA VOLTAR AO CADASTRO
           />
         </div>
       )}
